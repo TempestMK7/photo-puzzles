@@ -1,0 +1,64 @@
+# Dependencies and build output
+node_modules/
+dist/
+dist-*/
+.vite/
+coverage/
+*.tsbuildinfo
+
+# Secrets and local configuration: never commit these
+.env
+.env.*
+!.env.example
+*.local
+secrets/
+*.pem
+*.key
+*.p12
+*.p8
+*.cer
+*.pfx
+
+# Store signing and service files (Android / iOS / Steam / itch.io)
+*.jks
+*.keystore
+keystore.properties
+google-services.json
+GoogleService-Info.plist
+*.mobileprovision
+ExportOptions.plist
+steam_appid.txt
+steam-build/
+steamcmd/
+.butler/
+butler_creds
+itch-api-key*
+
+# Generated native projects (recreate with the wrapper's tooling)
+android/
+ios/
+src-tauri/target/
+
+# Personal photos, videos and test media: keep out of a public repo
+photos/
+videos/
+my-photos/
+samples-private/
+*.heic
+*.mov
+*.mp4
+*.m4v
+*.webm
+*.jpg
+*.jpeg
+!public/**/*.jpg
+!public/**/*.jpeg
+
+# Editors, OS and logs
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
