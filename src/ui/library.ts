@@ -1,6 +1,7 @@
 import { findKind, KINDS, optionValue, recordKey, type KindDef } from '../core/kinds';
-import { formatTime, type Prefs } from '../core/prefs';
 import { randomSeedText } from '../core/rng';
+import { isVideoFile } from '../image';
+import { formatTime, type Prefs } from '../core/prefs';
 import type { PhotoEntry, PhotoLibrary } from '../store/photos';
 import { h, svg } from './dom';
 import { KIND_ICONS } from './icons';
@@ -22,6 +23,7 @@ export class LibraryScreen {
   private kindsEl = h('nav', { class: 'kinds', 'aria-label': 'Puzzle types' });
   private listEl = h('ul', { class: 'plist', role: 'listbox', 'aria-label': 'Photos', tabIndex: 0 });
   private previewImg = h('img', { alt: '' });
+  private previewVideo = h('video', { muted: true, loop: true, playsInline: true, autoplay: true, hidden: true, 'aria-label': 'Preview' });
   private nameEl = h('div', { class: 'pname' });
   private bestEl = h('div', { class: 'pbest' });
   private blurbEl = h('p', { class: 'blurb' });
@@ -30,7 +32,7 @@ export class LibraryScreen {
   private noteEl = h('div', { class: 'note', 'aria-live': 'polite' });
   private playBtn = h('button', { type: 'button', class: 'primary', onclick: () => this.play() }, 'Play');
   private removeBtn = h('button', { type: 'button', onclick: () => void this.removeSelected() }, 'Remove photo');
-  private fileInput = h('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true, onchange: () => this.filesChosen() });
+  private fileInput = h('input', { type: 'file', accept: 'image/*,video/*,.webm,.mp4,.m4v,.mov', multiple: true, hidden: true, onchange: () => this.filesChosen() });
   private noteTimer = 0;
 
   constructor(private readonly deps: LibraryDeps) {
@@ -49,7 +51,7 @@ export class LibraryScreen {
         'div',
         { class: 'main' },
         h('aside', { class: 'photos' }, this.listEl),
-        h('section', { class: 'preview' }, h('div', { class: 'frame' }, this.previewImg), this.nameEl, this.bestEl, this.blurbEl),
+        h('section', { class: 'preview' }, h('div', { class: 'frame' }, this.previewImg, this.previewVideo), this.nameEl, this.bestEl, this.blurbEl),
         h(
           'aside',
           { class: 'side' },
@@ -141,7 +143,7 @@ export class LibraryScreen {
       return h(
         'li',
         {
-          class: 'item' + (e.id === this.deps.prefs.data.photo ? ' on' : '') + (best !== undefined ? ' done' : ''),
+          class: 'item' + (e.id === this.deps.prefs.data.photo ? ' on' : '') + (best !== undefined ? ' done' : '') + (e.video ? ' video' : ''),
           role: 'option',
           'aria-selected': e.id === this.deps.prefs.data.photo,
           dataset: { id: e.id },
@@ -149,7 +151,7 @@ export class LibraryScreen {
           ondblclick: () => this.play(),
         },
         h('img', { src: e.thumbUrl, alt: '', width: 56, height: 56, loading: 'lazy' }),
-        h('span', { class: 'txt' }, h('span', { class: 'n' }, e.name), h('span', { class: 'b' }, best !== undefined ? `Best ${formatTime(best)}` : 'Not solved')),
+        h('span', { class: 'txt' }, h('span', { class: 'n' }, e.name), h('span', { class: 'b' }, (e.video ? `Video ${formatTime(e.duration * 1000)} · ` : '') + (best !== undefined ? `Best ${formatTime(best)}` : 'Not solved'))),
       );
     });
     this.listEl.replaceChildren(...items);
@@ -159,8 +161,25 @@ export class LibraryScreen {
   private renderChosen(): void {
     const e = this.chosen;
     const { prefs } = this.deps;
-    this.previewImg.src = e?.previewUrl ?? '';
-    this.previewImg.style.visibility = e ? 'visible' : 'hidden';
+    if (e?.video) {                                                // a video plays (silently, looped) in the preview
+      this.previewImg.hidden = true;
+      if (this.previewVideo.dataset.url !== e.previewUrl) {
+        this.previewVideo.dataset.url = e.previewUrl;
+        this.previewVideo.src = e.previewUrl;
+      }
+      this.previewVideo.hidden = false;
+      void this.previewVideo.play().catch(() => undefined);
+    } else {
+      this.previewVideo.pause();
+      this.previewVideo.hidden = true;
+      if (this.previewVideo.dataset.url) {
+        delete this.previewVideo.dataset.url;
+        this.previewVideo.removeAttribute('src');
+        this.previewVideo.load();
+      }
+      this.previewImg.src = e?.previewUrl ?? '';
+      this.previewImg.hidden = !e;
+    }
     this.nameEl.textContent = e?.name ?? 'No photos yet';
     const best = e ? this.recordFor(e) : undefined;
     this.bestEl.textContent = e ? (best !== undefined ? `Best time ${formatTime(best)}` : 'Not solved yet') : '';
@@ -270,9 +289,9 @@ export class LibraryScreen {
 
   /** Adds picture files (from the button or dropped on the page) and chooses the last one. */
   async addFiles(files: File[]): Promise<void> {
-    const pictures = files.filter((f) => f.type.startsWith('image/'));
+    const pictures = files.filter((f) => f.type.startsWith('image/') || isVideoFile(f));
     if (!pictures.length) {
-      if (files.length) this.note('Those are not pictures');
+      if (files.length) this.note('Those are not pictures or videos');
       return;
     }
     this.note('Adding…');

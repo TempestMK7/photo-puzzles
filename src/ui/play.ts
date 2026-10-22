@@ -3,7 +3,7 @@ import { findKind, optionsOf, puzzleSeedText, recordKey } from '../core/kinds';
 import { formatTime, type Prefs } from '../core/prefs';
 import { randomSeedText, seedFromText } from '../core/rng';
 import { draw, fitView, type Anim, type View } from '../render';
-import type { PhotoEntry, PhotoLibrary } from '../store/photos';
+import type { PhotoEntry, PhotoLibrary, PlaySource } from '../store/photos';
 import { h } from './dom';
 
 export interface PlayDeps {
@@ -23,10 +23,20 @@ export class PlayScreen {
   private swapsEl = h('span', { class: 'swaps' }, '0 swaps');
   private dialogEl = h('div', { class: 'dialog', hidden: true });
   private viewBar = h('div', { class: 'viewbar', hidden: true });
-  private main = h('main', {}, this.canvas, this.dialogEl, this.viewBar);
+  // the playback bar of a video puzzle: pause / play, the time, a draggable position, the length, sound on / off
+  private pauseBtn = h('button', { type: 'button', class: 'icon', title: 'Pause', 'aria-label': 'Pause', onclick: () => this.togglePause() }, '❚❚');
+  private curEl = h('span', { class: 'vt' }, '0:00');
+  private totalEl = h('span', { class: 'vt' }, '0:00');
+  private seekEl = h('input', { type: 'range', class: 'seek', min: 0, max: 1000, value: 0, step: 1, 'aria-label': 'Video position' });
+  private muteBtn = h('button', { type: 'button', class: 'icon', title: 'Sound', 'aria-label': 'Sound', onclick: () => this.toggleMute() });
+  private vbar = h('div', { class: 'vbar', hidden: true }, this.pauseBtn, this.curEl, this.seekEl, this.totalEl, this.muteBtn);
+  private stage = h('div', { class: 'stage' }, this.canvas, this.dialogEl, this.viewBar);
+  private main = h('main', {}, this.stage, this.vbar);
 
   private entry: PhotoEntry | null = null;
-  private photo: HTMLCanvasElement | null = null;
+  private src: PlaySource | null = null;
+  private seeking = false;
+  private pumpToken = 0;
   private game: FocusGame | null = null;
   private view: View = { scale: 1, ox: 0, oy: 0 };
   private anims = new Map<number, Anim>();
@@ -66,6 +76,18 @@ export class PlayScreen {
     });
     this.canvas.addEventListener('pointerdown', (e) => this.pointerDown(e));
     new ResizeObserver(() => this.resize()).observe(this.canvas);
+    this.seekEl.addEventListener('pointerdown', () => (this.seeking = true));
+    this.seekEl.addEventListener('input', () => {
+      const v = this.src?.video;
+      if (v && Number.isFinite(v.duration)) {
+        v.currentTime = (Number(this.seekEl.value) / 1000) * v.duration;
+        this.updateBar();
+      }
+    });
+    const endSeek = () => (this.seeking = false);
+    this.seekEl.addEventListener('pointerup', endSeek);
+    this.seekEl.addEventListener('pointercancel', endSeek);
+    this.seekEl.addEventListener('change', endSeek);
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !this.el.hidden) this.leave();
     });
@@ -76,19 +98,102 @@ export class PlayScreen {
     const token = ++this.token;
     this.entry = entry;
     this.titleEl.textContent = `${findKind('focus')!.name} · ${entry.name}`;
-    const photo = await this.deps.photos.load(entry);
-    if (token !== this.token) return;
-    this.photo = photo;
+    let src: PlaySource;
+    try {
+      src = await this.deps.photos.load(entry);
+    } catch (e) {
+      if (token === this.token) {
+        alert(e instanceof Error ? e.message : 'That file could not be opened');
+        this.leave();
+      }
+      return;
+    }
+    if (token !== this.token) {
+      src.dispose();
+      return;
+    }
+    this.closeSource();
+    this.src = src;
+    this.setupVideo();
     this.begin();
+  }
+
+  private closeSource(): void {
+    this.pumpToken++;
+    this.src?.dispose();
+    this.src = null;
+    this.vbar.hidden = true;
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- video
+
+  /** A video plays by itself (with its sound, looped); whenever it shows a new picture the board is drawn again. */
+  private setupVideo(): void {
+    const v = this.src?.video;
+    this.vbar.hidden = !v;
+    if (!v) return;
+    v.muted = this.deps.prefs.data.muted;
+    this.refreshMute();
+    this.totalEl.textContent = formatTime((Number.isFinite(v.duration) ? v.duration : 0) * 1000);
+    this.pauseBtn.textContent = '❚❚';
+    void v.play().catch(() => {
+      v.muted = true;                              // the browser refused to start it with sound: start without
+      this.refreshMute();
+      void v.play().catch(() => undefined);
+    });
+    const token = ++this.pumpToken;
+    const pump = (): void => {
+      if (token !== this.pumpToken) return;
+      const again = (): void => {
+        this.requestDraw();
+        this.updateBar();
+        pump();
+      };
+      if ('requestVideoFrameCallback' in v) v.requestVideoFrameCallback(again);
+      else requestAnimationFrame(again);
+    };
+    pump();
+  }
+
+  private togglePause(): void {
+    const v = this.src?.video;
+    if (!v) return;
+    if (v.paused) void v.play();
+    else v.pause();
+    this.pauseBtn.textContent = v.paused ? '\u25b6' : '❚❚';
+    this.pauseBtn.title = v.paused ? 'Play' : 'Pause';
+  }
+
+  private toggleMute(): void {
+    const v = this.src?.video;
+    if (!v) return;
+    v.muted = !v.muted;
+    this.deps.prefs.data.muted = v.muted;
+    this.deps.prefs.save();
+    this.refreshMute();
+  }
+
+  private refreshMute(): void {
+    const muted = this.src?.video?.muted ?? this.deps.prefs.data.muted;
+    this.muteBtn.textContent = muted ? '🔇' : '🔊';
+    this.muteBtn.title = muted ? 'Sound off' : 'Sound on';
+  }
+
+  private updateBar(): void {
+    const v = this.src?.video;
+    if (!v) return;
+    const dur = Number.isFinite(v.duration) ? v.duration : 0;
+    this.curEl.textContent = formatTime(v.currentTime * 1000);
+    if (!this.seeking && dur > 0) this.seekEl.value = String(Math.round((v.currentTime / dur) * 1000));
   }
 
   /** The same photo again with the saved seed (Restart) - or with a fresh one (New puzzle). */
   private begin(): void {
-    if (!this.entry || !this.photo) return;
+    if (!this.entry || !this.src) return;
     const { prefs } = this.deps;
     const kind = findKind('focus')!;
     const opts = optionsOf(prefs.data.settings, kind);
-    this.game = new FocusGame(this.photo.width, this.photo.height, {
+    this.game = new FocusGame(this.src.width, this.src.height, {
       seed: seedFromText(puzzleSeedText(prefs.data.seed, this.entry.id, kind.id)),
       pieces: opts.pieces,
       irregular: opts.irregular === 1,
@@ -119,6 +224,8 @@ export class PlayScreen {
   private leave(): void {
     this.token++;
     this.stopClock();
+    this.closeSource();
+    this.game = null;
     this.deps.onExit();
   }
 
@@ -135,7 +242,7 @@ export class PlayScreen {
   // ---------------------------------------------------------------------------------------------------------------- drawing and input
 
   private resize(): void {
-    if (!this.photo) return;
+    if (!this.src) return;
     const dpr = window.devicePixelRatio || 1;
     const w = Math.max(1, Math.round(this.canvas.clientWidth * dpr));
     const hgt = Math.max(1, Math.round(this.canvas.clientHeight * dpr));
@@ -143,7 +250,7 @@ export class PlayScreen {
       this.canvas.width = w;
       this.canvas.height = hgt;
     }
-    this.view = fitView(this.photo.width, this.photo.height, w, hgt, 12 * dpr);
+    this.view = fitView(this.src.width, this.src.height, w, hgt, 12 * dpr);
     this.requestDraw();
   }
 
@@ -153,8 +260,8 @@ export class PlayScreen {
 
   private render(now: number): void {
     this.frame = 0;
-    if (!this.game || !this.photo) return;
-    if (draw(this.ctx, this.photo, this.game, this.view, this.anims, this.hover, now)) this.requestDraw();
+    if (!this.game || !this.src) return;
+    if (draw(this.ctx, this.src.source, this.game, this.view, this.anims, this.hover, now)) this.requestDraw();
   }
 
   private pieceAt(e: PointerEvent): number {

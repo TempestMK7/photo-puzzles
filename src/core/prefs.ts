@@ -10,6 +10,8 @@ export interface PrefsData {
   settings: Settings;
   /** Best times in milliseconds by recordKey(). */
   best: Record<string, number>;
+  /** Sound of a video puzzle is off. */
+  muted: boolean;
 }
 
 /** The part of the Storage interface that is used (so tests can pass a plain object). */
@@ -24,7 +26,7 @@ export class Prefs {
   data: PrefsData;
 
   constructor(private readonly storage: StorageLike | null) {
-    this.data = { seed: randomSeedText(), kind: 'focus', photo: '', settings: {}, best: {} };
+    this.data = { seed: randomSeedText(), kind: 'focus', photo: '', settings: {}, best: {}, muted: false };
     this.load();
   }
 
@@ -38,6 +40,7 @@ export class Prefs {
       if (typeof raw.photo === 'string') this.data.photo = raw.photo;
       if (raw.settings && typeof raw.settings === 'object') this.data.settings = { ...raw.settings };
       if (raw.best && typeof raw.best === 'object') this.data.best = { ...raw.best };
+      if (typeof raw.muted === 'boolean') this.data.muted = raw.muted;
     } catch {
       // damaged or unavailable storage: start from the defaults
     }

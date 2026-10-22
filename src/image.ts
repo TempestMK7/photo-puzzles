@@ -18,6 +18,57 @@ export async function loadPhoto(file: Blob): Promise<HTMLCanvasElement> {
   }
 }
 
+const VIDEO_EXT = /\.(webm|mp4|m4v|mov|ogv)$/i;
+
+/** Is this file a video? (By its type, or by its extension when the browser gives no type.) */
+export function isVideoFile(f: { name: string; type: string }): boolean {
+  return f.type.startsWith('video/') || (!f.type && VIDEO_EXT.test(f.name));
+}
+
+export interface VideoInfo {
+  width: number;
+  height: number;
+  duration: number;
+  /** A frame from near the start, for the thumbnail (at most 640 px on its longest side). */
+  poster: HTMLCanvasElement;
+}
+
+/** Opens a video just far enough to learn its size and length and to take a poster frame. Rejects when this browser cannot play it. */
+export function readVideo(file: Blob): Promise<VideoInfo> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.muted = true;
+    v.preload = 'auto';
+    v.playsInline = true;
+    const done = (fn: () => void) => {
+      v.removeAttribute('src');
+      v.load();
+      URL.revokeObjectURL(url);
+      fn();
+    };
+    const timer = window.setTimeout(() => done(() => reject(new Error('video timed out'))), 20000);
+    v.onerror = () => {
+      window.clearTimeout(timer);
+      done(() => reject(new Error('This browser cannot play that video')));
+    };
+    v.onloadedmetadata = () => {
+      v.currentTime = Math.min(1, (v.duration || 0) * 0.1);
+    };
+    v.onseeked = () => {
+      window.clearTimeout(timer);
+      const k = Math.min(1, 640 / Math.max(v.videoWidth, v.videoHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(v.videoWidth * k));
+      c.height = Math.max(1, Math.round(v.videoHeight * k));
+      c.getContext('2d')!.drawImage(v, 0, 0, c.width, c.height);
+      const info = { width: v.videoWidth, height: v.videoHeight, duration: v.duration, poster: c };
+      done(() => resolve(info));
+    };
+    v.src = url;
+  });
+}
+
 /** A square thumbnail (cut from the middle) as a JPEG blob. */
 export async function makeThumb(photo: HTMLCanvasElement, size = 160): Promise<Blob> {
   const c = document.createElement('canvas');

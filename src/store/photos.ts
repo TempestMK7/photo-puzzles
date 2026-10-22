@@ -1,4 +1,4 @@
-import { loadPhoto, makeThumb, samplePhoto, SAMPLES } from '../image';
+import { isVideoFile, loadPhoto, makeThumb, readVideo, samplePhoto, SAMPLES } from '../image';
 
 /** One photo in the list: the built-in samples and the player's own. */
 export interface PhotoEntry {
@@ -7,8 +7,21 @@ export interface PhotoEntry {
   /** Samples are made in code and cannot be removed. */
   sample: boolean;
   thumbUrl: string;
-  /** Object URL of the full picture, for the preview. */
+  /** Object URL of the full picture (or the video file), for the preview. */
   previewUrl: string;
+  video: boolean;
+  /** Seconds, for a video. */
+  duration: number;
+}
+
+/** What a puzzle draws from: a picture, or a video element whose current frame is drawn. */
+export interface PlaySource {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  /** Set for a video: it plays by itself and the screen redraws when it shows a new frame. */
+  video: HTMLVideoElement | null;
+  dispose(): void;
 }
 
 interface StoredPhoto {
@@ -17,6 +30,8 @@ interface StoredPhoto {
   addedAt: number;
   blob: Blob;
   thumb: Blob;
+  video?: boolean;
+  duration?: number;
 }
 
 const DB = 'photo-puzzles';
@@ -44,9 +59,11 @@ function toBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encode'))), 'image/jpeg', quality));
 }
 
-/** A short id from the file's bytes, so adding the same picture twice gives one entry. */
+/** A short id from the file's bytes, so adding the same file twice gives one entry (a video: its size and its first and last megabyte, not all of it). */
 async function hashOf(blob: Blob): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+  const MB = 1 << 20;
+  const part = blob.size <= 8 * MB ? blob : new Blob([String(blob.size), blob.slice(0, MB), blob.slice(blob.size - MB)]);
+  const digest = await crypto.subtle.digest('SHA-256', await part.arrayBuffer());
   return [...new Uint8Array(digest).slice(0, 8)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
@@ -86,7 +103,7 @@ export class PhotoLibrary {
         u = { thumb: URL.createObjectURL(thumb), preview: URL.createObjectURL(full) };
         this.urls.set(s.id, u);
       }
-      out.push({ id: s.id, name: s.name, sample: true, thumbUrl: u.thumb, previewUrl: u.preview });
+      out.push({ id: s.id, name: s.name, sample: true, thumbUrl: u.thumb, previewUrl: u.preview, video: false, duration: 0 });
     }
     const mine = [...(await this.stored()), ...this.memory].sort((a, b) => a.addedAt - b.addedAt);
     const seen = new Set<string>();
@@ -98,7 +115,7 @@ export class PhotoLibrary {
         u = { thumb: URL.createObjectURL(p.thumb), preview: URL.createObjectURL(p.blob) };
         this.urls.set(p.id, u);
       }
-      out.push({ id: p.id, name: p.name, sample: false, thumbUrl: u.thumb, previewUrl: u.preview });
+      out.push({ id: p.id, name: p.name, sample: false, thumbUrl: u.thumb, previewUrl: u.preview, video: !!p.video, duration: p.duration ?? 0 });
     }
     return out;
   }
@@ -110,8 +127,14 @@ export class PhotoLibrary {
     for (const file of files) {
       try {
         const id = await hashOf(file);
-        const canvas = await loadPhoto(file);
-        const rec: StoredPhoto = { id, name: file.name, addedAt: Date.now(), blob: await toBlob(canvas, 0.92), thumb: await makeThumb(canvas) };
+        let rec: StoredPhoto;
+        if (isVideoFile(file)) {                                       // a video is kept as it is: the browser plays the file itself
+          const info = await readVideo(file);
+          rec = { id, name: file.name, addedAt: Date.now(), blob: file, thumb: await makeThumb(info.poster), video: true, duration: Number.isFinite(info.duration) ? info.duration : 0 };
+        } else {
+          const canvas = await loadPhoto(file);
+          rec = { id, name: file.name, addedAt: Date.now(), blob: await toBlob(canvas, 0.92), thumb: await makeThumb(canvas) };
+        }
         let saved = false;
         if (this.db) {
           try {
@@ -147,10 +170,46 @@ export class PhotoLibrary {
     }
   }
 
-  /** The picture, ready to play (at most 1600 px on its longest side). */
-  async load(entry: PhotoEntry): Promise<HTMLCanvasElement> {
-    if (entry.sample) return samplePhoto(entry.id);
-    const res = await fetch(entry.previewUrl);
-    return loadPhoto(await res.blob());
+  /** The picture or video, ready to play (a picture is at most 1600 px on its longest side). */
+  async load(entry: PhotoEntry): Promise<PlaySource> {
+    if (entry.video) return openVideo(entry.previewUrl);
+    const canvas = entry.sample ? samplePhoto(entry.id) : await loadPhoto(await (await fetch(entry.previewUrl)).blob());
+    return { source: canvas, width: canvas.width, height: canvas.height, video: null, dispose() {} };
   }
+}
+
+/** Some recorders leave a webm without a length (Infinity); seeking far past the end makes the browser work it out. */
+export async function settleDuration(v: HTMLVideoElement): Promise<void> {
+  if (Number.isFinite(v.duration)) return;
+  await new Promise<void>((resolve) => {
+    v.addEventListener('durationchange', () => Number.isFinite(v.duration) && resolve(), { once: true });
+    v.currentTime = 1e101;
+    window.setTimeout(resolve, 3000);
+  });
+  v.currentTime = 0;
+}
+
+function openVideo(url: string): Promise<PlaySource> {
+  return new Promise((resolve, reject) => {
+    const v = document.createElement('video');
+    v.src = url;
+    v.loop = true;
+    v.playsInline = true;
+    v.preload = 'auto';
+    v.onerror = () => reject(new Error('This browser cannot play that video'));
+    v.onloadeddata = async () => {
+      await settleDuration(v);
+      resolve({
+        source: v,
+        width: v.videoWidth,
+        height: v.videoHeight,
+        video: v,
+        dispose() {
+          v.pause();
+          v.removeAttribute('src');
+          v.load();
+        },
+      });
+    };
+  });
 }

@@ -52,7 +52,7 @@ async function main(): Promise<void> {
     if (!library.el.hidden && e.dataTransfer?.files.length) void library.addFiles([...e.dataTransfer.files]);
   });
 
-  if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__play = play;        // for poking at the game from the console while developing
+  if (import.meta.env.DEV) Object.assign(window, { __play: play, __library: library });        // for poking at the game from the console while developing
   await library.refresh();
 }
 
