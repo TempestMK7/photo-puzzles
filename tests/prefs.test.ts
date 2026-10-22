@@ -21,7 +21,7 @@ describe('kinds', () => {
     expect(optionValue({ 'focus.pieces': 1000 }, 'focus', pieces)).toBe(pieces.max);
     expect(optionValue({ 'focus.pieces': -3 }, 'focus', pieces)).toBe(pieces.min);
     expect(optionValue({ 'focus.pieces': NaN }, 'focus', pieces)).toBe(pieces.def);
-    expect(optionsOf({}, focus)).toEqual({ pieces: 16, irregular: 1 });
+    expect(optionsOf({}, focus)).toEqual({ pieces: 16, irregular: 1, grid: 1, animate: 1 });
   });
 
   it('a record belongs to photo, type and difficulty - not to the seed', () => {
@@ -29,6 +29,7 @@ describe('kinds', () => {
     expect(recordKey(focus, 'p1', { 'focus.pieces': 16 })).toBe(a);
     expect(recordKey(focus, 'p1', { 'focus.pieces': 20 })).not.toBe(a);
     expect(recordKey(focus, 'p2', {})).not.toBe(a);
+    expect(recordKey(focus, 'p1', { 'focus.grid': 0, 'focus.animate': 0 })).toBe(a);        // how it is shown is not a difficulty
   });
 
   it('every photo and type gets its own puzzle from one seed', () => {

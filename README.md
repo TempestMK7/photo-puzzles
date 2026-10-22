@@ -11,6 +11,9 @@ View, New puzzle (the same photo with a new seed) and Photos. Best times are kep
 frame copying - so a 30 fps clip redraws 30 times a second. A bar under the board has pause / play, a draggable position and a sound switch (remembered). A new puzzle
 or Restart keeps the video where it is. Videos are stored as they are in the browser's storage (nothing is uploaded or re-encoded).
 
+**Display settings** for Focus Point: grid lines and swap animations can be switched off (on the main screen or with the Grid / Animate buttons while playing). They are
+remembered and, being about looks rather than difficulty, do not start a new best-time record.
+
 Playable now: **Focus Point** - the picture is cut into rectangles of different sizes and shuffled; click two pieces to make them trade places *and sizes*; put
 every piece back to solve it. The same seed always gives the same puzzle. Listed as "soon": Overlap, Strips, Jigsaw, Sliding Tiles.
 

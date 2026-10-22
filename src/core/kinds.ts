@@ -10,6 +10,8 @@ export interface OptionDef {
   step?: number;
   /** Shown as a check box (0 / 1) instead of a slider. */
   toggle?: boolean;
+  /** A way of showing the puzzle, not a difficulty: it does not start a new best-time record. */
+  display?: boolean;
 }
 
 export type KindId = 'focus' | 'overlap' | 'strips' | 'jigsaw' | 'sliding';
@@ -32,6 +34,8 @@ export const KINDS: readonly KindDef[] = [
     options: [
       { key: 'pieces', label: 'Pieces', min: 6, max: 60, def: 16, step: 2 },
       { key: 'irregular', label: 'Irregular pieces', min: 0, max: 1, def: 1, toggle: true },
+      { key: 'grid', label: 'Grid lines', min: 0, max: 1, def: 1, toggle: true, display: true },
+      { key: 'animate', label: 'Animations', min: 0, max: 1, def: 1, toggle: true, display: true },
     ],
   },
   { id: 'overlap', name: 'Overlap', blurb: 'Overlapping pieces to put back in place.', available: false, options: [] },
@@ -62,11 +66,12 @@ export function optionsOf(settings: Settings, kind: KindDef): Record<string, num
 
 /**
  * Identifies a puzzle for best times: the same photo, type and difficulty is the same puzzle whatever the seed, so a new seed keeps the record and only a
- * change of difficulty starts a new one.
+ * change of difficulty starts a new one (grid lines and animations are display settings and do not count).
  */
 export function recordKey(kind: KindDef, photoId: string, settings: Settings): string {
   const opts = optionsOf(settings, kind);
-  return [kind.id, photoId, ...Object.keys(opts).sort().map((k) => `${k}=${opts[k]}`)].join('|');
+  const difficulty = kind.options.filter((o) => !o.display).map((o) => o.key).sort();
+  return [kind.id, photoId, ...difficulty.map((k) => `${k}=${opts[k]}`)].join('|');
 }
 
 /** The seed of one puzzle: the player's seed, mixed with the photo and the type so each photo / type gets its own puzzle from one seed. */

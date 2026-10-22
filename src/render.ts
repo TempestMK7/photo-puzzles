@@ -37,6 +37,7 @@ export function draw(
   anims: Map<number, Anim>,
   hover: number,
   now: number,
+  grid = true,
 ): boolean {
   const { canvas } = ctx;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -66,7 +67,7 @@ export function draw(
     const home = game.homes[i];
     const r = rectOf(i);
     ctx.drawImage(img, home.x, home.y, home.w, home.h, r.x, r.y, r.w, r.h);
-    if (!game.solved) {
+    if (!game.solved && grid) {
       ctx.lineWidth = line * 1.5;
       ctx.strokeStyle = 'rgba(255,255,255,0.85)';
       ctx.strokeRect(r.x, r.y, r.w, r.h);

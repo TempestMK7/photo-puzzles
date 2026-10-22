@@ -1,5 +1,5 @@
 import { FocusGame } from '../core/focus';
-import { findKind, optionsOf, puzzleSeedText, recordKey } from '../core/kinds';
+import { findKind, optionsOf, puzzleSeedText, recordKey, type OptionDef } from '../core/kinds';
 import { formatTime, type Prefs } from '../core/prefs';
 import { randomSeedText, seedFromText } from '../core/rng';
 import { draw, fitView, type Anim, type View } from '../render';
@@ -20,6 +20,8 @@ export class PlayScreen {
   private ctx = this.canvas.getContext('2d')!;
   private titleEl = h('div', { class: 'title' });
   private timeEl = h('span', { class: 'time' }, '0:00');
+  private gridBtn = h('button', { type: 'button', class: 'toggle', title: 'Grid lines', onclick: () => this.toggle('grid') }, 'Grid');
+  private animateBtn = h('button', { type: 'button', class: 'toggle', title: 'Swap animations', onclick: () => this.toggle('animate') }, 'Animate');
   private swapsEl = h('span', { class: 'swaps' }, '0 swaps');
   private dialogEl = h('div', { class: 'dialog', hidden: true });
   private viewBar = h('div', { class: 'viewbar', hidden: true });
@@ -58,6 +60,8 @@ export class PlayScreen {
         h('button', { type: 'button', class: 'back', onclick: () => this.leave() }, '← Photos'),
         this.titleEl,
         h('div', { class: 'stats' }, this.timeEl, this.swapsEl),
+        this.gridBtn,
+        this.animateBtn,
         h('button', { type: 'button', onclick: () => this.restart() }, 'Restart'),
       ),
       this.main,
@@ -193,6 +197,7 @@ export class PlayScreen {
     const { prefs } = this.deps;
     const kind = findKind('focus')!;
     const opts = optionsOf(prefs.data.settings, kind);
+    this.refreshToggles();
     this.game = new FocusGame(this.src.width, this.src.height, {
       seed: seedFromText(puzzleSeedText(prefs.data.seed, this.entry.id, kind.id)),
       pieces: opts.pieces,
@@ -209,6 +214,30 @@ export class PlayScreen {
     this.clock = window.setInterval(() => this.tick(), 250);
     this.tick();
     this.resize();
+  }
+
+  /** A display setting of Focus Point (grid lines, animations): on unless the player turned it off. */
+  private flag(key: 'grid' | 'animate'): boolean {
+    const kind = findKind('focus')!;
+    const opt = kind.options.find((o) => o.key === key) as OptionDef;
+    return optionsOf(this.deps.prefs.data.settings, kind)[opt.key] !== 0;
+  }
+
+  private toggle(key: 'grid' | 'animate'): void {
+    const { prefs } = this.deps;
+    prefs.data.settings[`focus.${key}`] = this.flag(key) ? 0 : 1;
+    prefs.save();
+    if (key === 'animate') this.anims.clear();
+    this.refreshToggles();
+    this.requestDraw();
+  }
+
+  private refreshToggles(): void {
+    for (const [btn, key] of [[this.gridBtn, 'grid'], [this.animateBtn, 'animate']] as const) {
+      const on = this.flag(key);
+      btn.classList.toggle('on', on);
+      btn.setAttribute('aria-pressed', String(on));
+    }
   }
 
   private restart(): void {
@@ -261,7 +290,7 @@ export class PlayScreen {
   private render(now: number): void {
     this.frame = 0;
     if (!this.game || !this.src) return;
-    if (draw(this.ctx, this.src.source, this.game, this.view, this.anims, this.hover, now)) this.requestDraw();
+    if (draw(this.ctx, this.src.source, this.game, this.view, this.anims, this.hover, now, this.flag('grid'))) this.requestDraw();
   }
 
   private pieceAt(e: PointerEvent): number {
@@ -284,7 +313,7 @@ export class PlayScreen {
       const now = performance.now();
       for (let i = 0; i < game.count; i++) {
         const to = game.slotRect(i);
-        if (to !== before[i]) this.anims.set(i, { from: before[i], to, start: now });
+        if (to !== before[i] && this.flag('animate')) this.anims.set(i, { from: before[i], to, start: now });
       }
       this.swapsEl.textContent = `${game.swaps} ${game.swaps === 1 ? 'swap' : 'swaps'}`;
       if (game.solved) this.finish();
