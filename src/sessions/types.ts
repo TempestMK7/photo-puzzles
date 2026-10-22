@@ -1,0 +1,51 @@
+import type { View } from '../render';
+
+export interface Pt {
+  x: number;
+  y: number;
+}
+
+export interface ToggleDef {
+  key: string;
+  label: string;
+  title: string;
+}
+
+export interface SessionInit {
+  /** What the pieces are cut from: a picture or a playing video. */
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  /** Seed of this puzzle (already mixed with the photo and the type). */
+  seed: number;
+  /** The difficulty options of the type, by key. */
+  opts: Record<string, number>;
+  /** A display setting (grid lines, animations): on unless the player turned it off. */
+  flag(key: string): boolean;
+  requestDraw(): void;
+}
+
+/** One puzzle being played. The play screen owns the canvas, the clock and the dialogs; a session owns the rules, the layout and the drawing. */
+export interface PuzzleSession {
+  /** Display switches shown in the header. */
+  readonly toggles: ToggleDef[];
+  /** Show a Rotate button (and use the secondary action to turn pieces). */
+  readonly rotatable: boolean;
+  /** The size of the board in its own units for a canvas of this shape (a session may lay itself out differently on a phone held upright). */
+  layout(canvasW: number, canvasH: number): { width: number; height: number };
+  /** Clears and draws the canvas. Returns true while something is still moving. */
+  draw(ctx: CanvasRenderingContext2D, view: View, now: number): boolean;
+  pointerDown(p: Pt): void;
+  pointerMove(p: Pt): void;
+  pointerUp(p: Pt): void;
+  pointerCancel(): void;
+  /** Right click, a second finger, the Rotate button, the R key: turn the piece in hand (or the chosen one). */
+  secondary(): void;
+  /** The progress text for the header ("3 swaps", "5 / 12 placed"). */
+  status(): string;
+  readonly solved: boolean;
+  /** A setting changed (a display switch). */
+  settingsChanged(): void;
+}
+
+export type SessionFactory = (init: SessionInit) => PuzzleSession;

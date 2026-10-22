@@ -1,8 +1,8 @@
-import { FocusGame } from '../core/focus';
-import { findKind, optionsOf, puzzleSeedText, recordKey, type OptionDef } from '../core/kinds';
+import { findKind, optionsOf, puzzleSeedText, recordKey, type KindDef } from '../core/kinds';
 import { formatTime, type Prefs } from '../core/prefs';
 import { randomSeedText, seedFromText } from '../core/rng';
-import { draw, fitView, type Anim, type View } from '../render';
+import { fitView, type View } from '../render';
+import { startSession, type PuzzleSession } from '../sessions';
 import type { PhotoEntry, PhotoLibrary, PlaySource } from '../store/photos';
 import { h } from './dom';
 
@@ -13,16 +13,16 @@ export interface PlayDeps {
   onExit(): void;
 }
 
-/** The screen where a puzzle is played (Focus Point for now). */
+/** The screen where a puzzle is played: it owns the canvas, the clock, the video bar and the dialogs; the puzzle itself is a PuzzleSession. */
 export class PlayScreen {
   readonly el: HTMLElement;
   private canvas = h('canvas', { class: 'board' });
   private ctx = this.canvas.getContext('2d')!;
   private titleEl = h('div', { class: 'title' });
   private timeEl = h('span', { class: 'time' }, '0:00');
-  private gridBtn = h('button', { type: 'button', class: 'toggle', title: 'Grid lines', onclick: () => this.toggle('grid') }, 'Grid');
-  private animateBtn = h('button', { type: 'button', class: 'toggle', title: 'Swap animations', onclick: () => this.toggle('animate') }, 'Animate');
-  private swapsEl = h('span', { class: 'swaps' }, '0 swaps');
+  private togglesEl = h('div', { class: 'toggles' });
+  private rotateBtn = h('button', { type: 'button', class: 'toggle', title: 'Turn the chosen piece (or right-click, R)', onclick: () => this.secondary(), hidden: true }, 'Rotate');
+  private statusEl = h('span', { class: 'swaps' }, '');
   private dialogEl = h('div', { class: 'dialog', hidden: true });
   private viewBar = h('div', { class: 'viewbar', hidden: true });
   // the playback bar of a video puzzle: pause / play, the time, a draggable position, the length, sound on / off
@@ -39,10 +39,10 @@ export class PlayScreen {
   private src: PlaySource | null = null;
   private seeking = false;
   private pumpToken = 0;
-  private game: FocusGame | null = null;
+  private kind: KindDef = findKind('focus')!;
+  private session: PuzzleSession | null = null;
   private view: View = { scale: 1, ox: 0, oy: 0 };
-  private anims = new Map<number, Anim>();
-  private hover = -1;
+  private activePointer = -1;
   private frame = 0;
   private startedAt = 0;
   private elapsed = 0;
@@ -59,26 +59,21 @@ export class PlayScreen {
         { class: 'bar' },
         h('button', { type: 'button', class: 'back', onclick: () => this.leave() }, '← Photos'),
         this.titleEl,
-        h('div', { class: 'stats' }, this.timeEl, this.swapsEl),
-        this.gridBtn,
-        this.animateBtn,
+        h('div', { class: 'stats' }, this.timeEl, this.statusEl),
+        this.togglesEl,
+        this.rotateBtn,
         h('button', { type: 'button', onclick: () => this.restart() }, 'Restart'),
       ),
       this.main,
     );
-    this.canvas.addEventListener('pointermove', (e) => {
-      if (e.pointerType === 'touch' || !this.game) return;
-      const p = this.pieceAt(e);
-      if (p !== this.hover) {
-        this.hover = p;
-        this.requestDraw();
-      }
-    });
-    this.canvas.addEventListener('pointerleave', () => {
-      this.hover = -1;
-      this.requestDraw();
-    });
     this.canvas.addEventListener('pointerdown', (e) => this.pointerDown(e));
+    this.canvas.addEventListener('pointermove', (e) => this.pointerMove(e));
+    this.canvas.addEventListener('pointerup', (e) => this.pointerUp(e));
+    this.canvas.addEventListener('pointercancel', (e) => {
+      if (e.pointerId === this.activePointer) this.activePointer = -1;
+      this.session?.pointerCancel();
+    });
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     new ResizeObserver(() => this.resize()).observe(this.canvas);
     this.seekEl.addEventListener('pointerdown', () => (this.seeking = true));
     this.seekEl.addEventListener('input', () => {
@@ -93,7 +88,9 @@ export class PlayScreen {
     this.seekEl.addEventListener('pointercancel', endSeek);
     this.seekEl.addEventListener('change', endSeek);
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !this.el.hidden) this.leave();
+      if (this.el.hidden) return;
+      if (e.key === 'Escape') this.leave();
+      else if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey) this.secondary();
     });
   }
 
@@ -101,7 +98,8 @@ export class PlayScreen {
   async start(entry: PhotoEntry): Promise<void> {
     const token = ++this.token;
     this.entry = entry;
-    this.titleEl.textContent = `${findKind('focus')!.name} · ${entry.name}`;
+    this.kind = findKind(this.deps.prefs.data.kind) ?? findKind('focus')!;
+    this.titleEl.textContent = `${this.kind.name} · ${entry.name}`;
     let src: PlaySource;
     try {
       src = await this.deps.photos.load(entry);
@@ -195,16 +193,18 @@ export class PlayScreen {
   private begin(): void {
     if (!this.entry || !this.src) return;
     const { prefs } = this.deps;
-    const kind = findKind('focus')!;
-    const opts = optionsOf(prefs.data.settings, kind);
-    this.refreshToggles();
-    this.game = new FocusGame(this.src.width, this.src.height, {
+    const kind = this.kind;
+    this.session = startSession(kind.id, {
+      source: this.src.source,
+      width: this.src.width,
+      height: this.src.height,
       seed: seedFromText(puzzleSeedText(prefs.data.seed, this.entry.id, kind.id)),
-      pieces: opts.pieces,
-      irregular: opts.irregular === 1,
+      opts: optionsOf(prefs.data.settings, kind),
+      flag: (key) => this.flag(key),
+      requestDraw: () => this.requestDraw(),
     });
-    this.anims.clear();
-    this.hover = -1;
+    this.buildToggles();
+    this.rotateBtn.hidden = !this.session.rotatable;
     this.dialogEl.hidden = true;
     this.viewBar.hidden = true;
     this.elapsed = 0;
@@ -213,31 +213,39 @@ export class PlayScreen {
     window.clearInterval(this.clock);
     this.clock = window.setInterval(() => this.tick(), 250);
     this.tick();
+    this.statusEl.textContent = this.session.status();
     this.resize();
   }
 
-  /** A display setting of Focus Point (grid lines, animations): on unless the player turned it off. */
-  private flag(key: 'grid' | 'animate'): boolean {
-    const kind = findKind('focus')!;
-    const opt = kind.options.find((o) => o.key === key) as OptionDef;
-    return optionsOf(this.deps.prefs.data.settings, kind)[opt.key] !== 0;
+  /** A display setting of the chosen type (grid lines, animations): on unless the player turned it off. */
+  private flag(key: string): boolean {
+    return optionsOf(this.deps.prefs.data.settings, this.kind)[key] !== 0;
   }
 
-  private toggle(key: 'grid' | 'animate'): void {
-    const { prefs } = this.deps;
-    prefs.data.settings[`focus.${key}`] = this.flag(key) ? 0 : 1;
-    prefs.save();
-    if (key === 'animate') this.anims.clear();
+  private buildToggles(): void {
+    this.togglesEl.replaceChildren(
+      ...(this.session?.toggles ?? []).map((t) =>
+        h('button', { type: 'button', class: 'toggle', title: t.title, dataset: { key: t.key }, onclick: () => this.toggle(t.key) }, t.label),
+      ),
+    );
     this.refreshToggles();
+  }
+
+  private toggle(key: string): void {
+    const { prefs } = this.deps;
+    prefs.data.settings[`${this.kind.id}.${key}`] = this.flag(key) ? 0 : 1;
+    prefs.save();
+    this.refreshToggles();
+    this.session?.settingsChanged();
     this.requestDraw();
   }
 
   private refreshToggles(): void {
-    for (const [btn, key] of [[this.gridBtn, 'grid'], [this.animateBtn, 'animate']] as const) {
-      const on = this.flag(key);
+    this.togglesEl.querySelectorAll('button').forEach((btn) => {
+      const on = this.flag((btn as HTMLElement).dataset.key ?? '');
       btn.classList.toggle('on', on);
       btn.setAttribute('aria-pressed', String(on));
-    }
+    });
   }
 
   private restart(): void {
@@ -254,7 +262,7 @@ export class PlayScreen {
     this.token++;
     this.stopClock();
     this.closeSource();
-    this.game = null;
+    this.session = null;
     this.deps.onExit();
   }
 
@@ -271,7 +279,7 @@ export class PlayScreen {
   // ---------------------------------------------------------------------------------------------------------------- drawing and input
 
   private resize(): void {
-    if (!this.src) return;
+    if (!this.src || !this.session) return;
     const dpr = window.devicePixelRatio || 1;
     const w = Math.max(1, Math.round(this.canvas.clientWidth * dpr));
     const hgt = Math.max(1, Math.round(this.canvas.clientHeight * dpr));
@@ -279,7 +287,8 @@ export class PlayScreen {
       this.canvas.width = w;
       this.canvas.height = hgt;
     }
-    this.view = fitView(this.src.width, this.src.height, w, hgt, 12 * dpr);
+    const size = this.session.layout(w, hgt);
+    this.view = fitView(size.width, size.height, w, hgt, 12 * dpr);
     this.requestDraw();
   }
 
@@ -289,59 +298,79 @@ export class PlayScreen {
 
   private render(now: number): void {
     this.frame = 0;
-    if (!this.game || !this.src) return;
-    if (draw(this.ctx, this.src.source, this.game, this.view, this.anims, this.hover, now, this.flag('grid'))) this.requestDraw();
+    if (!this.session || !this.src) return;
+    if (this.session.draw(this.ctx, this.view, now)) this.requestDraw();
   }
 
-  private pieceAt(e: PointerEvent): number {
-    if (!this.game) return -1;
+  /** Board units under a pointer event. */
+  private boardPoint(e: PointerEvent): { x: number; y: number } {
     const r = this.canvas.getBoundingClientRect();
     const dpr = this.canvas.width / r.width;
-    const x = ((e.clientX - r.left) * dpr - this.view.ox) / this.view.scale;
-    const y = ((e.clientY - r.top) * dpr - this.view.oy) / this.view.scale;
-    return this.game.pieceAt(x, y);
+    return { x: ((e.clientX - r.left) * dpr - this.view.ox) / this.view.scale, y: ((e.clientY - r.top) * dpr - this.view.oy) / this.view.scale };
   }
 
   private pointerDown(e: PointerEvent): void {
-    const game = this.game;
-    if (!game || !this.dialogEl.hidden) return;
-    const p = this.pieceAt(e);
-    if (p < 0) return;
-    const before = game.slotOf.map((_, i) => game.slotRect(i));
-    const what = game.click(p);
-    if (what === 'swap') {
-      const now = performance.now();
-      for (let i = 0; i < game.count; i++) {
-        const to = game.slotRect(i);
-        if (to !== before[i] && this.flag('animate')) this.anims.set(i, { from: before[i], to, start: now });
-      }
-      this.swapsEl.textContent = `${game.swaps} ${game.swaps === 1 ? 'swap' : 'swaps'}`;
-      if (game.solved) this.finish();
+    const session = this.session;
+    if (!session || !this.dialogEl.hidden) return;
+    if (e.button === 2 || (this.activePointer >= 0 && e.pointerId !== this.activePointer)) {          // right button, or a second finger
+      e.preventDefault();
+      session.secondary();
+      this.after();
+      return;
     }
+    if (e.button !== 0) return;
+    this.activePointer = e.pointerId;
+    this.canvas.setPointerCapture(e.pointerId);
+    session.pointerDown(this.boardPoint(e));
+    this.after();
+  }
+
+  private pointerMove(e: PointerEvent): void {
+    if (!this.session) return;
+    if (this.activePointer >= 0 && e.pointerId !== this.activePointer) return;
+    this.session.pointerMove(this.boardPoint(e));
+  }
+
+  private pointerUp(e: PointerEvent): void {
+    if (e.pointerId !== this.activePointer) return;
+    this.activePointer = -1;
+    this.session?.pointerUp(this.boardPoint(e));
+    this.after();
+  }
+
+  private secondary(): void {
+    this.session?.secondary();
+    this.after();
+  }
+
+  /** After anything the player did: the progress text, and whether the puzzle is finished. */
+  private after(): void {
+    const session = this.session;
+    if (!session) return;
+    this.statusEl.textContent = session.status();
+    if (session.solved && this.running) this.finish();
     this.requestDraw();
   }
 
   // ---------------------------------------------------------------------------------------------------------------- the end
 
   private finish(): void {
-    const game = this.game;
     const entry = this.entry;
-    if (!game || !entry) return;
+    if (!this.session || !entry) return;
     this.elapsed = performance.now() - this.startedAt;
     this.stopClock();
     this.tick();
     const { prefs } = this.deps;
-    const key = recordKey(findKind('focus')!, entry.id, prefs.data.settings);
+    const key = recordKey(this.kind, entry.id, prefs.data.settings);
     const isBest = prefs.recordTime(key, this.elapsed);
-    window.setTimeout(() => this.showDialog(isBest, prefs.bestTime(key) ?? this.elapsed), 450);     // after the last swap has finished moving
+    window.setTimeout(() => this.showDialog(isBest, prefs.bestTime(key) ?? this.elapsed), 700);     // after the last move has finished showing
   }
 
   private showDialog(isBest: boolean, best: number): void {
-    const game = this.game;
-    if (!game) return;
+    if (!this.session) return;
     this.dialogEl.replaceChildren(
       h('h2', {}, 'Solved!'),
-      h('p', {}, `Time ${formatTime(this.elapsed)} · ${game.swaps} ${game.swaps === 1 ? 'swap' : 'swaps'}`),
+      h('p', {}, `Time ${formatTime(this.elapsed)} · ${this.session.status()}`),
       h('p', { class: 'best' }, isBest ? 'New best time!' : `Best time ${formatTime(best)}`),
       h(
         'div',

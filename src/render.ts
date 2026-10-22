@@ -28,6 +28,17 @@ function lerpRect(a: Rect, b: Rect, t: number): Rect {
   return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, w: a.w + (b.w - a.w) * k, h: a.h + (b.h - a.h) * k };
 }
 
+/** Clears the canvas and sets the transform that maps board units to canvas pixels. */
+export function beginFrame(ctx: CanvasRenderingContext2D, view: View): void {
+  const { canvas } = ctx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#1b1210';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.setTransform(view.scale, 0, 0, view.scale, view.ox, view.oy);
+}
+
 /** Draws the puzzle. Returns true while an animation is still running (the caller keeps asking for frames). */
 export function draw(
   ctx: CanvasRenderingContext2D,

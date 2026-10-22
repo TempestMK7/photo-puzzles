@@ -101,6 +101,7 @@ body.dragging .library::after {
 /* ---------------------------------------------------------------- play screen */
 .play { height: 100%; display: flex; flex-direction: column; }
 .play .title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.play .toggles { display: flex; gap: 8px; }
 .play button.toggle { padding: 5px 10px; font-size: 13px; color: var(--dim); background: var(--panel2); }
 .play button.toggle.on { color: var(--text); border-color: var(--accent2); }
 .play .stats { display: flex; gap: 14px; font-variant-numeric: tabular-nums; color: var(--dim); }

@@ -38,8 +38,30 @@ export const KINDS: readonly KindDef[] = [
       { key: 'animate', label: 'Animations', min: 0, max: 1, def: 1, toggle: true, display: true },
     ],
   },
-  { id: 'overlap', name: 'Overlap', blurb: 'Overlapping pieces to put back in place.', available: false, options: [] },
-  { id: 'strips', name: 'Strips', blurb: 'Long thin strips that cross each other.', available: false, options: [] },
+  {
+    id: 'overlap',
+    name: 'Overlap',
+    blurb: 'L-shaped pieces that overlap wait in stacks. Drag the top piece onto the grid, turned the way it lies in the picture. Tap a piece to turn it.',
+    available: true,
+    options: [
+      { key: 'cells', label: 'Cells across', min: 5, max: 10, def: 7 },
+      { key: 'turned', label: 'Turned pieces', min: 0, max: 1, def: 1, toggle: true },
+      { key: 'placed', label: 'Placed at the start (%)', min: 0, max: 50, def: 20, step: 5 },
+      { key: 'grid', label: 'Grid lines', min: 0, max: 1, def: 1, toggle: true, display: true },
+    ],
+  },
+  {
+    id: 'strips',
+    name: 'Strips',
+    blurb: 'Strips cut out of the picture lie turned and scattered. Drag each back into its hole; tap a strip to turn it.',
+    available: true,
+    options: [
+      { key: 'strips', label: 'Number of strips', min: 6, max: 40, def: 14 },
+      { key: 'length', label: 'Longest strip', min: 3, max: 12, def: 8 },
+      { key: 'placed', label: 'Placed at the start (%)', min: 0, max: 50, def: 20, step: 5 },
+      { key: 'grid', label: 'Grid lines', min: 0, max: 1, def: 1, toggle: true, display: true },
+    ],
+  },
   { id: 'jigsaw', name: 'Jigsaw', blurb: 'Classic interlocking pieces.', available: false, options: [] },
   { id: 'sliding', name: 'Sliding Tiles', blurb: 'Slide the tiles into the empty space.', available: false, options: [] },
 ];

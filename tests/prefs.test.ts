@@ -10,8 +10,8 @@ function memoryStorage(initial: Record<string, string> = {}): StorageLike & { ma
 describe('kinds', () => {
   const focus = findKind('focus')!;
 
-  it('lists Focus Point as the only playable type for now', () => {
-    expect(KINDS.filter((k) => k.available).map((k) => k.id)).toEqual(['focus']);
+  it('lists Focus Point, Overlap and Strips as playable, the rest as coming', () => {
+    expect(KINDS.filter((k) => k.available).map((k) => k.id)).toEqual(['focus', 'overlap', 'strips']);
     expect(KINDS.length).toBeGreaterThan(1);
   });
 
