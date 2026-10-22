@@ -28,7 +28,8 @@ npm test         # unit tests (layout, shuffle, game rules)
 npm run build    # type-check + production build in dist/
 ```
 
-Add photos or **videos** (webm works everywhere; mp4 and others as far as the browser plays them) with the button or by dropping them on the page; three generated sample pictures are always there. Photos and records stay on your device
+Add photos or **videos** (webm and mp4 with H.264 / AAC play in every mainstream browser; HEVC and other formats only where the browser or the device decodes them - a file
+the browser cannot play is reported when you add it) with the button or by dropping them on the page; three generated sample pictures are always there. Photos and records stay on your device
 (IndexedDB / localStorage): nothing is uploaded.
 
 ## Layout

@@ -23,6 +23,7 @@ async function main(): Promise<void> {
     prefs,
     photos,
     onPlay: (entry) => {
+      library.hide();
       library.el.hidden = true;
       play.el.hidden = false;
       void play.start(entry);

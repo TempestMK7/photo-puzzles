@@ -85,6 +85,11 @@ export class LibraryScreen {
     this.renderChosen();
   }
 
+  /** Called when the screen is left: the preview video stops decoding while a puzzle plays. */
+  hide(): void {
+    this.previewVideo.pause();
+  }
+
   /** Called when the screen comes back (a record may have changed). */
   show(): void {
     this.seedInput.value = this.deps.prefs.data.seed;
@@ -297,7 +302,7 @@ export class LibraryScreen {
     this.note('Adding…');
     const { ids, failed } = await this.deps.photos.add(pictures);
     await this.refresh(ids[ids.length - 1]);
-    this.note(failed.length ? `Could not read ${failed.join(', ')}` : ids.length === 1 ? 'Added 1 photo' : `Added ${ids.length} photos`);
+    this.note(failed.length ? `Could not open ${failed.join(', ')} - this browser may not support that format` : ids.length === 1 ? 'Added 1 photo' : `Added ${ids.length} photos`);
   }
 
   private async removeSelected(): Promise<void> {
