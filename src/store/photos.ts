@@ -149,8 +149,8 @@ export class PhotoLibrary {
         }
         if (!saved && !this.memory.some((m) => m.id === id)) this.memory.push(rec);
         ids.push(id);
-      } catch {
-        failed.push(file.name);
+      } catch (e) {
+        failed.push(e instanceof Error && e.message ? `${file.name} (${e.message})` : file.name);
       }
     }
     return { ids, failed };

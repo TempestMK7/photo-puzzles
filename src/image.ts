@@ -1,8 +1,42 @@
 /** Longest side a loaded photo is reduced to: keeps memory sane on phones and the puzzle quick to draw. */
 export const MAX_SIDE = 1600;
 
-/** Loads a picture file (honouring its EXIF rotation) as a canvas no bigger than MAX_SIDE. */
+/**
+ * Loads a picture file (honouring its EXIF rotation) as a canvas no bigger than MAX_SIDE. If the browser cannot make a bitmap of it (a 50 megapixel photo can be too
+ * much for a phone), the picture is decoded the other way, through an image element.
+ */
 export async function loadPhoto(file: Blob): Promise<HTMLCanvasElement> {
+  try {
+    return await fromBitmap(file);
+  } catch (first) {
+    try {
+      return await fromImage(file);
+    } catch {
+      throw first;
+    }
+  }
+}
+
+async function fromImage(file: Blob): Promise<HTMLCanvasElement> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const k = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.naturalWidth * k));
+    c.height = Math.max(1, Math.round(img.naturalHeight * k));
+    const g = c.getContext('2d')!;
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(img, 0, 0, c.width, c.height);
+    return c;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function fromBitmap(file: Blob): Promise<HTMLCanvasElement> {
   const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
   try {
     const k = Math.min(1, MAX_SIDE / Math.max(bmp.width, bmp.height));
@@ -55,18 +89,57 @@ export function readVideo(file: Blob): Promise<VideoInfo> {
     v.onloadedmetadata = () => {
       v.currentTime = Math.min(1, (v.duration || 0) * 0.1);
     };
-    v.onseeked = () => {
-      window.clearTimeout(timer);
+    let taken = false;
+    let tries = 0;
+    const take = () => {
+      if (taken) return;
       const k = Math.min(1, 640 / Math.max(v.videoWidth, v.videoHeight));
       const c = document.createElement('canvas');
       c.width = Math.max(1, Math.round(v.videoWidth * k));
       c.height = Math.max(1, Math.round(v.videoHeight * k));
       c.getContext('2d')!.drawImage(v, 0, 0, c.width, c.height);
+      if (tries++ < 3 && looksBlack(c)) {
+        // some browsers have no picture to give for a video that was only seeked (and not on a page): let it play a moment, then look again
+        taken = true;
+        v.play().then(
+          () => window.setTimeout(() => {
+            v.pause();
+            taken = false;
+            take();
+          }, 300),
+          () => {
+            taken = false;
+            tries = 3;
+            take();
+          },
+        );
+        return;
+      }
+      taken = true;
+      window.clearTimeout(timer);
       const info = { width: v.videoWidth, height: v.videoHeight, duration: v.duration, poster: c };
       done(() => resolve(info));
     };
+    v.onseeked = () => {
+      // the picture is only there to be drawn once the browser has presented it; drawn at once it can still be black
+      if ('requestVideoFrameCallback' in v) {
+        v.requestVideoFrameCallback(take);
+        window.setTimeout(take, 1500);
+      } else take();
+    };
     v.src = url;
   });
+}
+
+/** Is this picture (all but) entirely black? */
+function looksBlack(c: HTMLCanvasElement): boolean {
+  const t = document.createElement('canvas');
+  t.width = t.height = 8;
+  const g = t.getContext('2d', { willReadFrequently: true })!;
+  g.drawImage(c, 0, 0, 8, 8);
+  const px = g.getImageData(0, 0, 8, 8).data;
+  for (let i = 0; i < px.length; i += 4) if (px[i] > 12 || px[i + 1] > 12 || px[i + 2] > 12) return false;
+  return true;
 }
 
 /** A square thumbnail (cut from the middle) as a JPEG blob. */

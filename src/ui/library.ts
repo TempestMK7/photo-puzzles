@@ -306,7 +306,7 @@ export class LibraryScreen {
 
   /** Adds picture files (from the button or dropped on the page) and chooses the last one. */
   async addFiles(files: File[]): Promise<void> {
-    const pictures = files.filter((f) => f.type.startsWith('image/') || isVideoFile(f));
+    const pictures = files.filter((f) => f.type.startsWith('image/') || isVideoFile(f) || !f.type);       // no type at all: some pickers give none, so try it
     if (!pictures.length) {
       if (files.length) this.note('Those are not pictures or videos');
       return;
