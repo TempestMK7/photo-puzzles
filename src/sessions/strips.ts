@@ -1,6 +1,6 @@
 import { Rng } from '../core/rng';
 import { boxOf, generateStrips, MARGIN, StripsGame } from '../core/strips';
-import { beginFrame, type View } from '../render';
+import { beginFrame, drawSlice, type View } from '../render';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const S = 30;                  // one cell, in board units
@@ -52,7 +52,7 @@ export class StripsSession implements PuzzleSession {
     const { sx, sy, sw, sh } = this.crop;
     const w = sw / this.picCols;
     const h = sh / this.picRows;
-    ctx.drawImage(this.init.source, sx + pc * w, sy + pr * h, w, h, dx, dy, S + 0.5, S + 0.5);
+    drawSlice(ctx, this.init.source, sx + pc * w, sy + pr * h, w, h, dx, dy, S, S);
   }
 
   draw(ctx: CanvasRenderingContext2D, view: View, now: number): boolean {

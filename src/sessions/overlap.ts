@@ -1,7 +1,7 @@
 import { generateOverlap, OverlapGame, STACKS } from '../core/overlap';
 import { Rng } from '../core/rng';
 import { makePattern } from './patterns';
-import { beginFrame, type View } from '../render';
+import { beginFrame, drawSlice, type View } from '../render';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const CELL = 50;
@@ -103,12 +103,12 @@ export class OverlapSession implements PuzzleSession {
     const { sx, sy, sw, sh } = this.crop;
     const w = sw / this.cols;
     const h = sh / this.rows;
-    ctx.drawImage(this.init.source, sx + cx * w, sy + cy * h, w, h, dx, dy, size + 0.5, size + 0.5);
+    drawSlice(ctx, this.init.source, sx + cx * w, sy + cy * h, w, h, dx, dy, size, size);
   }
 
   /** The bit of the empty board's pattern that lies over picture cell (cx, cy). */
   private patternImage(ctx: CanvasRenderingContext2D, cx: number, cy: number, dx: number, dy: number): void {
-    ctx.drawImage(this.pattern, cx * 2 * CELL, cy * 2 * CELL, 2 * CELL, 2 * CELL, dx, dy, CELL + 0.5, CELL + 0.5);
+    drawSlice(ctx, this.pattern, cx * 2 * CELL, cy * 2 * CELL, 2 * CELL, 2 * CELL, dx, dy, CELL, CELL);
   }
 
   /**
@@ -149,9 +149,8 @@ export class OverlapSession implements PuzzleSession {
     const gw = this.cols * CELL;
     const gh = this.rows * CELL;
     const grid = this.init.flag('grid');
-    // the board: dark where the picture does not show yet
-    ctx.fillStyle = '#100a08';
-    ctx.fillRect(this.gridX, this.gridY, gw, gh);
+    // the board: the empty board's pattern where the picture does not show yet
+    ctx.drawImage(this.pattern, this.gridX, this.gridY, gw, gh);                // the empty board, in one piece (no seams), then the revealed cells over it
     for (let cy = 0; cy < this.rows; cy++) {
       for (let cx = 0; cx < this.cols; cx++) {
         const i = cy * this.cols + cx;
@@ -168,8 +167,6 @@ export class OverlapSession implements PuzzleSession {
               running = true;
             } else this.flash.delete(i);
           }
-        } else {
-          this.patternImage(ctx, cx, cy, x, y);                    // (undimmed: a window tile shows exactly these colours)
         }
       }
     }

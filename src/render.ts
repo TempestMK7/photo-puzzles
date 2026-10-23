@@ -28,6 +28,17 @@ function lerpRect(a: Rect, b: Rect, t: number): Rect {
   return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, w: a.w + (b.w - a.w) * k, h: a.h + (b.h - a.h) * k };
 }
 
+/**
+ * Draws a source rectangle into a destination rectangle with a quarter-unit bleed on every side. The bleed hides the hairline gaps between neighbouring tiles at
+ * fractional pixel positions; the source rectangle grows by the same ratio, so the picture inside a tile stays exactly where it belongs (stretching only the
+ * destination would shift the content by up to half a pixel inside each tile, and diagonal lines would jump at every tile edge).
+ */
+export function drawSlice(ctx: CanvasRenderingContext2D, img: CanvasImageSource, sx: number, sy: number, sw: number, sh: number, dx: number, dy: number, dw: number, dh: number, bleed = 0.25): void {
+  const kx = sw / dw;
+  const ky = sh / dh;
+  ctx.drawImage(img, sx - bleed * kx, sy - bleed * ky, sw + 2 * bleed * kx, sh + 2 * bleed * ky, dx - bleed, dy - bleed, dw + 2 * bleed, dh + 2 * bleed);
+}
+
 /** Clears the canvas and sets the transform that maps board units to canvas pixels. */
 export function beginFrame(ctx: CanvasRenderingContext2D, view: View): void {
   const { canvas } = ctx;
