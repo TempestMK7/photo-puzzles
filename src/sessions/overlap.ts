@@ -8,6 +8,7 @@ const CELL = 50;
 const SLOT_W = 144;
 const SLOT_H = 130;
 const GAP = 18;
+const PIECE_Y = 6;             // a piece in a stack sits this far below the top of its slot, clear of the label under it
 const TAP = 6;                 // a press that moves less than this is a tap (it turns the piece)
 const FLASH_MS = 500;
 const WRONG_MS = 350;
@@ -218,7 +219,7 @@ export class OverlapSession implements PuzzleSession {
     ctx.fill();
     ctx.stroke();
     const top = g.top(s);
-    if (top >= 0 && !(this.held && this.held.id === top)) this.drawPiece(ctx, top, slot.x + 8, slot.y + 14);
+    if (top >= 0 && !(this.held && this.held.id === top)) this.drawPiece(ctx, top, slot.x + 8, slot.y + PIECE_Y);
     ctx.fillStyle = '#a8896a';
     ctx.font = '13px system-ui, sans-serif';
     ctx.textAlign = 'left';
@@ -278,7 +279,7 @@ export class OverlapSession implements PuzzleSession {
       ctx.shadowBlur = 14;
       ctx.shadowOffsetY = 6;
     }
-    this.drawPiece(ctx, h.id, box.x, box.y, box.cell ? 0.95 : 0.85, '#ffd84a');
+    this.drawPiece(ctx, h.id, box.x, box.y, 1, '#ffd84a');          // (full colour: a window tile looks the same held, in its stack and on the board)
     ctx.restore();
   }
 
@@ -304,7 +305,7 @@ export class OverlapSession implements PuzzleSession {
     }
     const top = g.top(s);
     const slot = this.slots[s];
-    if (top >= 0 && p.x >= slot.x + 8 && p.x < slot.x + 8 + 2 * CELL && p.y >= slot.y + 14 && p.y < slot.y + 14 + 2 * CELL) {
+    if (top >= 0 && p.x >= slot.x + 8 && p.x < slot.x + 8 + 2 * CELL && p.y >= slot.y + PIECE_Y && p.y < slot.y + PIECE_Y + 2 * CELL) {
       this.held = { id: top, stack: s, at: p, moved: false, start: p };
     }
     this.init.requestDraw();
