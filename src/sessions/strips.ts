@@ -1,5 +1,5 @@
 import { Rng } from '../core/rng';
-import { boxOf, generateStrips, MARGIN, pictureCells, StripsGame } from '../core/strips';
+import { boxOf, generateStrips, MARGIN, pictureSize, StripsGame } from '../core/strips';
 import { beginFrame, drawSlice, type View } from '../render';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
@@ -29,13 +29,12 @@ export class StripsSession implements PuzzleSession {
   private dwell = 0;
 
   constructor(private readonly init: SessionInit) {
-    const pic = pictureCells(init.width, init.height, init.opts.strips, init.opts.length);
+    const pic = pictureSize(init.width, init.height, init.opts.cells);
     this.picCols = pic.picCols;
     this.picRows = pic.picRows;
     const setup = generateStrips(new Rng(init.seed), {
       picCols: this.picCols,
       picRows: this.picRows,
-      strips: init.opts.strips,
       maxLen: init.opts.length,
       placed: init.opts.placed,
       tabs: init.opts.tabs,

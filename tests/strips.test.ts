@@ -1,31 +1,78 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../src/core/rng';
-import { boxOf, generateStrips, MARGIN, pictureCells, StripsGame } from '../src/core/strips';
+import { boxOf, generateStrips, MARGIN, pictureSize, StripsGame } from '../src/core/strips';
 
-const make = (seed: number, strips = 14, maxLen = 8, placed = 20, picCols = 16, picRows = 12, tabs = 3) =>
-  generateStrips(new Rng(seed), { picCols, picRows, strips, maxLen, placed, tabs });
+const make = (seed: number, picCols = 16, picRows = 11, maxLen = 8, placed = 20, tabs = 3) => generateStrips(new Rng(seed), { picCols, picRows, maxLen, placed, tabs });
+
+/** Which strips cover each picture cell. */
+function owners(s: ReturnType<typeof make>): number[][] {
+  const out: number[][] = Array.from({ length: s.picCols * s.picRows }, () => []);
+  for (const d of s.defs) {
+    const b = boxOf(d, 0);
+    for (let dy = 0; dy < b.h; dy++) for (let dx = 0; dx < b.w; dx++) out[(d.hy - MARGIN + dy) * s.picCols + d.hx - MARGIN + dx].push(d.id);
+  }
+  return out;
+}
+
+describe('pictureSize', () => {
+  it('gives the cells across and as many rows as the photo needs', () => {
+    expect(pictureSize(1200, 800, 16)).toEqual({ picCols: 16, picRows: 11 });
+    expect(pictureSize(800, 1200, 12)).toEqual({ picCols: 12, picRows: 18 });
+    expect(pictureSize(1000, 1000, 20)).toEqual({ picCols: 20, picRows: 20 });
+    expect(pictureSize(4000, 100, 10).picRows).toBeGreaterThanOrEqual(4);
+  });
+});
 
 describe('generateStrips', () => {
-  it('cuts strips of the allowed lengths inside the picture, none along another, and is reproducible', () => {
+  it('covers every cell of the picture, and every strip covers a cell that no other strip covers', () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      const picCols = 6 + (seed % 20);
+      const picRows = 5 + ((seed * 7) % 14);
+      const maxLen = 3 + (seed % 10);
+      const s = make(seed, picCols, picRows, maxLen);
+      const o = owners(s);
+      expect(o.every((ids) => ids.length >= 1)).toBe(true);
+      for (const d of s.defs) expect(o.some((ids) => ids.length === 1 && ids[0] === d.id)).toBe(true);
+    }
+  });
+
+  it('keeps strips inside the picture and between 3 cells and the longest allowed, and is reproducible', () => {
     for (let seed = 1; seed <= 30; seed++) {
       const maxLen = 3 + (seed % 9);
-      const s = make(seed, 6 + (seed % 20), maxLen);
-      expect(s.defs.length).toBeGreaterThan(3);
-      const owner = new Map<string, number[]>();
+      const s = make(seed, 16, 12, maxLen);
       for (const d of s.defs) {
         expect(d.len >= 3 && d.len <= maxLen).toBe(true);
         const b = boxOf(d, 0);
         expect(d.hx >= MARGIN && d.hy >= MARGIN && d.hx + b.w <= MARGIN + s.picCols && d.hy + b.h <= MARGIN + s.picRows).toBe(true);
-        for (let dy = 0; dy < b.h; dy++) {
-          for (let dx = 0; dx < b.w; dx++) {
-            const k = `${d.hx + dx},${d.hy + dy}`;
-            owner.set(k, [...(owner.get(k) ?? []), d.id]);
-          }
-        }
       }
-      for (const ids of owner.values()) if (ids.length > 1) expect(new Set(ids.map((i) => s.defs[i].horizontal)).size).toBe(ids.length);
-      expect(make(seed, 6 + (seed % 20), maxLen)).toEqual(s);
+      expect(make(seed, 16, 12, maxLen)).toEqual(s);
     }
+  });
+
+  it('works out how many strips it takes: more cells, more strips; longer strips, fewer', () => {
+    const count = (cols: number, rows: number, maxLen: number) => {
+      let total = 0;
+      for (let seed = 1; seed <= 8; seed++) total += make(seed, cols, rows, maxLen, 0).defs.length;
+      return total / 8;
+    };
+    expect(count(24, 16, 8)).toBeGreaterThan(count(12, 8, 8));
+    expect(count(20, 14, 12)).toBeLessThan(count(20, 14, 4));
+    expect(count(40, 27, 8)).toBeGreaterThan(60);
+  });
+
+  it('mostly keeps strips from lying along each other', () => {
+    let parallel = 0;
+    let pairs = 0;
+    for (let seed = 1; seed <= 10; seed++) {
+      const s = make(seed, 20, 14, 8);
+      for (const ids of owners(s)) {
+        if (ids.length < 2) continue;
+        pairs++;
+        if (new Set(ids.map((i) => s.defs[i].horizontal)).size < ids.length) parallel++;
+      }
+    }
+    expect(pairs).toBeGreaterThan(0);
+    expect(parallel / pairs).toBeLessThan(0.25);
   });
 
   it('puts loose strips inside the field and never already home; some start placed', () => {
@@ -43,36 +90,21 @@ describe('generateStrips', () => {
   });
 });
 
-describe('tabs and size', () => {
+describe('tabs', () => {
   it('spreads the loose strips over the tabs at random, none outside them', () => {
     for (const tabs of [1, 3, 10]) {
-      const s = make(11, 30, 8, 20, 22, 16, tabs);
+      const s = make(11, 22, 16, 8, 20, tabs);
       expect(s.tabs).toBe(tabs);
       const used = new Set(s.state.filter((st) => !st.locked).map((st) => st.tab));
       for (const t of used) expect(t >= 0 && t < tabs).toBe(true);
       if (tabs > 1) expect(used.size).toBeGreaterThan(1);
       else expect(used.size).toBe(1);
     }
-    expect(make(12, 30, 8, 20, 22, 16, 5)).toEqual(make(12, 30, 8, 20, 22, 16, 5));
-  });
-
-  it('a picture gets more cells as strips are added, and up to 100 strips fit', () => {
-    let last = 0;
-    for (const n of [6, 14, 30, 60, 100]) {
-      const p = pictureCells(1200, 800, n, 8);
-      const cells = p.picCols * p.picRows;
-      expect(cells).toBeGreaterThan(last);
-      last = cells;
-    }
-    expect(pictureCells(1200, 800, 14, 8)).toEqual({ picCols: 16, picRows: 11 });
-    expect(pictureCells(800, 1200, 14, 8)).toEqual({ picCols: 11, picRows: 16 });
-    const p = pictureCells(1200, 800, 100, 8);
-    const s = make(5, 100, 8, 20, p.picCols, p.picRows, 4);
-    expect(s.defs.length).toBeGreaterThanOrEqual(90);
+    expect(make(12, 22, 16, 8, 20, 5)).toEqual(make(12, 22, 16, 8, 20, 5));
   });
 
   it('only the strips of the tab being shown can be picked, and they can be moved to another tab', () => {
-    const g = new StripsGame(make(13, 20, 8, 0, 16, 12, 3));
+    const g = new StripsGame(make(13, 16, 12, 8, 0, 3));
     const id = g.defs.findIndex((_, i) => g.state[i].tab === 0);
     const s = g.state[id];
     expect(g.stripAt(s.x, s.y, 0)).not.toBe(-1);
@@ -87,7 +119,7 @@ describe('tabs and size', () => {
 describe('StripsGame', () => {
   it('can be solved: turn each strip to its home angle, put it on its home', () => {
     for (let seed = 1; seed <= 20; seed++) {
-      const g = new StripsGame(make(seed, 10 + (seed % 10)));
+      const g = new StripsGame(make(seed, 10 + (seed % 10), 8 + (seed % 5)));
       for (const d of g.defs) {
         if (g.state[d.id].locked) continue;
         while (g.state[d.id].angle !== 0) g.rotate(d.id);
@@ -124,20 +156,19 @@ describe('StripsGame', () => {
     g.state[id].angle = 0;
     g.moveTo(id, d.hx, d.hy);
     expect(g.lockIfHome(id)).toBe(true);
-    expect(g.stripAt(d.hx, d.hy)).not.toBe(id);
+    expect(g.stripAt(d.hx, d.hy, g.state[id].tab)).not.toBe(id);
     g.moveTo(id, 0, 0);
     expect(g.state[id].x).toBe(d.hx);
   });
 
   it('picks the front-most strip', () => {
-    const g = new StripsGame(make(10, 20, 8, 0));
-    g.moveTo(1, g.state[0].x, g.state[0].y);
+    const g = new StripsGame(make(10, 16, 12, 8, 0, 1));
     g.state[1].angle = g.state[0].angle;
     g.state[1].x = g.state[0].x;
     g.state[1].y = g.state[0].y;
     g.bringToFront(0);
-    expect(g.stripAt(g.state[0].x, g.state[0].y)).toBe(0);
+    expect(g.stripAt(g.state[0].x, g.state[0].y, 0)).toBe(0);
     g.bringToFront(1);
-    expect(g.stripAt(g.state[0].x, g.state[0].y)).toBe(1);
+    expect(g.stripAt(g.state[0].x, g.state[0].y, 0)).toBe(1);
   });
 });

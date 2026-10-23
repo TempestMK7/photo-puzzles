@@ -57,7 +57,7 @@ export const KINDS: readonly KindDef[] = [
     blurb: 'Strips cut out of the picture lie turned and scattered over tabs. Drag each back into its hole; tap a strip to turn it; drag one onto a tab to move it there.',
     available: true,
     options: [
-      { key: 'strips', label: 'Number of strips', min: 6, max: 100, def: 14 },
+      { key: 'cells', label: 'Cells across', min: 6, max: 40, def: 16 },
       { key: 'length', label: 'Longest strip', min: 3, max: 12, def: 8 },
       { key: 'tabs', label: 'Tabs', min: 1, max: 10, def: 3 },
       { key: 'placed', label: 'Placed at the start (%)', min: 0, max: 50, def: 20, step: 5 },

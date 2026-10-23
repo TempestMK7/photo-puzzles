@@ -28,7 +28,7 @@ export interface StripsOptions {
   /** Picture size in cells. */
   picCols: number;
   picRows: number;
-  strips: number;
+  /** The longest strip, in cells (the shortest is 3). */
   maxLen: number;
   /** Percent of the strips that are already in place at the start. */
   placed: number;
@@ -46,17 +46,78 @@ export interface StripsSetup {
   state: StripState[];
 }
 
+/** The picture's size in cells: `cells` across, as many rows as the photo's shape gives. */
+export function pictureSize(width: number, height: number, cells: number): { picCols: number; picRows: number } {
+  const picCols = Math.max(4, Math.round(cells));
+  const picRows = Math.min(80, Math.max(4, Math.round((picCols * height) / Math.max(1, width))));
+  return { picCols, picRows };
+}
+
+/** A strip as laid in the picture (cell coordinates inside the picture). */
+interface Cut {
+  x: number;
+  y: number;
+  len: number;
+  horizontal: boolean;
+}
+
 /**
- * The picture's size in cells: the more strips there are (and the longer they may be), the more cells there are, so that the strips keep covering about the same
- * share of the picture. 14 strips of up to 8 cells on a 3:2 photo give 16 x 11.
+ * Covers the whole picture with straight strips (1 x N cells, N from 3 to maxLen), so that every cell is covered and every strip covers at least one cell that no
+ * other strip covers (that cell is what makes the strip's place certain). Strips may cross; strips lying along each other are avoided where there is a choice.
+ * The number of strips is whatever that takes. Returns null when some cell could not be covered under these rules (the caller tries again).
  */
-export function pictureCells(width: number, height: number, strips: number, maxLen: number): { picCols: number; picRows: number } {
-  const longest = Math.max(3, maxLen);
-  const total = Math.max(60, (strips * (3 + longest)) / 2 / 0.45);
-  const aspect = Math.max(width, height) / Math.max(1, Math.min(width, height));
-  const long = Math.min(64, Math.max(10, longest + 2, Math.round(Math.sqrt(total * aspect))));
-  const short = Math.min(long, Math.max(6, Math.round(total / long)));
-  return width >= height ? { picCols: long, picRows: short } : { picCols: short, picRows: long };
+function coverPicture(rng: Rng, picCols: number, picRows: number, maxLen: number): Cut[] | null {
+  const owner: number[][] = Array.from({ length: picCols * picRows }, () => []);
+  const cuts: Cut[] = [];
+  const unique: number[] = [];
+  const order = Array.from({ length: picCols * picRows }, (_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = rng.below(i + 1);
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  for (const cell of order) {
+    if (owner[cell].length) continue;
+    const cx = cell % picCols;
+    const cy = Math.floor(cell / picCols);
+    const all: { cut: Cut; fresh: number; parallel: boolean }[] = [];
+    for (const horizontal of [true, false]) {
+      for (let len = 3; len <= maxLen; len++) {
+        for (let k = 0; k < len; k++) {
+          const x = horizontal ? cx - k : cx;
+          const y = horizontal ? cy : cy - k;
+          if (x < 0 || y < 0 || (horizontal ? x + len > picCols : x >= picCols) || (horizontal ? y >= picRows : y + len > picRows)) continue;
+          const lost = new Map<number, number>();                  // strips that would lose a cell that only they cover
+          let fresh = 0;
+          let parallel = false;
+          for (let i = 0; i < len; i++) {
+            const owners = owner[(horizontal ? y : y + i) * picCols + (horizontal ? x + i : x)];
+            if (!owners.length) fresh++;
+            if (owners.length === 1) lost.set(owners[0], (lost.get(owners[0]) ?? 0) + 1);
+            for (const o of owners) if (cuts[o].horizontal === horizontal) parallel = true;
+          }
+          let ok = fresh >= 1;
+          for (const [o, n] of lost) if (unique[o] - n < 1) ok = false;
+          if (ok) all.push({ cut: { x, y, len, horizontal }, fresh, parallel });
+        }
+      }
+    }
+    let pool = all.filter((c) => !c.parallel);                    // not along another strip, if that can be avoided
+    if (!pool.length) pool = all;
+    const half = pool.filter((c) => c.fresh * 2 >= c.cut.len);   // and covering mostly new cells, if that can be had
+    if (half.length) pool = half;
+    if (!pool.length) return null;
+    const { cut } = pool[rng.below(pool.length)];
+    const id = cuts.length;
+    cuts.push(cut);
+    unique.push(0);
+    for (let i = 0; i < cut.len; i++) {
+      const c = (cut.horizontal ? cut.y : cut.y + i) * picCols + (cut.horizontal ? cut.x + i : cut.x);
+      if (owner[c].length === 0) unique[id]++;
+      else if (owner[c].length === 1) unique[owner[c][0]]--;
+      owner[c].push(id);
+    }
+  }
+  return cuts;
 }
 
 /** Width and height in cells of a strip's box at a given turn. */
@@ -65,37 +126,16 @@ export function boxOf(def: StripDef, angle: number): { w: number; h: number } {
   return alongX ? { w: def.len, h: 1 } : { w: 1, h: def.len };
 }
 
-/** Cuts straight strips (1 x N cells) out of the picture - they may cross, never run along each other - and scatters them over the field turned at random. */
+/** Cuts the whole picture into overlapping straight strips (see coverPicture) and scatters them over the field, turned at random, on the tabs. */
 export function generateStrips(rng: Rng, o: StripsOptions): StripsSetup {
   const { picCols, picRows } = o;
   const cols = picCols + 2 * MARGIN;
   const rows = picRows + 2 * MARGIN;
   const maxLen = Math.max(3, Math.min(o.maxLen, Math.max(picCols, picRows)));
-  const owner: number[][] = Array.from({ length: picCols * picRows }, () => []);
-  const defs: StripDef[] = [];
-  for (let attempt = 0; attempt < 4000 + 200 * o.strips && defs.length < o.strips; attempt++) {
-    const horizontal = rng.below(2) === 0;
-    const len = 3 + rng.below(maxLen - 2);
-    const w = horizontal ? len : 1;
-    const h = horizontal ? 1 : len;
-    if (w > picCols || h > picRows) continue;
-    const x = rng.below(picCols - w + 1);
-    const y = rng.below(picRows - h + 1);
-    let ok = true;
-    let shared = 0;
-    for (let dy = 0; dy < h && ok; dy++) {
-      for (let dx = 0; dx < w; dx++) {
-        for (const other of owner[(y + dy) * picCols + x + dx]) {
-          shared++;
-          if (defs[other].horizontal === horizontal) ok = false;       // two strips along each other would be ambiguous
-        }
-      }
-    }
-    if (!ok || shared > 1) continue;
-    const id = defs.length;
-    defs.push({ id, len, horizontal, hx: MARGIN + x, hy: MARGIN + y });
-    for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) owner[(y + dy) * picCols + x + dx].push(id);
-  }
+  let cuts: Cut[] | null = null;
+  for (let attempt = 0; attempt < 40 && !cuts; attempt++) cuts = coverPicture(rng, picCols, picRows, maxLen);
+  if (!cuts) throw new Error('could not cut the picture into strips');
+  const defs: StripDef[] = cuts.map((c, id) => ({ id, len: c.len, horizontal: c.horizontal, hx: MARGIN + c.x, hy: MARGIN + c.y }));
   const tabs = Math.min(10, Math.max(1, Math.round(o.tabs)));
   const placedCount = Math.min(defs.length - 1, Math.round((defs.length * Math.min(50, Math.max(0, o.placed))) / 100));
   const state: StripState[] = defs.map((d, i) => {
