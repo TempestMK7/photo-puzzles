@@ -218,6 +218,16 @@ export class OverlapGame {
     return 'placed';
   }
 
+  /** Puts a piece on top of another stack (a piece dragged from one drawer to another). */
+  moveToStack(id: number, stack: number): void {
+    if (this.done[id] || stack < 0 || stack >= this.stacks.length) return;
+    for (const s of this.stacks) {
+      const i = s.indexOf(id);
+      if (i >= 0) s.splice(i, 1);
+    }
+    this.stacks[stack].push(id);
+  }
+
   private reveal(id: number): void {
     this.done[id] = true;
     this.homeCells(id).forEach((c, k) => {

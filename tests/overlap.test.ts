@@ -147,6 +147,22 @@ describe('OverlapGame', () => {
     throw new Error('no window piece found');
   });
 
+  it('a piece dragged to another drawer goes on top of it', () => {
+    const g = new OverlapGame(make(7, 8, 6, false, 0));
+    const from = 0;
+    const to = 1;
+    const id = g.top(from);
+    const n = g.stacks[to].length;
+    g.moveToStack(id, to);
+    expect(g.top(to)).toBe(id);
+    expect(g.stacks[to]).toHaveLength(n + 1);
+    expect(g.stacks[from]).not.toContain(id);
+    g.moveToStack(id, to);                                  // onto its own drawer: still once, still on top
+    expect(g.stacks[to].filter((x) => x === id)).toHaveLength(1);
+    expect(g.top(to)).toBe(id);
+    expect(g.stacks.flat()).toHaveLength(g.stacks.flat().length);
+  });
+
   it('cycling a stack moves the top piece to the bottom and back', () => {
     const g = new OverlapGame(make(6, 8, 6, false, 0));
     const before = [...g.stacks[0]];

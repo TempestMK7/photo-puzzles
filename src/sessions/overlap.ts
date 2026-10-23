@@ -206,8 +206,9 @@ export class OverlapSession implements PuzzleSession {
   private drawSlot(ctx: CanvasRenderingContext2D, s: number): void {
     const slot = this.slots[s];
     const g = this.game;
-    ctx.fillStyle = s === this.activeStack ? '#3a2519' : '#2a1b14';
-    ctx.strokeStyle = s === this.activeStack ? '#ffd84a' : '#6b4a36';
+    const target = this.held?.moved && this.slotAt(this.held.at) === s;          // a held piece is over this drawer
+    ctx.fillStyle = target ? '#4a2c1a' : s === this.activeStack ? '#3a2519' : '#2a1b14';
+    ctx.strokeStyle = target || s === this.activeStack ? '#ffd84a' : '#6b4a36';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.roundRect(slot.x + 1, slot.y + 1, SLOT_W - 2, SLOT_H - 2, 10);
@@ -326,7 +327,11 @@ export class OverlapSession implements PuzzleSession {
       g.rotate(h.id);
     } else {
       const box = this.heldBox(h);
-      if (box.cell) {
+      const drawer = this.slotAt(p);
+      if (drawer >= 0) {                                      // put down on a drawer (its own or another): the piece goes on top of it
+        g.moveToStack(h.id, drawer);
+        this.activeStack = drawer;
+      } else if (box.cell) {
         const before = [...g.revealed];
         if (g.drop(h.id, box.cell.x, box.cell.y) === 'placed') {
           const now = performance.now();
