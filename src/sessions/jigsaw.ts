@@ -1,4 +1,4 @@
-import { edgeSegments, JigsawGame, layoutJigsaw, reverseSegments, TAB_REACH, type JigsawLayout } from '../core/jigsaw';
+import { edgeSegments, JigsawGame, layoutJigsaw, reverseSegments, rotVec, TAB_REACH, type JigsawLayout } from '../core/jigsaw';
 import { Rng } from '../core/rng';
 import { beginFrame, type View } from '../render';
 import type { Pt, PuzzleSession, SessionInit } from './types';
@@ -6,6 +6,11 @@ import type { Pt, PuzzleSession, SessionInit } from './types';
 const WORLD_K = 4;             // the usable area is this many puzzles wide and high
 const SCATTER_K = 0.75;        // pieces start this far round the puzzle (in puzzle widths / heights), not all over the world
 const PAN_TAP = 3;
+const HOVER_MS = 500;           // how long pieces have to be held together to snap, when joining is on hover
+
+const SNAP_DRAG = 0;
+const SNAP_HOVER = 1;
+const SNAP_RELEASE = 2;
 
 /** The pieces, cut out of the picture once and laid side by side on one canvas (the "atlas"), so that drawing a piece is a single drawImage. */
 interface Atlas {
@@ -100,11 +105,13 @@ function snapshot(init: SessionInit): HTMLCanvasElement {
 /**
  * Jigsaw: pieces with tabs and blanks lie scattered round the frame of the picture. Drag them (left button); a piece put next to a piece it belongs beside joins it, and
  * joined pieces move as one; anything that joins a corner piece becomes part of the finished picture. The mouse wheel (and the control at the bottom right) zooms, the right
- * button (or the left one, on bare ground) pans.
+ * button (or the left one, on bare ground) pans. With turning on the pieces start turned in quarter turns: a click selects a piece, and the right button (or R) turns the
+ * piece being dragged or the selected one; pieces only join when turned the same way (the picture only takes upright pieces). The "joining" option says when a piece that lies
+ * right against one it fits joins it: as soon as it does, once it has been held there for a moment, or when it is let go.
  */
 export class JigsawSession implements PuzzleSession {
   readonly toggles = [];
-  readonly rotatable = false;
+  readonly rotatable: boolean;
   readonly stillSource = true;
   private layout_: JigsawLayout;
   private game: JigsawGame;
@@ -118,13 +125,23 @@ export class JigsawSession implements PuzzleSession {
   private canvasH = 0;
   private fitZoom = 1;
   private inited = false;
-  private drag: { gid: number; gx: number; gy: number; moved: boolean } | null = null;
-  private pan: { anchor: Pt; moved: boolean } | null = null;
+  private readonly turning: boolean;
+  private readonly snap: number;
+  /** The dragged group, the solved-picture point it is held by, where the pointer is (relative to the frame), and whether it has been moved or turned. */
+  private drag: { gid: number; px: number; py: number; qx: number; qy: number; moved: boolean } | null = null;
+  private pan: { anchor: Pt; moved: boolean; deselect: boolean } | null = null;
+  private rightClick = false;                 // the right button is down and has not moved the camera: letting go turns the selected piece
+  private sel = -1;                           // a piece of the selected group
+  private hover = 0;                          // 0, or the timer of a join that is waiting for its half second
+  private hovering = false;
   private flash = new Set<number>();
   private flashStart = 0;
 
   constructor(private readonly init: SessionInit) {
     const rng = new Rng(init.seed);
+    this.turning = init.opts.turning === 1;
+    this.snap = init.opts.snap ?? SNAP_DRAG;
+    this.rotatable = this.turning;
     const img = snapshot(init);
     this.layout_ = layoutJigsaw(rng, img.width, img.height, init.opts.pieces);
     const l = this.layout_;
@@ -149,7 +166,10 @@ export class JigsawSession implements PuzzleSession {
         const onFrame = x + l.size > this.frameX && x < this.frameX + puzzleW && y + l.size > this.frameY && y < this.frameY + puzzleH;
         if (!onFrame) break;
       }
-      return { dx: x - (this.frameX + c * l.size), dy: y - (this.frameY + r * l.size) };
+      const rot = this.turning ? rng.below(4) : 0;
+      // the piece's cell centre, turned, lies at the chosen spot
+      const [cx, cy] = rotVec(rot, (c + 0.5) * l.size, (r + 0.5) * l.size);
+      return { rot, dx: x + l.size / 2 - this.frameX - cx, dy: y + l.size / 2 - this.frameY - cy };
     });
   }
 
@@ -261,20 +281,38 @@ export class JigsawSession implements PuzzleSession {
     const y0 = -view.oy / view.scale;
     const x1 = (this.canvasW - view.ox) / view.scale;
     const y1 = (this.canvasH - view.oy) / view.scale;
-    const drawGroup = (atlas: HTMLCanvasElement, members: number[], dx: number, dy: number): void => {
-      for (const m of members) {
+    const half = tile * 0.75;
+    const drawGroup = (atlas: HTMLCanvasElement, grp: { members: number[]; rot: number; dx: number; dy: number }): void => {
+      for (const m of grp.members) {
         const c = m % l.cols;
         const r = Math.floor(m / l.cols);
-        const wx = this.frameX + c * l.size + dx - pad;
-        const wy = this.frameY + r * l.size + dy - pad;
-        if (wx > x1 || wy > y1 || wx + tile < x0 || wy + tile < y0) continue;
-        ctx.drawImage(atlas, c * pitch + 1, r * pitch + 1, tile, tile, wx, wy, tile, tile);
+        const [rx, ry] = rotVec(grp.rot, (c + 0.5) * l.size, (r + 0.5) * l.size);
+        const cx = this.frameX + grp.dx + rx;
+        const cy = this.frameY + grp.dy + ry;
+        if (cx - half > x1 || cy - half > y1 || cx + half < x0 || cy + half < y0) continue;
+        const o = l.size / 2 + pad;
+        if (grp.rot === 0) ctx.drawImage(atlas, c * pitch + 1, r * pitch + 1, tile, tile, cx - o, cy - o, tile, tile);
+        else {
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.rotate((grp.rot * Math.PI) / 2);
+          ctx.drawImage(atlas, c * pitch + 1, r * pitch + 1, tile, tile, -o, -o, tile, tile);
+          ctx.restore();
+        }
       }
     };
-    for (const grp of g.groups.values()) if (grp.anchored) drawGroup(plain, grp.members, 0, 0);
+    for (const grp of g.groups.values()) if (grp.anchored) drawGroup(plain, grp);
+    const selId = this.selectedGroup();
     for (const id of g.z) {
       const grp = g.groups.get(id)!;
-      drawGroup(lit, grp.members, grp.dx, grp.dy);
+      if (id === selId) {                                         // a glow round the selected group: drawn under it, and over again by the pieces themselves
+        ctx.shadowColor = this.hovering ? '#8cff9a' : '#ffd84a';
+        ctx.shadowBlur = 16;
+        drawGroup(lit, grp);
+        ctx.shadowBlur = 0;
+        ctx.shadowColor = 'transparent';
+      }
+      drawGroup(lit, grp);
     }
     // a moment's glow where pieces have just joined the picture
     let running = false;
@@ -301,15 +339,25 @@ export class JigsawSession implements PuzzleSession {
     return Math.min(0.5 * s, Math.max(0.2 * s, 10 / this.cam.zoom));
   }
 
+  /** The selected group, or -1 (none selected, or it has become part of the picture). */
+  private selectedGroup(): number {
+    if (this.sel < 0) return -1;
+    const id = this.game.groupOf[this.sel];
+    return this.game.groups.get(id)!.anchored ? -1 : id;
+  }
+
   pointerDown(p: Pt): void {
     const gid = this.game.groupAt(p.x - this.frameX, p.y - this.frameY);
     if (gid < 0) {
-      this.pan = { anchor: p, moved: false };
+      this.pan = { anchor: p, moved: false, deselect: true };
       return;
     }
     const grp = this.game.groups.get(gid)!;
     this.game.bringToFront(gid);
-    this.drag = { gid, gx: p.x - this.frameX - grp.dx, gy: p.y - this.frameY - grp.dy, moved: false };
+    this.sel = grp.members[0];
+    const q = this.world(p);
+    const [px, py] = this.game.toSolved(grp, q.x - this.frameX, q.y - this.frameY);
+    this.drag = { gid, px, py, qx: q.x - this.frameX, qy: q.y - this.frameY, moved: false };
     this.init.requestDraw();
   }
 
@@ -321,28 +369,43 @@ export class JigsawSession implements PuzzleSession {
     const d = this.drag;
     if (!d) return;
     const q = this.world(p);
-    this.game.moveTo(d.gid, q.x - this.frameX - d.gx, q.y - this.frameY - d.gy);
+    d.qx = q.x - this.frameX;
+    d.qy = q.y - this.frameY;
+    this.placeDragged();
     d.moved = true;
-    this.settle(d.gid);                                           // against the right neighbour: it joins, without letting go
+    this.snapCheck();
     this.init.requestDraw();
+  }
+
+  /** Puts the dragged group where the pointer holds it, whatever its turn. */
+  private placeDragged(): void {
+    const d = this.drag!;
+    const grp = this.game.groups.get(d.gid)!;
+    const [rx, ry] = rotVec(grp.rot, d.px, d.py);
+    this.game.moveTo(d.gid, d.qx - rx, d.qy - ry);
   }
 
   pointerUp(): void {
     const d = this.drag;
-    if (d && d.moved) this.settle(d.gid);
+    this.cancelHover();
+    if (d && d.moved && this.snap === SNAP_RELEASE) this.settle(d.gid);
+    if (this.pan?.deselect && !this.pan.moved) this.sel = -1;      // a click on bare ground
     this.drag = null;
     this.pan = null;
     this.init.requestDraw();
   }
 
   pointerCancel(): void {
+    this.cancelHover();
     this.drag = null;
     this.pan = null;
+    this.rightClick = false;
   }
 
   rightDown(p: Pt): void {
-    if (this.game.groupAt(p.x - this.frameX, p.y - this.frameY) >= 0) return;       // on a piece: the right button does nothing
-    this.pan = { anchor: p, moved: false };
+    this.rightClick = true;
+    if (this.game.groupAt(p.x - this.frameX, p.y - this.frameY) >= 0) return;       // on a piece: it does not move the camera
+    this.pan = { anchor: p, moved: false, deselect: false };
   }
 
   rightMove(p: Pt): void {
@@ -350,6 +413,8 @@ export class JigsawSession implements PuzzleSession {
   }
 
   rightUp(): void {
+    if (this.rightClick && !this.pan?.moved) this.secondary();     // a right click, not a right drag: turn the selected piece
+    this.rightClick = false;
     this.pan = null;
   }
 
@@ -363,7 +428,55 @@ export class JigsawSession implements PuzzleSession {
     this.init.requestDraw();
   }
 
-  /** Joins the dragged group to whatever it now lies right against; if it joined something the drag ends there. */
+  /** Turn the piece in hand, or the selected one, a quarter turn clockwise (right click, R, the Rotate button). */
+  secondary(): void {
+    if (!this.turning) return;
+    const g = this.game;
+    const d = this.drag;
+    if (d && g.groups.has(d.gid)) {
+      g.rotate(d.gid, d.qx, d.qy);                                // about the pointer, so the piece stays in hand
+      const grp = g.groups.get(d.gid)!;
+      [d.px, d.py] = g.toSolved(grp, d.qx, d.qy);
+      d.moved = true;
+      this.snapCheck();
+    } else {
+      const id = this.selectedGroup();
+      if (id < 0) return;
+      const [cx, cy] = g.centre(id);
+      g.rotate(id, cx, cy);
+      if (this.snap === SNAP_DRAG) this.settle(id);
+    }
+    this.init.requestDraw();
+  }
+
+  /** After the dragged group has moved or turned: join it now, start waiting to join it, or leave it for when it is let go. */
+  private snapCheck(): void {
+    const d = this.drag;
+    if (!d) return;
+    if (this.snap === SNAP_DRAG) this.settle(d.gid);
+    else if (this.snap === SNAP_HOVER) {
+      if (!this.game.canJoin(d.gid, this.tolerance())) this.cancelHover();
+      else if (!this.hover) {
+        this.hovering = true;
+        this.hover = window.setTimeout(() => {
+          this.hover = 0;
+          const cur = this.drag;
+          if (cur && this.game.canJoin(cur.gid, this.tolerance())) this.settle(cur.gid);
+          this.hovering = false;
+          this.init.requestDraw();
+          this.init.progress?.();
+        }, HOVER_MS);
+      }
+    }
+  }
+
+  private cancelHover(): void {
+    if (this.hover) window.clearTimeout(this.hover);
+    this.hover = 0;
+    this.hovering = false;
+  }
+
+  /** Joins the group to whatever it now lies right against (turned the same way); if it was being dragged, the drag ends there. */
   private settle(gid: number): void {
     const g = this.game;
     if (!g.groups.has(gid)) return;
@@ -371,14 +484,14 @@ export class JigsawSession implements PuzzleSession {
     const wasAnchored = g.anchoredCount;
     const res = g.connect(gid, this.tolerance());
     if (res.joins === 0) return;
-    this.drag = null;
+    this.cancelHover();
+    if (this.drag?.gid === gid) this.drag = null;
     if (g.anchoredCount > wasAnchored) {
       this.flash = before;
       this.flashStart = performance.now();
+      if (this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
     }
   }
-
-  secondary(): void {}
 
   status(): string {
     return `${this.game.anchoredCount} / ${this.game.count} placed`;

@@ -10,6 +10,8 @@ export interface OptionDef {
   step?: number;
   /** Shown as a check box (0 / 1) instead of a slider. */
   toggle?: boolean;
+  /** Shown as a list of named choices (the value is the index; min 0, max the last). */
+  choices?: string[];
   /** A way of showing the puzzle, not a difficulty: it does not start a new best-time record. */
   display?: boolean;
 }
@@ -67,9 +69,13 @@ export const KINDS: readonly KindDef[] = [
   {
     id: 'jigsaw',
     name: 'Jigsaw',
-    blurb: 'Classic interlocking pieces on a huge table. The corners are in place; join pieces to them and to each other. Wheel to zoom, right-drag to move.',
+    blurb: 'Classic interlocking pieces on a huge table. The corners are in place; join pieces to them and to each other. Wheel to zoom, right-drag to move. Click a piece to select it; right-click (or R) turns it when turning is on.',
     available: true,
-    options: [{ key: 'pieces', label: 'Approximate pieces', min: 100, max: 5000, def: 300, step: 100 }],
+    options: [
+      { key: 'pieces', label: 'Approximate pieces', min: 100, max: 5000, def: 300, step: 100 },
+      { key: 'turning', label: 'Turned pieces', min: 0, max: 1, def: 0, toggle: true },
+      { key: 'snap', label: 'Joining pieces', min: 0, max: 2, def: 0, choices: ['Snap while dragging', 'Snap when held together', 'Snap on release'] },
+    ],
   },
   { id: 'sliding', name: 'Sliding Tiles', blurb: 'Slide the tiles into the empty space.', available: false, options: [] },
 ];

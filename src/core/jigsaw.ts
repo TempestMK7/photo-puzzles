@@ -6,8 +6,23 @@ import type { Rng } from './rng';
  * (part of the finished picture, fixed in place). The four corner pieces start anchored; a loose group that is put next to a piece it belongs beside joins that
  * piece's group, and a group that joins an anchored one becomes anchored itself.
  *
- * Positions are kept as offsets from the solved position, in picture pixels: a group with offset (0, 0) is where it belongs.
+ * A group lies on the table turned by `rot` quarter turns (clockwise) and moved by (dx, dy): a point p of the solved picture (relative to its top-left corner) is at
+ * R(rot) p + (dx, dy). A group with rot 0 and offset (0, 0) is where it belongs. Only groups turned the same way can fit together.
  */
+
+/** A vector turned `rot` quarter turns clockwise (y points down). */
+export function rotVec(rot: number, x: number, y: number): [number, number] {
+  switch (((rot % 4) + 4) % 4) {
+    case 1:
+      return [-y, x];
+    case 2:
+      return [-x, -y];
+    case 3:
+      return [y, -x];
+    default:
+      return [x, y];
+  }
+}
 
 /** The shape of one tab / blank, shared by the two pieces that meet at the edge. */
 export interface Edge {
@@ -109,7 +124,8 @@ export function reverseSegments(segs: Seg[]): Seg[] {
 export interface Group {
   id: number;
   members: number[];
-  /** Offset from the solved position, in picture pixels. */
+  /** Quarter turns clockwise (0-3) and offset, in picture pixels: see above. */
+  rot: number;
   dx: number;
   dy: number;
   /** Part of the finished picture: fixed at offset (0, 0). */
@@ -127,8 +143,8 @@ export class JigsawGame {
   readonly z: number[] = [];
   private nextId = 0;
 
-  /** `start(i)` gives the offset of piece i's group when the puzzle begins; the four corners ignore it and start anchored. */
-  constructor(layout: JigsawLayout, start: (piece: number) => { dx: number; dy: number }) {
+  /** `start(i)` gives the turn (none, if left out) and offset of piece i's group when the puzzle begins; the four corners ignore it and start anchored. */
+  constructor(layout: JigsawLayout, start: (piece: number) => { dx: number; dy: number; rot?: number }) {
     this.cols = layout.cols;
     this.rows = layout.rows;
     this.size = layout.size;
@@ -137,8 +153,8 @@ export class JigsawGame {
     const corners = new Set([0, this.cols - 1, (this.rows - 1) * this.cols, this.count - 1]);
     for (let i = 0; i < this.count; i++) {
       const anchored = corners.has(i);
-      const o = anchored ? { dx: 0, dy: 0 } : start(i);
-      const g: Group = { id: this.nextId++, members: [i], dx: o.dx, dy: o.dy, anchored };
+      const o = anchored ? { dx: 0, dy: 0, rot: 0 } : start(i);
+      const g: Group = { id: this.nextId++, members: [i], rot: o.rot ?? 0, dx: o.dx, dy: o.dy, anchored };
       this.groups.set(g.id, g);
       this.groupOf[i] = g.id;
       if (!anchored) this.z.push(g.id);
@@ -161,8 +177,9 @@ export class JigsawGame {
   groupAt(px: number, py: number): number {
     for (let i = this.z.length - 1; i >= 0; i--) {
       const g = this.groups.get(this.z[i])!;
-      const c = Math.floor((px - g.dx) / this.size);
-      const r = Math.floor((py - g.dy) / this.size);
+      const [sx, sy] = rotVec(4 - g.rot, px - g.dx, py - g.dy);       // back into the solved picture
+      const c = Math.floor(sx / this.size);
+      const r = Math.floor(sy / this.size);
       if (c >= 0 && r >= 0 && c < this.cols && r < this.rows && this.groupOf[r * this.cols + c] === g.id) return g.id;
     }
     return -1;
@@ -184,6 +201,55 @@ export class JigsawGame {
     }
   }
 
+  /** The solved-picture point that lies at table point (px, py) when the group is where it is. */
+  toSolved(g: Group, px: number, py: number): [number, number] {
+    return rotVec(4 - g.rot, px - g.dx, py - g.dy);
+  }
+
+  /** Turns a loose group a quarter turn clockwise about the table point (px, py), which stays where it is. */
+  rotate(id: number, px: number, py: number): void {
+    const g = this.groups.get(id);
+    if (!g || g.anchored) return;
+    const [sx, sy] = this.toSolved(g, px, py);
+    g.rot = (g.rot + 1) % 4;
+    const [rx, ry] = rotVec(g.rot, sx, sy);
+    g.dx = px - rx;
+    g.dy = py - ry;
+  }
+
+  /** The middle of the group, as a table point. */
+  centre(id: number): [number, number] {
+    const g = this.groups.get(id)!;
+    let sx = 0;
+    let sy = 0;
+    for (const m of g.members) {
+      sx += ((m % this.cols) + 0.5) * this.size;
+      sy += (Math.floor(m / this.cols) + 0.5) * this.size;
+    }
+    const [rx, ry] = rotVec(g.rot, sx / g.members.length, sy / g.members.length);
+    return [g.dx + rx, g.dy + ry];
+  }
+
+  /** Whether some other group lies right against group `id`, turned the same way (it would join if `connect` were called). */
+  canJoin(id: number, tol: number): boolean {
+    const g = this.groups.get(id);
+    return !!g && this.neighbour(g, tol) !== null;
+  }
+
+  private neighbour(g: Group, tol: number): Group | null {
+    for (const m of g.members) {
+      const c = m % this.cols;
+      const r = Math.floor(m / this.cols);
+      for (const [nc, nr] of [[c - 1, r], [c + 1, r], [c, r - 1], [c, r + 1]]) {
+        if (nc < 0 || nr < 0 || nc >= this.cols || nr >= this.rows) continue;
+        const other = this.groups.get(this.groupOf[nr * this.cols + nc]);
+        if (!other || other.id === g.id || other.rot !== g.rot) continue;
+        if (Math.abs(g.dx - other.dx) <= tol && Math.abs(g.dy - other.dy) <= tol) return other;
+      }
+    }
+    return null;
+  }
+
   /**
    * Joins group `id` to every neighbouring group it lies right against (within `tol` picture pixels of the offset that would make them fit), over and over until
    * nothing more joins. Returns the id of the group that now holds it (the group may have been absorbed) and how many joins happened.
@@ -195,21 +261,11 @@ export class JigsawGame {
       again = false;
       const g = this.groups.get(cur);
       if (!g) break;
-      for (const m of g.members) {
-        const c = m % this.cols;
-        const r = Math.floor(m / this.cols);
-        for (const [nc, nr] of [[c - 1, r], [c + 1, r], [c, r - 1], [c, r + 1]]) {
-          if (nc < 0 || nr < 0 || nc >= this.cols || nr >= this.rows) continue;
-          const other = this.groups.get(this.groupOf[nr * this.cols + nc]);
-          if (!other || other.id === g.id) continue;
-          if (Math.abs(g.dx - other.dx) <= tol && Math.abs(g.dy - other.dy) <= tol) {
-            cur = this.merge(g, other).id;
-            joins++;
-            again = true;
-            break;
-          }
-        }
-        if (again) break;
+      const other = this.neighbour(g, tol);
+      if (other) {
+        cur = this.merge(g, other).id;
+        joins++;
+        again = true;
       }
     }
     return { id: cur, joins };
@@ -224,9 +280,10 @@ export class JigsawGame {
   private merge(a: Group, b: Group): Group {
     const [big, small] = a.members.length >= b.members.length ? [a, b] : [b, a];
     const anchored = a.anchored || b.anchored;
-    const at = anchored ? { dx: 0, dy: 0 } : { dx: b.dx, dy: b.dy };
+    const at = anchored ? { dx: 0, dy: 0, rot: 0 } : { dx: b.dx, dy: b.dy, rot: b.rot };
     for (const m of small.members) this.groupOf[m] = big.id;
     big.members.push(...small.members);
+    big.rot = at.rot;
     big.dx = at.dx;
     big.dy = at.dy;
     big.anchored = anchored;

@@ -25,6 +25,8 @@ export interface SessionInit {
   requestDraw(): void;
   /** The session changed the tab by itself (a dragged piece rested on a tab): the tab bar should be refreshed. */
   tabsChanged?(): void;
+  /** The session changed the game by itself, not because of a pointer event (a timer): the progress text and the end of the puzzle should be looked at again. */
+  progress?(): void;
 }
 
 /** One puzzle being played. The play screen owns the canvas, the clock and the dialogs; a session owns the rules, the layout and the drawing. */

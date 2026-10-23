@@ -207,6 +207,18 @@ export class LibraryScreen {
             h('span', {}, o.label),
           );
         }
+        if (o.choices) {
+          return h(
+            'label',
+            { class: 'field' },
+            h('span', {}, o.label),
+            h(
+              'select',
+              { onchange: (ev: Event) => this.setOption(key, Number((ev.target as HTMLSelectElement).value)) },
+              ...o.choices.map((name, i) => h('option', { value: String(i), selected: i === v }, name)),
+            ),
+          );
+        }
         const out = h('output', {}, String(v));
         return h(
           'label',

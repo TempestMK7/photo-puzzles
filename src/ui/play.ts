@@ -230,6 +230,7 @@ export class PlayScreen {
       flag: (key) => this.flag(key),
       requestDraw: () => this.requestDraw(),
       tabsChanged: () => this.refreshTabs(),
+      progress: () => this.after(),
     });
     this.buildToggles();
     this.buildTabs();

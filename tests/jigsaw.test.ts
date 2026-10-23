@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { edgeSegments, JigsawGame, layoutJigsaw, reverseSegments, TAB_REACH, type JigsawLayout } from '../src/core/jigsaw';
+import { edgeSegments, JigsawGame, layoutJigsaw, reverseSegments, rotVec, TAB_REACH, type JigsawLayout } from '../src/core/jigsaw';
 import { Rng } from '../src/core/rng';
 
 const layout = (seed = 1, w = 1200, h = 800, target = 100): JigsawLayout => layoutJigsaw(new Rng(seed), w, h, target);
@@ -162,5 +162,74 @@ describe('JigsawGame', () => {
     expect(g.solved).toBe(true);
     expect(g.groups.size).toBe(1);
     expect(g.z).toHaveLength(0);
+  });
+});
+
+describe('turned pieces', () => {
+  it('turns vectors clockwise, a quarter at a time', () => {
+    expect(rotVec(0, 3, 1)).toEqual([3, 1]);
+    expect(rotVec(1, 1, 0)).toEqual([-0, 1]);
+    expect(rotVec(2, 3, 1)).toEqual([-3, -1]);
+    expect(rotVec(3, 1, 0)).toEqual([0, -1]);
+    expect(rotVec(5, 3, 1)).toEqual(rotVec(1, 3, 1));
+  });
+
+  it('turns a group about a point that stays where it is, and four turns bring it back', () => {
+    const l = layout(13, 1200, 800, 300);
+    const g = new JigsawGame(l, () => ({ dx: 400, dy: 300, rot: 2 }));
+    const id = g.groupOf[7 + 2 * l.cols];
+    const grp = g.groups.get(id)!;
+    const px = 450;
+    const py = 330;
+    const [sx, sy] = g.toSolved(grp, px, py);
+    g.rotate(id, px, py);
+    expect(grp.rot).toBe(3);
+    const [tx, ty] = g.toSolved(grp, px, py);
+    expect([tx, ty]).toEqual([sx, sy]);
+    const start = { ...grp };
+    for (let i = 0; i < 4; i++) g.rotate(id, 10, 20);
+    expect(grp.rot).toBe(start.rot);
+    expect(grp.dx).toBeCloseTo(start.dx);
+    expect(grp.dy).toBeCloseTo(start.dy);
+  });
+
+  it('finds a turned piece where it is drawn', () => {
+    const l = layout(14, 1200, 800, 300);
+    const g = new JigsawGame(l, () => ({ dx: 600, dy: 500, rot: 1 }));
+    const p = 5 + 3 * l.cols;
+    const id = g.groupOf[p];
+    // the centre of cell p, turned a quarter about the group's offset
+    const [cx, cy] = rotVec(1, ((p % l.cols) + 0.5) * l.size, (Math.floor(p / l.cols) + 0.5) * l.size);
+    expect(g.groupAt(600 + cx, 500 + cy)).toBe(id);
+    expect(g.groupAt(600 + cx + l.size, 500 + cy)).not.toBe(id);
+    const c = g.centre(id);
+    expect(c[0]).toBeCloseTo(600 + cx);
+    expect(c[1]).toBeCloseTo(500 + cy);
+  });
+
+  it('pieces only join when they are turned the same way, and the board only takes pieces turned upright', () => {
+    const l = layout(15, 1200, 800, 300);
+    const g = new JigsawGame(l, scatter);
+    const a = g.groupOf[1];
+    g.moveTo(a, 1, 1);
+    g.groups.get(a)!.rot = 1;
+    expect(g.canJoin(a, 8)).toBe(false);
+    expect(g.connect(a, 8).joins).toBe(0);
+    g.groups.get(a)!.rot = 0;
+    expect(g.canJoin(a, 8)).toBe(true);
+    expect(g.connect(a, 8).joins).toBe(1);
+    expect(g.groups.get(g.groupOf[1])!.anchored).toBe(true);
+    // two loose pieces: same offset, one turned
+    const p = 5 + l.cols * 3;
+    const gp = g.groupOf[p];
+    const gq = g.groupOf[p + 1];
+    g.moveTo(gp, 100, 100);
+    g.moveTo(gq, 100, 100);
+    g.groups.get(gq)!.rot = 3;
+    expect(g.connect(gq, 8).joins).toBe(0);
+    g.rotate(gq, 100, 100);
+    g.moveTo(gq, 100, 100);
+    expect(g.groups.get(gq)!.rot).toBe(0);
+    expect(g.connect(gq, 8).joins).toBe(1);
   });
 });

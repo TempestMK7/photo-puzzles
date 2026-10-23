@@ -75,6 +75,7 @@ input[type='text'] {
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--dim); }
 .field.check { flex-direction: row; align-items: center; gap: 8px; color: var(--text); }
 .field input[type='range'] { width: 100%; accent-color: var(--accent); }
+.field select { font: inherit; padding: 5px 8px; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; }
 .field output { color: var(--text); font-weight: 600; }
 .side .spacer { flex: 1; min-height: 4px; }
 .side .note { min-height: 1.2em; font-size: 12px; color: var(--accent2); text-align: center; }

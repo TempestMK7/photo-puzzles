@@ -30,6 +30,10 @@ Playable now:
   direction. Put a loose piece against a piece it belongs beside and it joins it - the moment it is close enough, even before you let go - and joined pieces move as one; anything
   that joins a solved piece becomes part of the picture. The mouse wheel (or the control at the bottom right: -, the zoom, +; click the zoom to show everything) zooms about the
   pointer; the right button - or the left one on bare ground - moves the camera (two fingers zoom and move it on a touch screen). A video is frozen at its current picture.
+  Two more options: **Turned pieces** (loose pieces start turned by quarter turns; click a piece to select it - it glows - and right-click, R or the Rotate button turns the selected
+  piece, or the one in your hand when you right-click while dragging it; pieces only join when turned the same way, and only upright pieces join the picture) and **Joining pieces**,
+  how eagerly pieces that lie against one they fit join it: *snap while dragging* (as soon as they touch, even before you let go), *snap when held together* (the piece has to
+  stay there, held, for half a second - the glow turns green while it waits) or *snap on release* (only when you let go with the pieces together).
 
 In Overlap and Strips a tap on a piece turns it a quarter turn (so does the right button, a second finger, the R key or the Rotate button). Grid lines can be switched off
 in the types that have them. Listed as "soon": Sliding Tiles.
