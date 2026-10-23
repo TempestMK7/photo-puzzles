@@ -273,9 +273,11 @@ export class OverlapSession implements PuzzleSession {
     if (!h || !h.moved) return;
     const box = this.heldBox(h);
     ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.6)';
-    ctx.shadowBlur = 14;
-    ctx.shadowOffsetY = 6;
+    if (this.init.flag('grid')) {                                  // (with the grid off the held piece has no shadow either)
+      ctx.shadowColor = 'rgba(0,0,0,0.6)';
+      ctx.shadowBlur = 14;
+      ctx.shadowOffsetY = 6;
+    }
     this.drawPiece(ctx, h.id, box.x, box.y, box.cell ? 0.95 : 0.85, '#ffd84a');
     ctx.restore();
   }
