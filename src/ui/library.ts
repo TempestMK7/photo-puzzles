@@ -31,7 +31,10 @@ export class LibraryScreen {
   private seedInput = h('input', { type: 'text', class: 'seed', maxLength: 12, spellcheck: false, 'aria-label': 'Seed' });
   private noteEl = h('div', { class: 'note', 'aria-live': 'polite' });
   private playBtn = h('button', { type: 'button', class: 'primary', onclick: () => this.play() }, 'Play');
-  private removeBtn = h('button', { type: 'button', onclick: () => void this.removeSelected() }, 'Remove photo');
+  private footEl = h('div', { class: 'pfoot' });
+  /** Taking photos out: not at all, choosing which ones, or asking whether to go ahead with the ones chosen. */
+  private removing: 'no' | 'choose' | 'sure' = 'no';
+  private marked = new Set<string>();
   private fileInput = h('input', { type: 'file', accept: 'image/*,video/*,.webm,.mp4,.m4v,.mov', multiple: true, hidden: true, onchange: () => this.filesChosen() });
   private noteTimer = 0;
 
@@ -50,7 +53,7 @@ export class LibraryScreen {
       h(
         'div',
         { class: 'main' },
-        h('aside', { class: 'photos' }, this.listEl),
+        h('aside', { class: 'photos' }, this.listEl, this.footEl),
         h('section', { class: 'preview' }, h('div', { class: 'frame' }, this.previewImg, this.previewVideo), this.nameEl, this.bestEl, this.blurbEl),
         h(
           'aside',
@@ -64,8 +67,6 @@ export class LibraryScreen {
           ),
           this.optionsEl,
           h('div', { class: 'spacer' }),
-          h('button', { type: 'button', onclick: () => this.fileInput.click() }, 'Add photos…'),
-          this.removeBtn,
           this.noteEl,
           this.playBtn,
         ),
@@ -74,15 +75,18 @@ export class LibraryScreen {
     );
     this.listEl.addEventListener('keydown', (e) => this.listKey(e));
     this.buildKinds();
+    this.renderFoot();
   }
 
   /** Reads the photo list again (after adding / removing) and shows it. */
   async refresh(selectId?: string): Promise<void> {
     this.entries = await this.deps.photos.list();
+    for (const id of [...this.marked]) if (!this.entries.some((e) => e.id === id)) this.marked.delete(id);
     if (selectId) this.deps.prefs.data.photo = selectId;
     if (!this.entries.some((e) => e.id === this.deps.prefs.data.photo)) this.deps.prefs.data.photo = this.entries[0]?.id ?? '';
     this.renderList();
     this.renderChosen();
+    this.renderFoot();
   }
 
   /** Called when the screen is left: the preview video stops decoding while a puzzle plays. */
@@ -143,18 +147,21 @@ export class LibraryScreen {
   }
 
   private renderList(): void {
+    this.listEl.classList.toggle('removing', this.removing !== 'no');
     const items = this.entries.map((e) => {
       const best = this.recordFor(e);
       return h(
         'li',
         {
-          class: 'item' + (e.id === this.deps.prefs.data.photo ? ' on' : '') + (best !== undefined ? ' done' : '') + (e.video ? ' video' : ''),
+          class:
+            'item' + (e.id === this.deps.prefs.data.photo ? ' on' : '') + (best !== undefined ? ' done' : '') + (e.video ? ' video' : '') + (e.sample ? ' sample' : '') + (this.marked.has(e.id) ? ' marked' : ''),
           role: 'option',
           'aria-selected': e.id === this.deps.prefs.data.photo,
           dataset: { id: e.id },
-          onclick: () => this.choosePhoto(e.id),
-          ondblclick: () => this.play(),
+          onclick: () => (this.removing === 'no' ? this.choosePhoto(e.id) : this.mark(e)),
+          ondblclick: () => (this.removing === 'no' ? this.play() : undefined),
         },
+        h('span', { class: 'chk', 'aria-hidden': 'true' }),
         h('img', { src: e.thumbUrl, alt: '', width: 56, height: 56, loading: 'lazy' }),
         h('span', { class: 'txt' }, h('span', { class: 'n' }, e.name), h('span', { class: 'b' }, (e.video ? `Video ${formatTime(e.duration * 1000)} · ` : '') + (best !== undefined ? `Best ${formatTime(best)}` : 'Not solved'))),
       );
@@ -190,7 +197,6 @@ export class LibraryScreen {
     this.bestEl.textContent = e ? (best !== undefined ? `Best time ${formatTime(best)}` : 'Not solved yet') : '';
     this.blurbEl.textContent = this.kind.blurb;
     this.playBtn.disabled = !e;
-    this.removeBtn.disabled = !e || e.sample;
     this.optionsEl.replaceChildren(
       ...this.kind.options.map((o) => {
         const v = optionValue(prefs.data.settings, this.kind.id, o);
@@ -240,6 +246,15 @@ export class LibraryScreen {
 
   // ---------------------------------------------------------------------------------------------------------------- actions
 
+  /** Ticks or unticks a photo that is to be removed (the sample pictures stay). */
+  private mark(e: PhotoEntry): void {
+    if (e.sample || this.removing !== 'choose') return;
+    if (this.marked.has(e.id)) this.marked.delete(e.id);
+    else this.marked.add(e.id);
+    this.listEl.querySelectorAll<HTMLElement>('.item').forEach((li) => li.classList.toggle('marked', this.marked.has(li.dataset.id ?? '')));
+    this.renderFoot();
+  }
+
   private choosePhoto(id: string): void {
     this.deps.prefs.data.photo = id;
     this.deps.prefs.save();
@@ -256,7 +271,7 @@ export class LibraryScreen {
         this.choosePhoto(next.id);
         this.listEl.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
       }
-    } else if (e.key === 'Enter') {
+    } else if (e.key === 'Enter' && this.removing === 'no') {
       e.preventDefault();
       this.play();
     }
@@ -317,12 +332,54 @@ export class LibraryScreen {
     this.note(failed.length ? `Could not open ${failed.join(', ')} - this browser may not support that format` : ids.length === 1 ? 'Added 1 photo' : `Added ${ids.length} photos`);
   }
 
-  private async removeSelected(): Promise<void> {
-    const e = this.chosen;
-    if (!e || e.sample || !confirm(`Remove "${e.name}" from your photos?`)) return;
-    await this.deps.photos.remove(e.id);
+  // ---------------------------------------------------------------------------------------------------------------- the buttons under the list
+
+  private setRemoving(mode: 'no' | 'choose' | 'sure'): void {
+    const wasNo = this.removing === 'no';
+    this.removing = mode;
+    if (mode === 'no') this.marked.clear();
+    if (wasNo !== (mode === 'no')) this.renderList();
+    this.renderFoot();
+  }
+
+  /** Add / Remove at the bottom of the photo panel. Remove is a mode: tick the photos to go, then confirm (an in-page question: a web view may swallow confirm()). */
+  private renderFoot(): void {
+    const mine = this.entries.filter((e) => !e.sample);
+    const n = this.marked.size;
+    const btn = (label: string, onclick: () => void, extra: Record<string, unknown> = {}) => h('button', { type: 'button', onclick, ...extra }, label);
+    if (this.removing === 'no') {
+      this.footEl.replaceChildren(
+        btn('Add photos…', () => this.fileInput.click()),
+        btn('Remove photos', () => this.setRemoving('choose'), { disabled: mine.length === 0, title: mine.length ? 'Choose photos and videos to remove' : 'Only the sample pictures are here' }),
+      );
+    } else if (this.removing === 'choose') {
+      this.footEl.replaceChildren(
+        h('div', { class: 'msg' }, n ? `${n} selected` : 'Tap the photos to remove'),
+        btn('Cancel', () => this.setRemoving('no')),
+        btn(n === mine.length ? 'None' : 'All', () => {
+          if (n === mine.length) this.marked.clear();
+          else for (const e of mine) this.marked.add(e.id);
+          this.renderList();
+          this.renderFoot();
+        }),
+        btn(n ? `Remove ${n}` : 'Remove', () => this.setRemoving('sure'), { class: 'danger', disabled: n === 0 }),
+      );
+    } else {
+      this.footEl.replaceChildren(
+        h('div', { class: 'msg' }, n === 1 ? 'Remove 1 photo and its saved puzzles?' : `Remove ${n} photos and their saved puzzles?`),
+        btn('Keep them', () => this.setRemoving('choose')),
+        btn('Remove', () => void this.removeMarked(), { class: 'danger' }),
+      );
+    }
+  }
+
+  private async removeMarked(): Promise<void> {
+    const ids = [...this.marked].filter((id) => this.entries.some((e) => e.id === id && !e.sample));
+    for (const id of ids) await this.deps.photos.remove(id);
+    this.removing = 'no';
+    this.marked.clear();
     await this.refresh();
-    this.note('Removed');
+    this.note(ids.length === 1 ? 'Removed 1 photo' : `Removed ${ids.length} photos`);
   }
 
   private note(text: string): void {
