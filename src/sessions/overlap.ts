@@ -112,7 +112,7 @@ export class OverlapSession implements PuzzleSession {
 
   /**
    * A piece at (ox, oy): each of its three cells shows its own bit of the picture, turned with the piece. A window cell shows the empty board's pattern from the
-   * place the piece belongs, in a gold frame. With the grid off only the piece's outline is drawn, not the lines between its cells.
+   * place the piece belongs. With the grid off a piece has no border at all.
    */
   private drawPiece(ctx: CanvasRenderingContext2D, id: number, ox: number, oy: number, alpha = 1, edge = 'rgba(255,255,255,0.9)'): void {
     const g = this.game;
@@ -130,35 +130,13 @@ export class OverlapSession implements PuzzleSession {
       else this.cellImage(ctx, home[k].x, home[k].y, -CELL / 2, -CELL / 2, CELL);
       ctx.restore();
     });
-    ctx.lineJoin = 'round';
-    const grid = this.init.flag('grid');
-    const lines = (colour: string, width: number, inset: number): void => {
-      ctx.strokeStyle = colour;
-      ctx.lineWidth = width;
-      if (grid) {
+    if (this.init.flag('grid')) {                                  // with the grid off a piece has no border at all
+      ctx.lineJoin = 'round';
+      for (const [colour, width, inset] of [['rgba(0,0,0,0.55)', 3, 0], [edge, 1.5, 1]] as const) {
+        ctx.strokeStyle = colour;
+        ctx.lineWidth = width;
         for (const c of now) ctx.strokeRect(ox + c.x * CELL + inset, oy + c.y * CELL + inset, CELL - 2 * inset, CELL - 2 * inset);
-        return;
       }
-      const has = (x: number, y: number): boolean => now.some((c) => c.x === x && c.y === y);
-      ctx.beginPath();
-      for (const c of now) {
-        const x0 = ox + c.x * CELL + inset;
-        const y0 = oy + c.y * CELL + inset;
-        const x1 = ox + (c.x + 1) * CELL - inset;
-        const y1 = oy + (c.y + 1) * CELL - inset;
-        if (!has(c.x, c.y - 1)) ctx.moveTo(x0, y0), ctx.lineTo(x1, y0);
-        if (!has(c.x, c.y + 1)) ctx.moveTo(x0, y1), ctx.lineTo(x1, y1);
-        if (!has(c.x - 1, c.y)) ctx.moveTo(x0, y0), ctx.lineTo(x0, y1);
-        if (!has(c.x + 1, c.y)) ctx.moveTo(x1, y0), ctx.lineTo(x1, y1);
-      }
-      ctx.stroke();
-    };
-    lines('rgba(0,0,0,0.55)', 3, 0);
-    lines(edge, 1.5, 1);
-    if (win >= 0) {
-      ctx.strokeStyle = '#ffd84a';
-      ctx.lineWidth = 2.5;
-      ctx.strokeRect(ox + now[win].x * CELL + 4, oy + now[win].y * CELL + 4, CELL - 8, CELL - 8);
     }
     ctx.restore();
   }
