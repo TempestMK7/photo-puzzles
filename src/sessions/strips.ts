@@ -1,10 +1,10 @@
 import { Rng } from '../core/rng';
-import { boxOf, generateStrips, MARGIN, StripsGame } from '../core/strips';
+import { boxOf, generateStrips, MARGIN, pictureCells, StripsGame } from '../core/strips';
 import { beginFrame, drawSlice, type View } from '../render';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const S = 30;                  // one cell, in board units
-const LONG = 16;               // cells along the picture's longer side
+const DWELL_MS = 600;          // a dragged strip that rests on a tab goes to it
 const TAP = 5;
 const FLASH_MS = 600;
 
@@ -24,19 +24,29 @@ export class StripsSession implements PuzzleSession {
   private selected = -1;
   private drag: { id: number; gx: number; gy: number; start: Pt; moved: boolean } | null = null;
   private flash = new Map<number, number>();
+  private tab = 0;
+  private overTab = -1;
+  private dwell = 0;
 
   constructor(private readonly init: SessionInit) {
-    const landscape = init.width >= init.height;
-    const short = Math.max(8, Math.round((LONG * Math.min(init.width, init.height)) / Math.max(init.width, init.height)));
-    this.picCols = landscape ? LONG : short;
-    this.picRows = landscape ? short : LONG;
-    const setup = generateStrips(new Rng(init.seed), { picCols: this.picCols, picRows: this.picRows, strips: init.opts.strips, maxLen: init.opts.length, placed: init.opts.placed });
+    const pic = pictureCells(init.width, init.height, init.opts.strips, init.opts.length);
+    this.picCols = pic.picCols;
+    this.picRows = pic.picRows;
+    const setup = generateStrips(new Rng(init.seed), {
+      picCols: this.picCols,
+      picRows: this.picRows,
+      strips: init.opts.strips,
+      maxLen: init.opts.length,
+      placed: init.opts.placed,
+      tabs: init.opts.tabs,
+    });
     this.game = new StripsGame(setup);
     let sw = init.width;
     let sh = init.height;
     if (sw * this.picRows > sh * this.picCols) sw = (sh * this.picCols) / this.picRows;
     else sh = (sw * this.picRows) / this.picCols;
     this.crop = { sx: (init.width - sw) / 2, sy: (init.height - sh) / 2, sw, sh };
+    this.tab = Math.max(0, this.game.looseCounts().findIndex((n) => n > 0));
     this.owners = Array.from({ length: this.picCols * this.picRows }, () => []);
     for (const d of this.game.defs) {
       const b = boxOf(d, 0);
@@ -108,13 +118,13 @@ export class StripsSession implements PuzzleSession {
     if (!g.solved) {
       for (const id of g.z) {
         const s = g.state[id];
-        if (!s.locked) this.drawStrip(ctx, id, id === this.selected, this.drag?.id === id && this.drag.moved);
+        if (!s.locked && s.tab === this.tab) this.drawStrip(ctx, id, id === this.selected);
       }
     }
     return running;
   }
 
-  private drawStrip(ctx: CanvasRenderingContext2D, id: number, selected: boolean, lifted: boolean): void {
+  private drawStrip(ctx: CanvasRenderingContext2D, id: number, selected: boolean): void {
     const d = this.game.defs[id];
     const s = this.game.state[id];
     const b = boxOf(d, s.angle);
@@ -123,24 +133,18 @@ export class StripsSession implements PuzzleSession {
     ctx.save();
     ctx.translate((s.x + b.w / 2) * S, (s.y + b.h / 2) * S);
     ctx.rotate((s.angle * Math.PI) / 2);
-    if (lifted) {
-      ctx.shadowColor = 'rgba(0,0,0,0.6)';
-      ctx.shadowBlur = 12;
-      ctx.shadowOffsetY = 5;
-    }
     for (let k = 0; k < d.len; k++) {
       const pc = d.hx - MARGIN + (d.horizontal ? k : 0);
       const pr = d.hy - MARGIN + (d.horizontal ? 0 : k);
       this.cellImage(ctx, pc, pr, -(hw * S) / 2 + (d.horizontal ? k : 0) * S, -(hh * S) / 2 + (d.horizontal ? 0 : k) * S);
     }
-    ctx.shadowColor = 'transparent';
     ctx.lineJoin = 'round';
     ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 1.5;
     ctx.strokeRect(-(hw * S) / 2, -(hh * S) / 2, hw * S, hh * S);
     ctx.strokeStyle = selected ? '#ffd84a' : 'rgba(255,255,255,0.85)';
-    ctx.lineWidth = selected ? 3 : 1.5;
-    ctx.strokeRect(-(hw * S) / 2 + 1, -(hh * S) / 2 + 1, hw * S - 2, hh * S - 2);
+    ctx.lineWidth = selected ? 1.5 : 0.75;
+    ctx.strokeRect(-(hw * S) / 2 + 0.5, -(hh * S) / 2 + 0.5, hw * S - 1, hh * S - 1);
     ctx.restore();
   }
 
@@ -151,7 +155,7 @@ export class StripsSession implements PuzzleSession {
     if (g.solved) return;
     const cx = Math.floor(p.x / S);
     const cy = Math.floor(p.y / S);
-    const id = g.stripAt(cx, cy);
+    const id = g.stripAt(cx, cy, this.tab);
     if (id < 0) {
       this.selected = -1;
     } else {
@@ -173,13 +177,20 @@ export class StripsSession implements PuzzleSession {
   pointerUp(): void {
     const d = this.drag;
     this.drag = null;
+    window.clearTimeout(this.dwell);
     if (!d) return;
-    if (!d.moved) this.turn(d.id);                              // a tap turns the strip
+    if (d.moved && this.overTab >= 0 && this.overTab !== this.tab) {                  // let go over another tab: the strip goes there
+      this.game.moveToTab(d.id, this.overTab);
+      this.tab = this.overTab;
+    } else if (!d.moved) this.turn(d.id);                              // a tap turns the strip
     else if (this.game.lockIfHome(d.id)) this.locked(d.id);
+    this.overTab = -1;
     this.init.requestDraw();
   }
 
   pointerCancel(): void {
+    window.clearTimeout(this.dwell);
+    this.overTab = -1;
     this.drag = null;
     this.init.requestDraw();
   }
@@ -201,6 +212,43 @@ export class StripsSession implements PuzzleSession {
     for (let dy = 0; dy < b.h; dy++) for (let dx = 0; dx < b.w; dx++) this.flash.set((d.hy - MARGIN + dy) * this.picCols + d.hx - MARGIN + dx, now);
     if (this.selected === id) this.selected = -1;
     this.game.moves++;
+    const counts = this.game.looseCounts();                       // the tab is empty: on to the next one that still has strips
+    if (counts[this.tab] === 0 && !this.game.solved) {
+      for (let k = 1; k <= counts.length; k++) {
+        const t = (this.tab + k) % counts.length;
+        if (counts[t] > 0) {
+          this.tab = t;
+          break;
+        }
+      }
+    }
+  }
+
+  tabInfo(): { counts: number[]; active: number } | null {
+    return this.game.tabs > 1 ? { counts: this.game.looseCounts(), active: this.tab } : null;
+  }
+
+  selectTab(tab: number): void {
+    if (this.drag || tab < 0 || tab >= this.game.tabs || tab === this.tab) return;
+    this.tab = tab;
+    this.selected = -1;
+    this.init.requestDraw();
+  }
+
+  /** A strip being dragged that rests on another tab's button for a moment goes to that tab, and the drag goes on there. */
+  dragOverTab(tab: number): void {
+    if (!this.drag || !this.drag.moved || tab === this.overTab) return;
+    this.overTab = tab;
+    window.clearTimeout(this.dwell);
+    if (tab < 0 || tab === this.tab) return;
+    this.dwell = window.setTimeout(() => {
+      if (!this.drag || this.overTab !== tab) return;
+      this.game.moveToTab(this.drag.id, tab);
+      this.tab = tab;
+      this.overTab = -1;
+      this.init.requestDraw();
+      this.init.tabsChanged?.();
+    }, DWELL_MS);
   }
 
   status(): string {

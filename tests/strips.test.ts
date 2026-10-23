@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../src/core/rng';
-import { boxOf, generateStrips, MARGIN, StripsGame } from '../src/core/strips';
+import { boxOf, generateStrips, MARGIN, pictureCells, StripsGame } from '../src/core/strips';
 
-const make = (seed: number, strips = 14, maxLen = 8, placed = 20, picCols = 16, picRows = 12) =>
-  generateStrips(new Rng(seed), { picCols, picRows, strips, maxLen, placed });
+const make = (seed: number, strips = 14, maxLen = 8, placed = 20, picCols = 16, picRows = 12, tabs = 3) =>
+  generateStrips(new Rng(seed), { picCols, picRows, strips, maxLen, placed, tabs });
 
 describe('generateStrips', () => {
   it('cuts strips of the allowed lengths inside the picture, none along another, and is reproducible', () => {
@@ -40,6 +40,47 @@ describe('generateStrips', () => {
     });
     expect(placed).toBeGreaterThan(0);
     expect(new StripsGame(s).solved).toBe(false);
+  });
+});
+
+describe('tabs and size', () => {
+  it('spreads the loose strips over the tabs at random, none outside them', () => {
+    for (const tabs of [1, 3, 10]) {
+      const s = make(11, 30, 8, 20, 22, 16, tabs);
+      expect(s.tabs).toBe(tabs);
+      const used = new Set(s.state.filter((st) => !st.locked).map((st) => st.tab));
+      for (const t of used) expect(t >= 0 && t < tabs).toBe(true);
+      if (tabs > 1) expect(used.size).toBeGreaterThan(1);
+      else expect(used.size).toBe(1);
+    }
+    expect(make(12, 30, 8, 20, 22, 16, 5)).toEqual(make(12, 30, 8, 20, 22, 16, 5));
+  });
+
+  it('a picture gets more cells as strips are added, and up to 100 strips fit', () => {
+    let last = 0;
+    for (const n of [6, 14, 30, 60, 100]) {
+      const p = pictureCells(1200, 800, n, 8);
+      const cells = p.picCols * p.picRows;
+      expect(cells).toBeGreaterThan(last);
+      last = cells;
+    }
+    expect(pictureCells(1200, 800, 14, 8)).toEqual({ picCols: 16, picRows: 11 });
+    expect(pictureCells(800, 1200, 14, 8)).toEqual({ picCols: 11, picRows: 16 });
+    const p = pictureCells(1200, 800, 100, 8);
+    const s = make(5, 100, 8, 20, p.picCols, p.picRows, 4);
+    expect(s.defs.length).toBeGreaterThanOrEqual(90);
+  });
+
+  it('only the strips of the tab being shown can be picked, and they can be moved to another tab', () => {
+    const g = new StripsGame(make(13, 20, 8, 0, 16, 12, 3));
+    const id = g.defs.findIndex((_, i) => g.state[i].tab === 0);
+    const s = g.state[id];
+    expect(g.stripAt(s.x, s.y, 0)).not.toBe(-1);
+    expect(g.stripAt(s.x, s.y, 1)).not.toBe(id);
+    g.moveToTab(id, 2);
+    expect(g.state[id].tab).toBe(2);
+    expect(g.stripAt(s.x, s.y, 2)).not.toBe(-1);
+    expect(g.looseCounts().reduce((a, b) => a + b, 0)).toBe(g.total);
   });
 });
 

@@ -23,6 +23,8 @@ export interface SessionInit {
   /** A display setting (grid lines, animations): on unless the player turned it off. */
   flag(key: string): boolean;
   requestDraw(): void;
+  /** The session changed the tab by itself (a dragged piece rested on a tab): the tab bar should be refreshed. */
+  tabsChanged?(): void;
 }
 
 /** One puzzle being played. The play screen owns the canvas, the clock and the dialogs; a session owns the rules, the layout and the drawing. */
@@ -46,6 +48,11 @@ export interface PuzzleSession {
   readonly solved: boolean;
   /** A setting changed (a display switch). */
   settingsChanged(): void;
+  /** Tabs (pages) of the board, when the puzzle has more than one: how many loose pieces each holds, and which one is showing. */
+  tabInfo?(): { counts: number[]; active: number } | null;
+  selectTab?(tab: number): void;
+  /** The pointer, while a piece is being dragged, is over this tab's button (-1: over none). */
+  dragOverTab?(tab: number): void;
 }
 
 export type SessionFactory = (init: SessionInit) => PuzzleSession;

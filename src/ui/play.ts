@@ -21,6 +21,7 @@ export class PlayScreen {
   private titleEl = h('div', { class: 'title' });
   private timeEl = h('span', { class: 'time' }, '0:00');
   private togglesEl = h('div', { class: 'toggles' });
+  private tabsEl = h('nav', { class: 'tabs', hidden: true, 'aria-label': 'Tabs' });
   private rotateBtn = h('button', { type: 'button', class: 'toggle', title: 'Turn the chosen piece (or right-click, R)', onclick: () => this.secondary(), hidden: true }, 'Rotate');
   private statusEl = h('span', { class: 'swaps' }, '');
   private dialogEl = h('div', { class: 'dialog', hidden: true });
@@ -33,7 +34,7 @@ export class PlayScreen {
   private muteBtn = h('button', { type: 'button', class: 'icon', title: 'Sound', 'aria-label': 'Sound', onclick: () => this.toggleMute() });
   private vbar = h('div', { class: 'vbar', hidden: true }, this.pauseBtn, this.curEl, this.seekEl, this.totalEl, this.muteBtn);
   private stage = h('div', { class: 'stage' }, this.canvas, this.dialogEl, this.viewBar);
-  private main = h('main', {}, this.stage, this.vbar);
+  private main = h('main', {}, this.tabsEl, this.stage, this.vbar);
 
   private entry: PhotoEntry | null = null;
   private src: PlaySource | null = null;
@@ -92,6 +93,7 @@ export class PlayScreen {
       if (this.el.hidden) return;
       if (e.key === 'Escape') this.leave();
       else if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey) this.secondary();
+      else if (/^[0-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !(e.target instanceof HTMLInputElement)) this.selectTab(e.key === '0' ? 9 : Number(e.key) - 1);
     });
   }
 
@@ -203,8 +205,10 @@ export class PlayScreen {
       opts: optionsOf(prefs.data.settings, kind),
       flag: (key) => this.flag(key),
       requestDraw: () => this.requestDraw(),
+      tabsChanged: () => this.refreshTabs(),
     });
     this.buildToggles();
+    this.buildTabs();
     this.rotateBtn.hidden = !this.session.rotatable;
     this.dialogEl.hidden = true;
     this.viewBar.hidden = true;
@@ -230,6 +234,44 @@ export class PlayScreen {
       ),
     );
     this.refreshToggles();
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- tabs
+
+  /** A row of numbered tabs when the puzzle has pages (Strips): each shows how many loose pieces lie on it. */
+  private buildTabs(): void {
+    const info = this.session?.tabInfo?.() ?? null;
+    this.tabsEl.hidden = !info;
+    if (!info) return;
+    this.tabsEl.replaceChildren(
+      ...info.counts.map((_, i) =>
+        h('button', { type: 'button', class: 'tab', dataset: { tab: String(i) }, title: `Tab ${i + 1}`, onclick: () => this.selectTab(i) }, h('span', { class: 'tn' }, String((i + 1) % 10 === 0 ? 10 : i + 1)), h('span', { class: 'tc' })),
+      ),
+    );
+    this.refreshTabs();
+  }
+
+  private refreshTabs(): void {
+    const info = this.session?.tabInfo?.() ?? null;
+    if (!info) return;
+    this.tabsEl.querySelectorAll<HTMLElement>('.tab').forEach((btn, i) => {
+      btn.classList.toggle('on', i === info.active);
+      btn.classList.toggle('empty', info.counts[i] === 0);
+      const tc = btn.querySelector('.tc');
+      if (tc) tc.textContent = info.counts[i] > 0 ? String(info.counts[i]) : '';
+    });
+  }
+
+  private selectTab(i: number): void {
+    this.session?.selectTab?.(i);
+    this.refreshTabs();
+    this.requestDraw();
+  }
+
+  /** The tab button under the pointer while something is dragged, or -1. */
+  private tabUnder(e: PointerEvent): number {
+    const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('.tab');
+    return el ? Number(el.dataset.tab) : -1;
   }
 
   private toggle(key: string): void {
@@ -333,6 +375,7 @@ export class PlayScreen {
     // pressing the right button while the left one is held does not start a new pointer: it shows up as a change of the pressed buttons
     if (e.pointerId === this.activePointer && (e.buttons & 2) !== 0 && (this.lastButtons & 2) === 0) this.session.secondary();
     this.lastButtons = e.buttons;
+    if (e.pointerId === this.activePointer) this.session.dragOverTab?.(this.tabUnder(e));
     this.session.pointerMove(this.boardPoint(e));
     this.after();
   }
@@ -354,6 +397,7 @@ export class PlayScreen {
     const session = this.session;
     if (!session) return;
     this.statusEl.textContent = session.status();
+    this.refreshTabs();
     if (session.solved && this.running) this.finish();
     this.requestDraw();
   }

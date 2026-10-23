@@ -20,6 +20,8 @@ export interface StripState {
   x: number;
   y: number;
   locked: boolean;
+  /** The tab the strip lies on (every tab shows the same picture with the same holes and its own loose strips). */
+  tab: number;
 }
 
 export interface StripsOptions {
@@ -30,6 +32,8 @@ export interface StripsOptions {
   maxLen: number;
   /** Percent of the strips that are already in place at the start. */
   placed: number;
+  /** How many tabs the loose strips are spread over (1 - 10). */
+  tabs: number;
 }
 
 export interface StripsSetup {
@@ -37,8 +41,22 @@ export interface StripsSetup {
   rows: number;
   picCols: number;
   picRows: number;
+  tabs: number;
   defs: StripDef[];
   state: StripState[];
+}
+
+/**
+ * The picture's size in cells: the more strips there are (and the longer they may be), the more cells there are, so that the strips keep covering about the same
+ * share of the picture. 14 strips of up to 8 cells on a 3:2 photo give 16 x 11.
+ */
+export function pictureCells(width: number, height: number, strips: number, maxLen: number): { picCols: number; picRows: number } {
+  const longest = Math.max(3, maxLen);
+  const total = Math.max(60, (strips * (3 + longest)) / 2 / 0.45);
+  const aspect = Math.max(width, height) / Math.max(1, Math.min(width, height));
+  const long = Math.min(64, Math.max(10, longest + 2, Math.round(Math.sqrt(total * aspect))));
+  const short = Math.min(long, Math.max(6, Math.round(total / long)));
+  return width >= height ? { picCols: long, picRows: short } : { picCols: short, picRows: long };
 }
 
 /** Width and height in cells of a strip's box at a given turn. */
@@ -55,7 +73,7 @@ export function generateStrips(rng: Rng, o: StripsOptions): StripsSetup {
   const maxLen = Math.max(3, Math.min(o.maxLen, Math.max(picCols, picRows)));
   const owner: number[][] = Array.from({ length: picCols * picRows }, () => []);
   const defs: StripDef[] = [];
-  for (let attempt = 0; attempt < 4000 && defs.length < o.strips; attempt++) {
+  for (let attempt = 0; attempt < 4000 + 200 * o.strips && defs.length < o.strips; attempt++) {
     const horizontal = rng.below(2) === 0;
     const len = 3 + rng.below(maxLen - 2);
     const w = horizontal ? len : 1;
@@ -78,19 +96,20 @@ export function generateStrips(rng: Rng, o: StripsOptions): StripsSetup {
     defs.push({ id, len, horizontal, hx: MARGIN + x, hy: MARGIN + y });
     for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) owner[(y + dy) * picCols + x + dx].push(id);
   }
+  const tabs = Math.min(10, Math.max(1, Math.round(o.tabs)));
   const placedCount = Math.min(defs.length - 1, Math.round((defs.length * Math.min(50, Math.max(0, o.placed))) / 100));
   const state: StripState[] = defs.map((d, i) => {
-    if (i < placedCount) return { angle: 0, x: d.hx, y: d.hy, locked: true };
+    if (i < placedCount) return { angle: 0, x: d.hx, y: d.hy, locked: true, tab: 0 };
     for (;;) {
       const angle = rng.below(4);
       const b = boxOf(d, angle);
       const x = rng.below(cols - b.w + 1);
       const y = rng.below(rows - b.h + 1);
       if (angle === 0 && x === d.hx && y === d.hy) continue;           // never already home
-      return { angle, x, y, locked: false };
+      return { angle, x, y, locked: false, tab: rng.below(tabs) };
     }
   });
-  return { cols, rows, picCols, picRows, defs, state };
+  return { cols, rows, picCols, picRows, tabs, defs, state };
 }
 
 /** The rules of Strips. */
@@ -99,6 +118,7 @@ export class StripsGame {
   readonly rows: number;
   readonly picCols: number;
   readonly picRows: number;
+  readonly tabs: number;
   readonly defs: StripDef[];
   readonly state: StripState[];
   /** Back to front. */
@@ -110,6 +130,7 @@ export class StripsGame {
     this.rows = setup.rows;
     this.picCols = setup.picCols;
     this.picRows = setup.picRows;
+    this.tabs = setup.tabs;
     this.defs = setup.defs;
     this.state = setup.state.map((s) => ({ ...s }));
     this.z = this.defs.map((d) => d.id);
@@ -133,12 +154,25 @@ export class StripsGame {
     return s.angle === 0 && s.x === d.hx && s.y === d.hy;
   }
 
-  /** The front-most loose strip covering field cell (cx, cy), or -1. */
-  stripAt(cx: number, cy: number): number {
+  /** How many loose strips lie on each tab. */
+  looseCounts(): number[] {
+    const n = new Array<number>(this.tabs).fill(0);
+    for (const s of this.state) if (!s.locked) n[s.tab]++;
+    return n;
+  }
+
+  /** Puts a loose strip on another tab (where it lies on the board stays as it is). */
+  moveToTab(id: number, tab: number): void {
+    if (this.state[id].locked || tab < 0 || tab >= this.tabs) return;
+    this.state[id].tab = tab;
+  }
+
+  /** The front-most loose strip on `tab` covering field cell (cx, cy), or -1. */
+  stripAt(cx: number, cy: number, tab = 0): number {
     for (let i = this.z.length - 1; i >= 0; i--) {
       const id = this.z[i];
       const s = this.state[id];
-      if (s.locked) continue;
+      if (s.locked || s.tab !== tab) continue;
       const b = boxOf(this.defs[id], s.angle);
       if (cx >= s.x && cy >= s.y && cx < s.x + b.w && cy < s.y + b.h) return id;
     }

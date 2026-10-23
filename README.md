@@ -21,7 +21,9 @@ Playable now:
   (sunbursts, targets, rose windows, spirals, wheels - one per puzzle); some pieces have a *window* cell that shows the bit of that pattern from where the piece belongs, as a hint.
   Options: cells across (5-16), turned pieces, window pieces, pieces placed at the start.
 - **Strips** - straight strips (1 x N cells, they may cross) are cut out of the picture and lie scattered and turned on the board. Drag each back into its hole; it locks when
-  it lies exactly there, turned the right way. Options: number of strips, longest strip, pieces placed at the start.
+  it lies exactly there, turned the right way. The loose strips are spread at random over 1-10 **tabs** (each tab shows the same picture and holes with its own strips; drag a strip
+  onto a tab, or rest it there, to move it; keys 1-9 and 0 switch tabs). The picture gets more cells as strips are added (up to 100). Options: number of strips, longest strip,
+  tabs, pieces placed at the start.
 
 In Overlap and Strips a tap on a piece turns it a quarter turn (so does the right button, a second finger, the R key or the Rotate button). Grid lines can be switched off
 in every type. Listed as "soon": Jigsaw, Sliding Tiles.
