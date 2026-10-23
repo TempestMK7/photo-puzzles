@@ -44,8 +44,9 @@ export const KINDS: readonly KindDef[] = [
     blurb: 'L-shaped pieces that overlap wait in stacks. Drag the top piece onto the grid, turned the way it lies in the picture. Tap a piece to turn it.',
     available: true,
     options: [
-      { key: 'cells', label: 'Cells across', min: 5, max: 10, def: 7 },
+      { key: 'cells', label: 'Cells across', min: 5, max: 16, def: 7 },
       { key: 'turned', label: 'Turned pieces', min: 0, max: 1, def: 1, toggle: true },
+      { key: 'windows', label: 'Window pieces', min: 0, max: 1, def: 1, toggle: true },
       { key: 'placed', label: 'Placed at the start (%)', min: 0, max: 50, def: 20, step: 5 },
       { key: 'grid', label: 'Grid lines', min: 0, max: 1, def: 1, toggle: true, display: true },
     ],

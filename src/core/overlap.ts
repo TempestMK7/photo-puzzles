@@ -27,6 +27,11 @@ export interface PieceDef {
   bx: number;
   by: number;
   orient: number;
+  /**
+   * Which of the piece's three cells is a window (-1: none). A window shows what the board holds at that place - the empty board's pattern, a hint to where
+   * the piece goes - and does not reveal its cell when the piece is placed.
+   */
+  marker: number;
 }
 
 export interface OverlapOptions {
@@ -36,6 +41,8 @@ export interface OverlapOptions {
   turned: boolean;
   /** Percent of the pieces that are already in place at the start. */
   placed: number;
+  /** Some pieces have a window cell. */
+  windows: boolean;
 }
 
 export interface OverlapSetup {
@@ -87,7 +94,7 @@ export function generateOverlap(rng: Rng, o: OverlapOptions): OverlapSetup {
       }
     }
     const pick = best[rng.below(best.length)];
-    pieces.push({ id: 0, bx: pick.bx, by: pick.by, orient: pick.orient });
+    pieces.push({ id: 0, bx: pick.bx, by: pick.by, orient: pick.orient, marker: -1 });
     for (const c of shapeCells(pick.orient)) cover[(pick.by + c.y) * cols + pick.bx + c.x]++;
   }
   for (let i = pieces.length - 1; i > 0; i--) {
@@ -97,9 +104,24 @@ export function generateOverlap(rng: Rng, o: OverlapOptions): OverlapSetup {
   pieces.forEach((p, i) => (p.id = i));
   const placedCount = Math.min(pieces.length - 1, Math.round((pieces.length * Math.min(50, Math.max(0, o.placed))) / 100));
   const rot = pieces.map((_, i) => (i < placedCount || !o.turned ? 0 : rng.below(4)));
+  // windows: a cell that other pieces cover too, so it always gets revealed; `solid` counts the pieces that cover a cell and reveal it
+  const solid = new Array<number>(cols * rows).fill(0);
+  for (const p of pieces) for (const c of shapeCells(p.orient)) solid[(p.by + c.y) * cols + p.bx + c.x]++;
+  if (o.windows) {
+    for (let i = placedCount; i < pieces.length; i++) {
+      if (rng.below(3) !== 0) continue;
+      const p = pieces[i];
+      const cells = shapeCells(p.orient).map((c) => (p.by + c.y) * cols + p.bx + c.x);
+      const shared = cells.map((cell, k) => (solid[cell] > 1 ? k : -1)).filter((k) => k >= 0);
+      if (!shared.length) continue;
+      p.marker = shared[rng.below(shared.length)];
+      solid[cells[p.marker]]--;
+    }
+  }
   const stacks: number[][] = Array.from({ length: STACKS }, () => []);
   let dealt = 0;
   for (let i = placedCount; i < pieces.length; i++) stacks[dealt++ % STACKS].push(i);
+  for (const s of stacks) s.sort((a, b) => Number(pieces[a].marker >= 0) - Number(pieces[b].marker >= 0));        // pieces with a window lie on top, where they can be seen (the sort is stable)
   return { cols, rows, pieces, rot, placedAtStart: pieces.slice(0, placedCount).map((p) => p.id), stacks };
 }
 
@@ -147,6 +169,14 @@ export class OverlapGame {
     return shapeCells(this.pieces[id].orient + this.rot[id]);
   }
 
+  /** The window cell of a piece (its index among the three), or -1 when it has none or the cell it looks at shows already. */
+  windowOf(id: number): number {
+    const m = this.pieces[id].marker;
+    if (m < 0) return -1;
+    const c = this.homeCells(id)[m];
+    return this.revealed[c.y * this.cols + c.x] ? -1 : m;
+  }
+
   /** The picture cells the piece belongs over (its own cells, in the same order as cellsNow). */
   homeCells(id: number): Cell[] {
     const p = this.pieces[id];
@@ -190,7 +220,9 @@ export class OverlapGame {
 
   private reveal(id: number): void {
     this.done[id] = true;
-    for (const c of this.homeCells(id)) this.revealed[c.y * this.cols + c.x] = true;
+    this.homeCells(id).forEach((c, k) => {
+      if (k !== this.pieces[id].marker) this.revealed[c.y * this.cols + c.x] = true;
+    });
   }
 
   /** A piece on top of a stack whose cells all show already has nothing left to do: it goes, and so on down the stack. */
@@ -201,7 +233,8 @@ export class OverlapGame {
       for (const s of this.stacks) {
         while (s.length) {
           const id = s[s.length - 1];
-          if (!this.homeCells(id).every((c) => this.revealed[c.y * this.cols + c.x])) break;
+          const marker = this.pieces[id].marker;
+          if (!this.homeCells(id).every((c, k) => k === marker || this.revealed[c.y * this.cols + c.x])) break;
           s.pop();
           this.done[id] = true;
           again = true;

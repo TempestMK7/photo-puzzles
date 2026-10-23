@@ -1,5 +1,6 @@
 import { generateOverlap, OverlapGame, STACKS } from '../core/overlap';
 import { Rng } from '../core/rng';
+import { makePattern } from './patterns';
 import { beginFrame, type View } from '../render';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
@@ -27,6 +28,8 @@ export class OverlapSession implements PuzzleSession {
   private cols: number;
   private rows: number;
   private crop: { sx: number; sy: number; sw: number; sh: number };
+  /** The empty board: a radial pattern. A window cell on a piece shows the bit of it that lies under the piece's home. */
+  private pattern: HTMLCanvasElement;
   private mode: 'side' | 'top' = 'side';
   private gridX = 0;
   private gridY = 0;
@@ -39,8 +42,9 @@ export class OverlapSession implements PuzzleSession {
 
   constructor(private readonly init: SessionInit) {
     this.cols = init.opts.cells;
-    this.rows = Math.min(8, Math.max(3, Math.round((this.cols * init.height) / init.width)));
-    const setup = generateOverlap(new Rng(init.seed), { cols: this.cols, rows: this.rows, turned: init.opts.turned === 1, placed: init.opts.placed });
+    this.rows = Math.min(12, Math.max(3, Math.round((this.cols * init.height) / init.width)));
+    const setup = generateOverlap(new Rng(init.seed), { cols: this.cols, rows: this.rows, turned: init.opts.turned === 1, placed: init.opts.placed, windows: init.opts.windows === 1 });
+    this.pattern = makePattern(new Rng((init.seed + 0x9e3779b9) >>> 0), this.cols * CELL * 2, this.rows * CELL * 2);
     this.game = new OverlapGame(setup);
     // the picture is cropped to the grid's proportions
     let sw = init.width;
@@ -101,20 +105,61 @@ export class OverlapSession implements PuzzleSession {
     ctx.drawImage(this.init.source, sx + cx * w, sy + cy * h, w, h, dx, dy, size + 0.5, size + 0.5);
   }
 
-  /** A piece at (ox, oy): each of its three cells shows its own bit of the picture, arranged as the piece now lies. */
+  /** The bit of the empty board's pattern that lies over picture cell (cx, cy). */
+  private patternImage(ctx: CanvasRenderingContext2D, cx: number, cy: number, dx: number, dy: number): void {
+    ctx.drawImage(this.pattern, cx * 2 * CELL, cy * 2 * CELL, 2 * CELL, 2 * CELL, dx, dy, CELL + 0.5, CELL + 0.5);
+  }
+
+  /**
+   * A piece at (ox, oy): each of its three cells shows its own bit of the picture, turned with the piece. A window cell shows the empty board's pattern from the
+   * place the piece belongs, in a gold frame. With the grid off only the piece's outline is drawn, not the lines between its cells.
+   */
   private drawPiece(ctx: CanvasRenderingContext2D, id: number, ox: number, oy: number, alpha = 1, edge = 'rgba(255,255,255,0.9)'): void {
-    const now = this.game.cellsNow(id);
-    const home = this.game.homeCells(id);
+    const g = this.game;
+    const now = g.cellsNow(id);
+    const home = g.homeCells(id);
+    const win = g.windowOf(id);
+    const turn = (g.rot[id] * Math.PI) / 2;
     ctx.save();
     ctx.globalAlpha = alpha;
-    now.forEach((c, k) => this.cellImage(ctx, home[k].x, home[k].y, ox + c.x * CELL, oy + c.y * CELL, CELL));
+    now.forEach((c, k) => {
+      ctx.save();
+      ctx.translate(ox + c.x * CELL + CELL / 2, oy + c.y * CELL + CELL / 2);
+      ctx.rotate(turn);
+      if (k === win) this.patternImage(ctx, home[k].x, home[k].y, -CELL / 2, -CELL / 2);
+      else this.cellImage(ctx, home[k].x, home[k].y, -CELL / 2, -CELL / 2, CELL);
+      ctx.restore();
+    });
     ctx.lineJoin = 'round';
-    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-    ctx.lineWidth = 3;
-    for (const c of now) ctx.strokeRect(ox + c.x * CELL, oy + c.y * CELL, CELL, CELL);
-    ctx.strokeStyle = edge;
-    ctx.lineWidth = 1.5;
-    for (const c of now) ctx.strokeRect(ox + c.x * CELL + 1, oy + c.y * CELL + 1, CELL - 2, CELL - 2);
+    const grid = this.init.flag('grid');
+    const lines = (colour: string, width: number, inset: number): void => {
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = width;
+      if (grid) {
+        for (const c of now) ctx.strokeRect(ox + c.x * CELL + inset, oy + c.y * CELL + inset, CELL - 2 * inset, CELL - 2 * inset);
+        return;
+      }
+      const has = (x: number, y: number): boolean => now.some((c) => c.x === x && c.y === y);
+      ctx.beginPath();
+      for (const c of now) {
+        const x0 = ox + c.x * CELL + inset;
+        const y0 = oy + c.y * CELL + inset;
+        const x1 = ox + (c.x + 1) * CELL - inset;
+        const y1 = oy + (c.y + 1) * CELL - inset;
+        if (!has(c.x, c.y - 1)) ctx.moveTo(x0, y0), ctx.lineTo(x1, y0);
+        if (!has(c.x, c.y + 1)) ctx.moveTo(x0, y1), ctx.lineTo(x1, y1);
+        if (!has(c.x - 1, c.y)) ctx.moveTo(x0, y0), ctx.lineTo(x0, y1);
+        if (!has(c.x + 1, c.y)) ctx.moveTo(x1, y0), ctx.lineTo(x1, y1);
+      }
+      ctx.stroke();
+    };
+    lines('rgba(0,0,0,0.55)', 3, 0);
+    lines(edge, 1.5, 1);
+    if (win >= 0) {
+      ctx.strokeStyle = '#ffd84a';
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(ox + now[win].x * CELL + 4, oy + now[win].y * CELL + 4, CELL - 8, CELL - 8);
+    }
     ctx.restore();
   }
 
@@ -145,7 +190,8 @@ export class OverlapSession implements PuzzleSession {
             } else this.flash.delete(i);
           }
         } else {
-          ctx.fillStyle = (cx + cy) % 2 ? '#1a100c' : '#150d0a';
+          this.patternImage(ctx, cx, cy, x, y);
+          ctx.fillStyle = 'rgba(0,0,0,0.3)';
           ctx.fillRect(x, y, CELL, CELL);
         }
       }

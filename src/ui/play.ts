@@ -43,6 +43,7 @@ export class PlayScreen {
   private session: PuzzleSession | null = null;
   private view: View = { scale: 1, ox: 0, oy: 0 };
   private activePointer = -1;
+  private lastButtons = 0;
   private frame = 0;
   private startedAt = 0;
   private elapsed = 0;
@@ -320,6 +321,7 @@ export class PlayScreen {
     }
     if (e.button !== 0) return;
     this.activePointer = e.pointerId;
+    this.lastButtons = e.buttons;
     this.canvas.setPointerCapture(e.pointerId);
     session.pointerDown(this.boardPoint(e));
     this.after();
@@ -328,7 +330,11 @@ export class PlayScreen {
   private pointerMove(e: PointerEvent): void {
     if (!this.session) return;
     if (this.activePointer >= 0 && e.pointerId !== this.activePointer) return;
+    // pressing the right button while the left one is held does not start a new pointer: it shows up as a change of the pressed buttons
+    if (e.pointerId === this.activePointer && (e.buttons & 2) !== 0 && (this.lastButtons & 2) === 0) this.session.secondary();
+    this.lastButtons = e.buttons;
     this.session.pointerMove(this.boardPoint(e));
+    this.after();
   }
 
   private pointerUp(e: PointerEvent): void {

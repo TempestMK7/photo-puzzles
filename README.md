@@ -17,7 +17,9 @@ remembered and, being about looks rather than difficulty, do not start a new bes
 Playable now:
 - **Focus Point** - the picture is cut into rectangles of different sizes and shuffled; click two pieces to make them trade places *and sizes*; put every piece back.
 - **Overlap** - the picture is covered by L-shaped pieces that overlap. They wait in three stacks; drag the top piece onto the grid, turned the way it lies in the
-  picture, and it stays and shows its part. A piece whose cells all show already is removed from its stack. Options: cells across, turned pieces, pieces placed at the start.
+  picture, and it stays and shows its part. A piece whose cells all show already is removed from its stack. The empty board is a radial pattern drawn in code
+  (sunbursts, targets, rose windows, spirals, wheels - one per puzzle); some pieces have a *window* cell that shows the bit of that pattern from where the piece belongs, as a hint.
+  Options: cells across (5-16), turned pieces, window pieces, pieces placed at the start.
 - **Strips** - straight strips (1 x N cells, they may cross) are cut out of the picture and lie scattered and turned on the board. Drag each back into its hole; it locks when
   it lies exactly there, turned the right way. Options: number of strips, longest strip, pieces placed at the start.
 
