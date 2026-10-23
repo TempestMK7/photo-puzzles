@@ -2,7 +2,7 @@ import { findKind, optionsOf, puzzleSeedText, recordKey, type KindDef } from '..
 import { formatTime, type Prefs } from '../core/prefs';
 import { randomSeedText, seedFromText } from '../core/rng';
 import { fitView, type View } from '../render';
-import { startSession, type PuzzleSession } from '../sessions';
+import { needsStill, startSession, type PuzzleSession } from '../sessions';
 import type { PhotoEntry, PhotoLibrary, PlaySource } from '../store/photos';
 import type { SaveRecord, SaveStore } from '../store/saves';
 import { h } from './dom';
@@ -248,7 +248,7 @@ export class PlayScreen {
     if (fresh) await saves.remove(this.saveKey);
     else rec = await saves.get(this.saveKey);
     if (rec && (rec.seed !== prefs.data.seed || rec.width !== src.width || rec.height !== src.height)) rec = undefined;      // another puzzle: that one is not this one
-    if (kind.still && src.video) await this.freezeVideo(src.video);
+    if (needsStill(kind.id) && src.video) await this.freezeVideo(src.video);
     if (run !== this.beginRun || src !== this.src) return;
     const make = (restore: unknown): PuzzleSession =>
       startSession(kind.id, {
@@ -263,6 +263,7 @@ export class PlayScreen {
         tabsChanged: () => this.refreshTabs(),
         progress: () => this.after(),
       });
+    this.session?.dispose?.();
     try {
       this.session = make(rec?.state);
     } catch {
@@ -425,6 +426,7 @@ export class PlayScreen {
     this.beginRun++;
     this.stopClock();
     this.closeSource();
+    this.session?.dispose?.();
     this.session = null;
     this.deps.onExit();
   }

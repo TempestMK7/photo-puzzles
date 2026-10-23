@@ -1,6 +1,8 @@
-import { edgeSegments, JigsawGame, layoutJigsaw, reverseSegments, rotVec, TAB_REACH, type JigsawLayout, type JigsawState } from '../core/jigsaw';
+import { JigsawGame, layoutJigsaw, rotVec, type Group, type JigsawLayout, type JigsawState } from '../core/jigsaw';
 import { Rng } from '../core/rng';
 import { beginFrame, type View } from '../render';
+import { buildAtlas, buildMasks, snapshot, type Atlas } from './jigsawArt';
+import { glAvailable, PieceRenderer } from './jigsawGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const WORLD_K = 4;             // the usable area is this many puzzles wide and high
@@ -11,96 +13,6 @@ const HOVER_MS = 500;           // how long pieces have to be held together to s
 const SNAP_DRAG = 0;
 const SNAP_HOVER = 1;
 // (2: snap only when let go)
-
-/** The pieces, cut out of the picture once and laid side by side on one canvas (the "atlas"), so that drawing a piece is a single drawImage. */
-interface Atlas {
-  canvas: HTMLCanvasElement;
-  plain: HTMLCanvasElement;
-  pad: number;
-  tile: number;
-  pitch: number;
-}
-
-/** Walks piece (c, r)'s outline with its cell's top-left corner at (ox, oy). */
-function tracePiece(ctx: CanvasRenderingContext2D, l: JigsawLayout, c: number, r: number, ox: number, oy: number): void {
-  const s = l.size;
-  const top = edgeSegments(l.h[r * l.cols + c]);
-  const right = edgeSegments(l.v[r * (l.cols + 1) + c + 1]);
-  const bottom = reverseSegments(edgeSegments(l.h[(r + 1) * l.cols + c]));
-  const left = reverseSegments(edgeSegments(l.v[r * (l.cols + 1) + c]));
-  ctx.beginPath();
-  ctx.moveTo(ox, oy);
-  const run = (segs: ReturnType<typeof edgeSegments>, map: (u: number, v: number) => [number, number]): void => {
-    for (const q of segs) {
-      const [x1, y1] = map(q[0], q[1]);
-      const [x2, y2] = map(q[2], q[3]);
-      const [x, y] = map(q[4], q[5]);
-      ctx.bezierCurveTo(x1, y1, x2, y2, x, y);
-    }
-  };
-  run(top, (u, v) => [ox + u * s, oy + v * s]);
-  run(right, (u, v) => [ox + s + v * s, oy + u * s]);
-  run(bottom, (u, v) => [ox + u * s, oy + s + v * s]);
-  run(left, (u, v) => [ox + v * s, oy + u * s]);
-  ctx.closePath();
-}
-
-function buildAtlas(img: HTMLCanvasElement, l: JigsawLayout): Atlas {
-  const pad = Math.ceil(l.size * TAB_REACH) + 1;
-  const tile = Math.ceil(l.size) + 2 * pad;
-  const pitch = tile + 2;
-  const make = (): CanvasRenderingContext2D => {
-    const canvas = document.createElement('canvas');
-    canvas.width = l.cols * pitch;
-    canvas.height = l.rows * pitch;
-    const g = canvas.getContext('2d')!;
-    g.imageSmoothingQuality = 'high';
-    return g;
-  };
-  const lit = make();          // loose pieces: with their outline
-  const plain = make();        // pieces in the picture: no outline, and a hair wider than the cell so no gap shows between neighbours
-  const pattern = lit.createPattern(img, 'no-repeat')!;
-  const edge = Math.max(1, l.size * 0.03);
-  for (let r = 0; r < l.rows; r++) {
-    for (let c = 0; c < l.cols; c++) {
-      const tx = c * pitch + 1;
-      const ty = r * pitch + 1;
-      const ox = tx + pad;
-      const oy = ty + pad;
-      pattern.setTransform(new DOMMatrix().translate(tx - (l.cropX + c * l.size - pad), ty - (l.cropY + r * l.size - pad)));
-      for (const g of [lit, plain]) {
-        g.fillStyle = pattern;
-        g.strokeStyle = pattern;
-        tracePiece(g, l, c, r, ox, oy);
-        g.fill();
-        g.lineWidth = g === plain ? 1.5 : 0.6;
-        g.stroke();
-      }
-      lit.save();
-      tracePiece(lit, l, c, r, ox, oy);
-      lit.clip();
-      lit.strokeStyle = 'rgba(255,255,255,0.28)';                      // a light line just inside the edge ...
-      lit.lineWidth = edge * 2;
-      tracePiece(lit, l, c, r, ox, oy);
-      lit.stroke();
-      lit.restore();
-      lit.strokeStyle = 'rgba(0,0,0,0.55)';                            // ... and a dark one on it
-      lit.lineWidth = edge;
-      tracePiece(lit, l, c, r, ox, oy);
-      lit.stroke();
-    }
-  }
-  return { canvas: lit.canvas, plain: plain.canvas, pad, tile, pitch };
-}
-
-/** A still copy of what the pieces are cut from (a video is frozen at its current picture). */
-function snapshot(init: SessionInit): HTMLCanvasElement {
-  const c = document.createElement('canvas');
-  c.width = init.width;
-  c.height = init.height;
-  c.getContext('2d')!.drawImage(init.source, 0, 0, init.width, init.height);
-  return c;
-}
 
 /**
  * Jigsaw: pieces with tabs and blanks lie scattered round the frame of the picture. Drag them (left button); a piece put next to a piece it belongs beside joins it, and
@@ -114,7 +26,9 @@ export class JigsawSession implements PuzzleSession {
   readonly rotatable: boolean;
   private layout_: JigsawLayout;
   private game: JigsawGame;
-  private atlas: Atlas;
+  private atlas: Atlas | null = null;
+  /** Set when the pieces are cut from a video and the browser can draw them on the graphics card. */
+  private gl: PieceRenderer | null = null;
   private worldW: number;
   private worldH: number;
   private frameX: number;
@@ -141,10 +55,16 @@ export class JigsawSession implements PuzzleSession {
     this.turning = init.opts.turning === 1;
     this.snap = init.opts.snap ?? SNAP_DRAG;
     this.rotatable = this.turning;
-    const img = snapshot(init);
-    this.layout_ = layoutJigsaw(rng, img.width, img.height, init.opts.pieces);
+    this.layout_ = layoutJigsaw(rng, init.width, init.height, init.opts.pieces);
     const l = this.layout_;
-    this.atlas = buildAtlas(img, l);
+    if (init.source instanceof HTMLVideoElement && glAvailable()) {
+      try {
+        this.gl = new PieceRenderer(buildMasks(l), l, init.source);
+      } catch {
+        this.gl = null;                                           // no way to draw video pieces here: they are cut from the picture the video is stopped at
+      }
+    }
+    if (!this.gl) this.atlas = buildAtlas(snapshot(init), l);
     const puzzleW = l.cols * l.size;
     const puzzleH = l.rows * l.size;
     this.worldW = puzzleW * WORLD_K;
@@ -273,7 +193,6 @@ export class JigsawSession implements PuzzleSession {
   draw(ctx: CanvasRenderingContext2D, view: View, now: number): boolean {
     beginFrame(ctx, view);
     const l = this.layout_;
-    const g = this.game;
     ctx.fillStyle = '#241711';
     ctx.fillRect(0, 0, this.worldW, this.worldH);
     ctx.strokeStyle = '#6b4a36';
@@ -289,8 +208,27 @@ export class JigsawSession implements PuzzleSession {
     ctx.setLineDash([8 / view.scale, 6 / view.scale]);
     ctx.strokeRect(this.frameX, this.frameY, pw, ph);
     ctx.setLineDash([]);
+    if (this.gl) this.drawGl(ctx, view);
+    else this.draw2d(ctx, view);
+    // a moment's glow where pieces have just joined the picture
+    let running = false;
+    if (this.flash.size) {
+      const k = 1 - (now - this.flashStart) / 500;
+      if (k > 0) {
+        ctx.fillStyle = `rgba(255,255,255,${0.35 * k})`;
+        for (const m of this.flash) ctx.fillRect(this.frameX + (m % l.cols) * l.size, this.frameY + Math.floor(m / l.cols) * l.size, l.size, l.size);
+        running = true;
+      } else this.flash.clear();
+    }
+    return running;
+  }
+
+  /** The pieces cut from a still picture: tiles of the atlas, one drawImage each. */
+  private draw2d(ctx: CanvasRenderingContext2D, view: View): void {
+    const l = this.layout_;
+    const g = this.game;
     ctx.imageSmoothingQuality = view.scale < 0.6 ? 'low' : 'high';
-    const { canvas: lit, plain, pad, tile, pitch } = this.atlas;
+    const { canvas: lit, plain, pad, tile, pitch } = this.atlas!;
     const x0 = -view.ox / view.scale;
     const y0 = -view.oy / view.scale;
     const x1 = (this.canvasW - view.ox) / view.scale;
@@ -328,17 +266,27 @@ export class JigsawSession implements PuzzleSession {
       }
       drawGroup(lit, grp);
     }
-    // a moment's glow where pieces have just joined the picture
-    let running = false;
-    if (this.flash.size) {
-      const k = 1 - (now - this.flashStart) / 500;
-      if (k > 0) {
-        ctx.fillStyle = `rgba(255,255,255,${0.35 * k})`;
-        for (const m of this.flash) ctx.fillRect(this.frameX + (m % l.cols) * l.size, this.frameY + Math.floor(m / l.cols) * l.size, l.size, l.size);
-        running = true;
-      } else this.flash.clear();
-    }
-    return running;
+  }
+
+  /** The pieces cut from a video: drawn on the graphics card, then laid over the board. */
+  private drawGl(ctx: CanvasRenderingContext2D, view: View): void {
+    const g = this.game;
+    const selId = this.selectedGroup();
+    const loose: Group[] = [];
+    for (const id of g.z) if (id !== selId) loose.push(g.groups.get(id)!);
+    const anchored: Group[] = [];
+    for (const grp of g.groups.values()) if (grp.anchored) anchored.push(grp);
+    const cv = this.gl!.render(
+      { width: this.canvasW, height: this.canvasH, scale: view.scale, ox: view.ox, oy: view.oy, frameX: this.frameX, frameY: this.frameY },
+      anchored,
+      loose,
+      selId >= 0 ? g.groups.get(selId)! : null,
+    );
+    if (!cv) return;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(cv, 0, 0);
+    ctx.restore();
   }
 
   // ---------------------------------------------------------------------------------------------------------------- input
@@ -502,6 +450,11 @@ export class JigsawSession implements PuzzleSession {
       this.flashStart = performance.now();
       if (this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
     }
+  }
+
+  dispose(): void {
+    this.cancelHover();
+    this.gl?.dispose();
   }
 
   status(): string {

@@ -1,6 +1,7 @@
 import type { KindId } from '../core/kinds';
 import { FocusSession } from './focus';
 import { JigsawSession } from './jigsaw';
+import { glAvailable } from './jigsawGl';
 import { OverlapSession } from './overlap';
 import { StripsSession } from './strips';
 import type { PuzzleSession, SessionFactory } from './types';
@@ -17,6 +18,11 @@ export function startSession(kind: KindId, init: Parameters<SessionFactory>[0]):
   const make = FACTORIES[kind];
   if (!make) throw new Error(`${kind} cannot be played yet`);
   return make(init);
+}
+
+/** Pieces cut from a still picture (so a video has to be stopped at its first picture, the same one every time): Jigsaw, where the browser cannot draw video pieces. */
+export function needsStill(kind: KindId): boolean {
+  return kind === 'jigsaw' && !glAvailable();
 }
 
 export type { PuzzleSession } from './types';

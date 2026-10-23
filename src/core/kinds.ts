@@ -24,8 +24,6 @@ export interface KindDef {
   blurb: string;
   /** False: listed but not playable yet. */
   available: boolean;
-  /** The pieces are cut from one still picture, so a video is stopped at its first picture (the same one every time the puzzle is started). */
-  still?: boolean;
   options: OptionDef[];
 }
 
@@ -73,7 +71,6 @@ export const KINDS: readonly KindDef[] = [
     name: 'Jigsaw',
     blurb: 'Classic interlocking pieces on a huge table. The corners are in place; join pieces to them and to each other. Wheel to zoom, right-drag to move. Click a piece to select it; right-click (or R) turns it when turning is on.',
     available: true,
-    still: true,
     options: [
       { key: 'pieces', label: 'Approximate pieces', min: 100, max: 5000, def: 300, step: 100 },
       { key: 'turning', label: 'Turned pieces', min: 0, max: 1, def: 0, toggle: true },

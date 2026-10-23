@@ -49,6 +49,8 @@ export interface PuzzleSession {
   secondary(): void;
   /** Everything that has to be kept to carry on later, as plain data (JSON-able); the rest follows from the seed. */
   serialize(): unknown;
+  /** The session is being replaced or left: let go of anything held on the graphics card. */
+  dispose?(): void;
   /** The progress text for the header ("3 swaps", "5 / 12 placed"). */
   status(): string;
   readonly solved: boolean;
