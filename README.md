@@ -44,6 +44,13 @@ Playable now:
 In Overlap and Strips a tap on a piece turns it a quarter turn (so does the right button, a second finger, the R key or the Rotate button). Grid lines can be switched off
 in the types that have them. Listed as "soon": Sliding Tiles.
 
+## The original
+
+The **Original** button in the play screen's header opens a small window with the original picture to look at while solving. Drag it by its title, resize it by the corner, close it
+with the x (or Escape, which closes the window before it leaves the puzzle). For a video the window does not play the file a second time: it mirrors the video the puzzle is
+cut from (`captureStream`), so it shows the same moment whether the video plays, is paused or is moved to another place, and it costs no second decoder (about 10-20% of the frame
+rate on a 2016 tablet; a copy to a canvas is the fallback where `captureStream` is missing). `src/ui/refwindow.ts`.
+
 ## Saved puzzles
 
 A puzzle that is left unfinished (back to the photo screen, closing the page) is kept, and comes back exactly as it was - pieces, turns, tabs, the Jigsaw camera, the time -

@@ -128,6 +128,12 @@ body.dragging .library::after {
 .play button.toggle.on { color: var(--text); border-color: var(--accent2); }
 .play .stats { display: flex; gap: 14px; font-variant-numeric: tabular-nums; color: var(--dim); }
 .play .stats .time { color: var(--text); }
+/* a phone: the title makes room, and the buttons wrap onto a second row rather than run off the screen */
+@media (max-width: 640px) {
+  .play .bar { flex-wrap: wrap; gap: 6px 8px; }
+  .play .title { display: none; }
+  .play .stats { margin-left: auto; }
+}
 .play main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-bottom: env(safe-area-inset-bottom); }
 .stage { flex: 1; min-height: 0; position: relative; }
 .vbar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--panel); border-top: 1px solid var(--line); }
@@ -136,6 +142,18 @@ body.dragging .library::after {
 .vbar button.icon { padding: 4px 10px; min-width: 40px; }
 .board { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
 .board.overlay { pointer-events: none; }
+.refwin {
+  position: absolute; z-index: 4; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--accent2); border-radius: 8px; overflow: hidden;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.6);
+}
+.reftitle { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 2px 10px; font-size: 13px; color: var(--dim); cursor: move; touch-action: none; user-select: none; }
+.refclose { border: 0; background: transparent; color: var(--text); font-size: 20px; line-height: 1; padding: 2px 8px; }
+.refbody { position: relative; aspect-ratio: var(--ar, 1.5); background: #100a08; }
+.refbody img, .refbody video, .refbody canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
+.refgrip {
+  position: absolute; right: 0; bottom: 0; width: 26px; height: 26px; cursor: nwse-resize; touch-action: none;
+  background: linear-gradient(135deg, transparent 55%, rgba(255, 216, 74, 0.85) 55%, rgba(255, 216, 74, 0.85) 62%, transparent 62%, transparent 74%, rgba(255, 216, 74, 0.85) 74%, rgba(255, 216, 74, 0.85) 81%, transparent 81%);
+}
 .dialog {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); min-width: 280px; max-width: 90%; padding: 20px 26px; text-align: center; background: var(--panel);
   border: 2px solid var(--accent2); border-radius: 12px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);

@@ -6,6 +6,7 @@ import { needsStill, startSession, type PuzzleSession } from '../sessions';
 import type { PhotoEntry, PhotoLibrary, PlaySource } from '../store/photos';
 import type { SaveRecord, SaveStore } from '../store/saves';
 import { h } from './dom';
+import { RefWindow } from './refwindow';
 
 export interface PlayDeps {
   prefs: Prefs;
@@ -47,6 +48,9 @@ export class PlayScreen {
     h('button', { type: 'button', title: 'Zoom in', 'aria-label': 'Zoom in', onclick: () => this.zoomBy(1.4) }, '+'),
   );
   private stage = h('div', { class: 'stage' }, this.canvas, this.dialogEl, this.viewBar, this.zoomEl);
+  /** The original picture or video in a window of its own, for looking at while solving. */
+  private ref = new RefWindow(this.stage, () => this.toggleRef(false));
+  private refBtn = h('button', { type: 'button', class: 'toggle', title: 'Look at the original picture', 'aria-pressed': 'false', onclick: () => this.toggleRef() }, 'Original');
   private main = h('main', {}, this.tabsEl, this.stage, this.vbar);
 
   private entry: PhotoEntry | null = null;
@@ -82,6 +86,7 @@ export class PlayScreen {
         this.titleEl,
         h('div', { class: 'stats' }, this.timeEl, this.statusEl),
         this.togglesEl,
+        this.refBtn,
         this.rotateBtn,
         h('button', { type: 'button', onclick: () => this.restart() }, 'Restart'),
       ),
@@ -130,7 +135,10 @@ export class PlayScreen {
     });
     window.addEventListener('keydown', (e) => {
       if (this.el.hidden) return;
-      if (e.key === 'Escape') this.leave();
+      if (e.key === 'Escape') {
+        if (this.ref.open) this.toggleRef(false);                // the window goes first, then the puzzle
+        else this.leave();
+      }
       else if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey) this.secondary();
       else if (/^[0-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !(e.target instanceof HTMLInputElement)) this.selectTab(e.key === '0' ? 9 : Number(e.key) - 1);
     });
@@ -162,7 +170,17 @@ export class PlayScreen {
     await this.begin();
   }
 
+  /** Opens or closes the window with the original picture (or video, which follows the one the puzzle is cut from). */
+  private toggleRef(open = !this.ref.open): void {
+    const { entry, src } = this;
+    if (open && entry && src) this.ref.show({ image: entry.previewUrl, video: src.video ?? undefined, width: src.width, height: src.height });
+    else this.ref.hide();
+    this.refBtn.classList.toggle('on', this.ref.open);
+    this.refBtn.setAttribute('aria-pressed', String(this.ref.open));
+  }
+
   private closeSource(): void {
+    this.toggleRef(false);
     this.pumpToken++;
     this.src?.dispose();
     this.src = null;
@@ -206,6 +224,7 @@ export class PlayScreen {
           const s = this.session;
           if (s?.videoFrame) s.videoFrame(performance.now());
           else this.requestDraw();
+          this.ref.frame();
           this.updateBar();
         }
         pump();
