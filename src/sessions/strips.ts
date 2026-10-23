@@ -169,7 +169,15 @@ export class StripsSession implements PuzzleSession {
     const d = this.drag;
     if (!d) return;
     if (!d.moved && Math.hypot(p.x - d.start.x, p.y - d.start.y) > TAP) d.moved = true;
-    if (d.moved) this.game.moveTo(d.id, Math.floor(p.x / S) - d.gx, Math.floor(p.y / S) - d.gy);
+    if (d.moved) {
+      this.game.moveTo(d.id, Math.floor(p.x / S) - d.gx, Math.floor(p.y / S) - d.gy);
+      if (this.game.lockIfHome(d.id)) {                            // over its own hole, turned right: it drops by itself, the button need not be released
+        this.locked(d.id);
+        this.drag = null;
+        window.clearTimeout(this.dwell);
+        this.overTab = -1;
+      }
+    }
     this.init.requestDraw();
   }
 

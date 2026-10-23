@@ -22,7 +22,7 @@ Playable now:
   Options: cells across (5-16), turned pieces, window pieces, pieces placed at the start.
 - **Strips** - the whole picture is cut into straight strips (1 x N cells, 3 up to the longest allowed; they may cross) that lie scattered and turned on the board. You choose the
   cells across and the longest strip; the number of strips is worked out so that every cell is covered and every strip covers at least one cell that no other strip covers
-  (so its place is certain). Drag each strip back into its hole; it locks when it lies exactly there, turned the right way. The loose strips are spread at random over 1-10
+  (so its place is certain). Drag each strip back into its hole; it locks when it lies exactly there, turned the right way - the moment it does, even before you let go of the mouse button. The loose strips are spread at random over 1-10
   **tabs** (each tab shows the same picture and holes with its own strips; drag a strip onto a tab, or rest it there, to move it; keys 1-9 and 0 switch tabs). Options: cells across
   (6-40), longest strip, tabs, pieces placed at the start.
 
