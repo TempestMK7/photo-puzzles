@@ -33,7 +33,16 @@ export class PlayScreen {
   private seekEl = h('input', { type: 'range', class: 'seek', min: 0, max: 1000, value: 0, step: 1, 'aria-label': 'Video position' });
   private muteBtn = h('button', { type: 'button', class: 'icon', title: 'Sound', 'aria-label': 'Sound', onclick: () => this.toggleMute() });
   private vbar = h('div', { class: 'vbar', hidden: true }, this.pauseBtn, this.curEl, this.seekEl, this.totalEl, this.muteBtn);
-  private stage = h('div', { class: 'stage' }, this.canvas, this.dialogEl, this.viewBar);
+  // the zoom control of a board with a camera (Jigsaw), bottom right
+  private zoomLabel = h('button', { type: 'button', class: 'zlabel', title: 'Show everything', 'aria-label': 'Show everything', onclick: () => this.zoomFit() }, '100%');
+  private zoomEl = h(
+    'div',
+    { class: 'zoom', hidden: true },
+    h('button', { type: 'button', title: 'Zoom out', 'aria-label': 'Zoom out', onclick: () => this.zoomBy(1 / 1.4) }, '−'),
+    this.zoomLabel,
+    h('button', { type: 'button', title: 'Zoom in', 'aria-label': 'Zoom in', onclick: () => this.zoomBy(1.4) }, '+'),
+  );
+  private stage = h('div', { class: 'stage' }, this.canvas, this.dialogEl, this.viewBar, this.zoomEl);
   private main = h('main', {}, this.tabsEl, this.stage, this.vbar);
 
   private entry: PhotoEntry | null = null;
@@ -44,6 +53,8 @@ export class PlayScreen {
   private session: PuzzleSession | null = null;
   private view: View = { scale: 1, ox: 0, oy: 0 };
   private activePointer = -1;
+  private rightPointer = -1;
+  private touches = new Map<number, { x: number; y: number }>();      // fingers down, in canvas pixels, while the board has a camera
   private lastButtons = 0;
   private frame = 0;
   private startedAt = 0;
@@ -72,9 +83,22 @@ export class PlayScreen {
     this.canvas.addEventListener('pointermove', (e) => this.pointerMove(e));
     this.canvas.addEventListener('pointerup', (e) => this.pointerUp(e));
     this.canvas.addEventListener('pointercancel', (e) => {
+      this.touches.delete(e.pointerId);
+      if (e.pointerId === this.rightPointer) this.rightPointer = -1;
       if (e.pointerId === this.activePointer) this.activePointer = -1;
       this.session?.pointerCancel();
     });
+    this.canvas.addEventListener(
+      'wheel',
+      (e) => {
+        const s = this.session;
+        if (!s?.wheel || !this.dialogEl.hidden) return;
+        e.preventDefault();
+        s.wheel(this.boardPoint(e), e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1));
+        this.after();
+      },
+      { passive: false },
+    );
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     new ResizeObserver(() => this.resize()).observe(this.canvas);
     this.seekEl.addEventListener('pointerdown', () => (this.seeking = true));
@@ -210,6 +234,14 @@ export class PlayScreen {
     this.buildToggles();
     this.buildTabs();
     this.rotateBtn.hidden = !this.session.rotatable;
+    this.zoomEl.hidden = !this.session.zoomBy;
+    this.touches.clear();
+    this.rightPointer = -1;
+    if (this.session.stillSource && this.src.video) {          // the pieces were cut from this picture: the video stops here
+      this.pumpToken++;
+      this.src.video.pause();
+      this.vbar.hidden = true;
+    }
     this.dialogEl.hidden = true;
     this.viewBar.hidden = true;
     this.elapsed = 0;
@@ -220,6 +252,7 @@ export class PlayScreen {
     this.tick();
     this.statusEl.textContent = this.session.status();
     this.resize();
+    if (this.session.zoomLabel) this.zoomLabel.textContent = this.session.zoomLabel();
   }
 
   /** A display setting of the chosen type (grid lines, animations): on unless the player turned it off. */
@@ -330,9 +363,19 @@ export class PlayScreen {
       this.canvas.width = w;
       this.canvas.height = hgt;
     }
-    const size = this.session.layout(w, hgt);
-    this.view = fitView(size.width, size.height, w, hgt, 12 * dpr);
+    this.syncView();
     this.requestDraw();
+  }
+
+  /** The view of the board on the canvas: the session's own when it has a camera, else the whole board fitted in. */
+  private syncView(): void {
+    const s = this.session;
+    if (!s) return;
+    if (s.view) this.view = s.view(this.canvas.width, this.canvas.height);
+    else {
+      const size = s.layout(this.canvas.width, this.canvas.height);
+      this.view = fitView(size.width, size.height, this.canvas.width, this.canvas.height, 12 * (window.devicePixelRatio || 1));
+    }
   }
 
   private requestDraw(): void {
@@ -342,20 +385,45 @@ export class PlayScreen {
   private render(now: number): void {
     this.frame = 0;
     if (!this.session || !this.src) return;
+    this.syncView();
     if (this.session.draw(this.ctx, this.view, now)) this.requestDraw();
   }
 
-  /** Board units under a pointer event. */
-  private boardPoint(e: PointerEvent): { x: number; y: number } {
+  /** Canvas pixels under a pointer or mouse event. */
+  private canvasPoint(e: { clientX: number; clientY: number }): { x: number; y: number } {
     const r = this.canvas.getBoundingClientRect();
     const dpr = this.canvas.width / r.width;
-    return { x: ((e.clientX - r.left) * dpr - this.view.ox) / this.view.scale, y: ((e.clientY - r.top) * dpr - this.view.oy) / this.view.scale };
+    return { x: (e.clientX - r.left) * dpr, y: (e.clientY - r.top) * dpr };
+  }
+
+  /** Board units under a pointer event. */
+  private boardPoint(e: { clientX: number; clientY: number }): { x: number; y: number } {
+    this.syncView();
+    const p = this.canvasPoint(e);
+    return { x: (p.x - this.view.ox) / this.view.scale, y: (p.y - this.view.oy) / this.view.scale };
   }
 
   private pointerDown(e: PointerEvent): void {
     const session = this.session;
     if (!session || !this.dialogEl.hidden) return;
-    if (e.button === 2 || (this.activePointer >= 0 && e.pointerId !== this.activePointer)) {          // right button, or a second finger
+    if (e.button === 2 && session.rightDown) {                 // a board with a camera: the right button moves it
+      e.preventDefault();
+      this.rightPointer = e.pointerId;
+      this.canvas.setPointerCapture(e.pointerId);
+      session.rightDown(this.boardPoint(e));
+      this.after();
+      return;
+    }
+    if (e.pointerType === 'touch' && session.pinch) {          // a second finger zooms (and moves) a board with a camera
+      this.touches.set(e.pointerId, this.canvasPoint(e));
+      if (this.touches.size === 2) {
+        if (this.activePointer >= 0) session.pointerCancel();
+        this.activePointer = -1;
+        this.canvas.setPointerCapture(e.pointerId);
+        return;
+      }
+      if (this.touches.size > 2) return;
+    } else if (e.button === 2 || (this.activePointer >= 0 && e.pointerId !== this.activePointer)) {      // right button, or a second finger
       e.preventDefault();
       session.secondary();
       this.after();
@@ -370,20 +438,54 @@ export class PlayScreen {
   }
 
   private pointerMove(e: PointerEvent): void {
-    if (!this.session) return;
+    const session = this.session;
+    if (!session) return;
+    if (e.pointerId === this.rightPointer) {
+      session.rightMove?.(this.boardPoint(e));
+      this.after();
+      return;
+    }
+    if (this.touches.has(e.pointerId) && this.touches.size === 2 && session.pinch) {
+      const [a, b] = [...this.touches.values()];
+      const was = { mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, dist: Math.hypot(a.x - b.x, a.y - b.y) };
+      this.touches.set(e.pointerId, this.canvasPoint(e));
+      const [c, d] = [...this.touches.values()];
+      const now = { mid: { x: (c.x + d.x) / 2, y: (c.y + d.y) / 2 }, dist: Math.hypot(c.x - d.x, c.y - d.y) };
+      if (was.dist > 0 && now.dist > 0) session.pinch(was.mid, now.mid, now.dist / was.dist);
+      this.after();
+      return;
+    }
     if (this.activePointer >= 0 && e.pointerId !== this.activePointer) return;
+    if (this.touches.has(e.pointerId)) this.touches.set(e.pointerId, this.canvasPoint(e));
     // pressing the right button while the left one is held does not start a new pointer: it shows up as a change of the pressed buttons
-    if (e.pointerId === this.activePointer && (e.buttons & 2) !== 0 && (this.lastButtons & 2) === 0) this.session.secondary();
+    if (e.pointerId === this.activePointer && (e.buttons & 2) !== 0 && (this.lastButtons & 2) === 0) session.secondary();
     this.lastButtons = e.buttons;
-    if (e.pointerId === this.activePointer) this.session.dragOverTab?.(this.tabUnder(e));
-    this.session.pointerMove(this.boardPoint(e));
+    if (e.pointerId === this.activePointer) session.dragOverTab?.(this.tabUnder(e));
+    session.pointerMove(this.boardPoint(e));
     this.after();
   }
 
   private pointerUp(e: PointerEvent): void {
+    this.touches.delete(e.pointerId);
+    if (e.pointerId === this.rightPointer) {
+      this.rightPointer = -1;
+      this.session?.rightUp?.(this.boardPoint(e));
+      this.after();
+      return;
+    }
     if (e.pointerId !== this.activePointer) return;
     this.activePointer = -1;
     this.session?.pointerUp(this.boardPoint(e));
+    this.after();
+  }
+
+  private zoomBy(factor: number): void {
+    this.session?.zoomBy?.(factor);
+    this.after();
+  }
+
+  private zoomFit(): void {
+    this.session?.zoomFit?.();
     this.after();
   }
 
@@ -397,6 +499,7 @@ export class PlayScreen {
     const session = this.session;
     if (!session) return;
     this.statusEl.textContent = session.status();
+    if (session.zoomLabel) this.zoomLabel.textContent = session.zoomLabel();
     this.refreshTabs();
     if (session.solved && this.running) this.finish();
     this.requestDraw();

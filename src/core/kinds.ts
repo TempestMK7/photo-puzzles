@@ -64,7 +64,13 @@ export const KINDS: readonly KindDef[] = [
       { key: 'grid', label: 'Grid lines', min: 0, max: 1, def: 1, toggle: true, display: true },
     ],
   },
-  { id: 'jigsaw', name: 'Jigsaw', blurb: 'Classic interlocking pieces.', available: false, options: [] },
+  {
+    id: 'jigsaw',
+    name: 'Jigsaw',
+    blurb: 'Classic interlocking pieces on a huge table. The corners are in place; join pieces to them and to each other. Wheel to zoom, right-drag to move.',
+    available: true,
+    options: [{ key: 'pieces', label: 'Approximate pieces', min: 100, max: 5000, def: 300, step: 100 }],
+  },
   { id: 'sliding', name: 'Sliding Tiles', blurb: 'Slide the tiles into the empty space.', available: false, options: [] },
 ];
 

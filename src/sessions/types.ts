@@ -53,6 +53,24 @@ export interface PuzzleSession {
   selectTab?(tab: number): void;
   /** The pointer, while a piece is being dragged, is over this tab's button (-1: over none). */
   dragOverTab?(tab: number): void;
+
+  // A board with a camera (Jigsaw): the session picks the view itself instead of fitting the whole board on the canvas.
+  /** The view for a canvas of this size (in canvas pixels). */
+  view?(canvasW: number, canvasH: number): View;
+  /** Mouse wheel over the board point `at`. */
+  wheel?(at: Pt, deltaY: number): void;
+  /** Two fingers: what was under `from` (canvas pixels) is now under `to`, and the board is `factor` times bigger. */
+  pinch?(from: Pt, to: Pt, factor: number): void;
+  /** The right button, pressed on the board / dragged / let go; used instead of `secondary` when present. */
+  rightDown?(p: Pt): void;
+  rightMove?(p: Pt): void;
+  rightUp?(p: Pt): void;
+  /** The zoom control: zoom in or out by a factor about the middle of the screen, show everything, and the text that tells the zoom. */
+  zoomBy?(factor: number): void;
+  zoomFit?(): void;
+  zoomLabel?(): string;
+  /** The pieces are cut from a still copy of the source, so a video is paused and its controls hidden. */
+  readonly stillSource?: boolean;
 }
 
 export type SessionFactory = (init: SessionInit) => PuzzleSession;

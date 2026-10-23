@@ -127,4 +127,11 @@ body.dragging .library::after {
 .dialog p { margin: 4px 0; }
 .dialog .best { color: var(--accent2); font-weight: 600; margin-bottom: 14px; }
 .dialog .buttons { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.zoom {
+  position: absolute; right: 14px; bottom: max(14px, env(safe-area-inset-bottom)); display: flex; align-items: stretch; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; overflow: hidden; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5); user-select: none;
+}
+.zoom button { border: 0; border-radius: 0; background: transparent; color: var(--text); padding: 6px 12px; font-size: 18px; line-height: 1; min-width: 40px; }
+.zoom button:hover { background: var(--panel2); }
+.zoom .zlabel { font-size: 13px; min-width: 58px; font-variant-numeric: tabular-nums; color: var(--dim); border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
 .viewbar { position: absolute; left: 0; right: 0; bottom: max(14px, env(safe-area-inset-bottom)); display: flex; justify-content: center; }

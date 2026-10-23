@@ -25,9 +25,14 @@ Playable now:
   (so its place is certain). Drag each strip back into its hole; it locks when it lies exactly there, turned the right way - the moment it does, even before you let go of the mouse button. The loose strips are spread at random over 1-10
   **tabs** (each tab shows the same picture and holes with its own strips; drag a strip onto a tab, or rest it there, to move it; keys 1-9 and 0 switch tabs). Options: cells across
   (6-40), longest strip, tabs, pieces placed at the start.
+- **Jigsaw** - classic interlocking pieces, no grid. You choose the *approximate* number of pieces (100-5000 in steps of 100; the picture is cut into square cells, so the real
+  count is the nearest grid to that). The four corner pieces start solved and fixed; the rest lie scattered round the frame on a table four times the size of the picture in each
+  direction. Put a loose piece against a piece it belongs beside and it joins it - the moment it is close enough, even before you let go - and joined pieces move as one; anything
+  that joins a solved piece becomes part of the picture. The mouse wheel (or the control at the bottom right: -, the zoom, +; click the zoom to show everything) zooms about the
+  pointer; the right button - or the left one on bare ground - moves the camera (two fingers zoom and move it on a touch screen). A video is frozen at its current picture.
 
 In Overlap and Strips a tap on a piece turns it a quarter turn (so does the right button, a second finger, the R key or the Rotate button). Grid lines can be switched off
-in every type. Listed as "soon": Jigsaw, Sliding Tiles.
+in the types that have them. Listed as "soon": Sliding Tiles.
 
 ## Run it
 
@@ -46,7 +51,7 @@ the browser cannot play is reported when you add it) with the button or by dropp
 
 ## Layout
 
-- `src/core/` - rules with no browser dependency: seeded random (`rng.ts`), picture cutting (`layout.ts`), the games (`focus.ts`, `overlap.ts`, `strips.ts`: generator + rules),
+- `src/core/` - rules with no browser dependency: seeded random (`rng.ts`), picture cutting (`layout.ts`), the games (`focus.ts`, `overlap.ts`, `strips.ts`, `jigsaw.ts`: generator + rules),
   the list of puzzle types and their options (`kinds.ts`), saved preferences and best times (`prefs.ts`)
 - `src/sessions/` - one `PuzzleSession` per type (layout, drawing, pointer input) behind the interface in `types.ts`; `index.ts` says how to start each
 - `src/store/photos.ts` - the photo library (samples + the player's photos and videos in IndexedDB, thumbnails, duplicates by content hash) and what a puzzle draws from (`PlaySource`)
