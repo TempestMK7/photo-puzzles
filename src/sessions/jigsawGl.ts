@@ -127,6 +127,21 @@ void main() {
 
 const COS = [1, 0, -1, 0];                // a quarter turn clockwise, y pointing down
 const SIN = [0, 1, 0, -1];
+const FRAG_FLASH = `#version 300 es
+precision highp float;
+uniform sampler2D u_cover;
+uniform vec2 u_atlas;
+uniform float u_pitch;
+uniform float u_k;
+in vec2 v_tile;
+in vec2 v_cell;
+in float v_plain;
+out vec4 o;
+void main() {
+  float cov = texture(u_cover, (v_cell * u_pitch + vec2(1.0) + v_tile) / u_atlas).a * u_k;
+  o = vec4(vec3(cov), cov);
+}`;
+
 const FLOATS = 7;                       // per instance: centre x, y, cos, sin, cell c, r, plain
 const STRIDE = FLOATS * 4;
 const GLOW_PX = 7;                      // the selection glow reaches this far, in screen pixels (less, if the piece's tile has no room)
@@ -142,6 +157,7 @@ export class PieceRenderer {
   private lost = false;
   private piece!: Program;
   private glow!: Program;
+  private flashProg!: Program;
   private cornerBuf!: WebGLBuffer;
   private instBuf!: WebGLBuffer;
   private vao!: WebGLVertexArrayObject;
@@ -153,6 +169,8 @@ export class PieceRenderer {
   private mipsFresh = false;
   private mipsOn = false;
   private data = new Float32Array(0);
+  /** The piece canvas has this share of the board's pixels in each direction (the browser stretches it): less work for a slow graphics card. */
+  res = 1;
   private readonly vw: number;
   private readonly vh: number;
 
@@ -213,6 +231,7 @@ export class PieceRenderer {
     const shared = ['u_res', 'u_xf', 'u_tile', 'u_o', 'u_cover', 'u_atlas', 'u_pitch'];
     this.piece = this.compile(FRAG_PIECE, [...shared, 'u_video', 'u_overlay', 'u_src', 'u_size', 'u_vid', 'u_outline', 'u_blur']);
     this.glow = this.compile(FRAG_GLOW, [...shared, 'u_r']);
+    this.flashProg = this.compile(FRAG_FLASH, [...shared, 'u_k']);
     this.vao = gl.createVertexArray()!;
     gl.bindVertexArray(this.vao);
     this.cornerBuf = gl.createBuffer()!;
@@ -229,11 +248,7 @@ export class PieceRenderer {
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     this.coverTex = this.texture(this.masks.cover);
     this.overlayTex = this.texture(this.masks.overlay);
-    // the video frame: storage for every mip level, filled by each new picture
-    this.videoTex = this.texture(null);
-    const levels = 1 + Math.floor(Math.log2(Math.max(this.vw, this.vh)));
-    gl.bindTexture(gl.TEXTURE_2D, this.videoTex);
-    gl.texStorage2D(gl.TEXTURE_2D, levels, gl.RGBA8, this.vw, this.vh);
+    this.videoTex = this.texture(null);                           // filled by each new picture of the video
     this.hasFrame = false;
     this.lastTime = -1;
     this.mipsFresh = false;
@@ -248,7 +263,8 @@ export class PieceRenderer {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.videoTex);
     if (!this.hasFrame || v.currentTime !== this.lastTime) {
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, v);
+      // texImage2D, not texSubImage2D into fixed storage: on some phones and tablets the browser only has a fast way to copy a video frame for the former (3 ms against 50)
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v);
       this.lastTime = v.currentTime;
       this.hasFrame = true;
       this.mipsFresh = false;
@@ -271,15 +287,18 @@ export class PieceRenderer {
    * Draws the pieces into the renderer's canvas (the same size as the board's) and returns it, or null if there is nothing to show yet. `loose` is back to front; the
    * `selected` group is drawn last, with a glow.
    */
-  render(view: GlView, anchored: Iterable<GlGroup>, loose: Iterable<GlGroup>, selected: GlGroup | null): HTMLCanvasElement | null {
+  render(view: GlView, anchored: Iterable<GlGroup>, loose: Iterable<GlGroup>, selected: GlGroup | null, flash: { members: number[]; k: number } | null): HTMLCanvasElement | null {
     if (this.lost) return null;
     const gl = this.gl;
     const { canvas, l, masks } = this;
-    if (canvas.width !== view.width || canvas.height !== view.height) {
-      canvas.width = view.width;
-      canvas.height = view.height;
+    const w = Math.max(1, Math.round(view.width * this.res));
+    const h = Math.max(1, Math.round(view.height * this.res));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
     }
-    this.uploadVideo(view.scale < 0.75);
+    const k = w / view.width;                                       // board pixels -> canvas pixels
+    this.uploadVideo(view.scale * this.res < 0.75);
     if (!this.hasFrame) return null;
 
     // one instance for every piece on the screen
@@ -288,6 +307,7 @@ export class PieceRenderer {
     for (const grp of anchored) total += grp.members.length;
     for (const grp of loose) total += grp.members.length;
     if (selected) total += selected.members.length;
+    if (flash) total += flash.members.length;
     this.room(total);
     const x0 = -view.ox / view.scale;
     const y0 = -view.oy / view.scale;
@@ -322,6 +342,8 @@ export class PieceRenderer {
     const nBack = n;
     if (selected) push(selected, 0);
     const nSel = n - nBack;
+    if (flash) push({ members: flash.members, rot: 0, dx: 0, dy: 0 }, 1);
+    const nFlash = n - nBack - nSel;
 
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clearColor(0, 0, 0, 0);
@@ -342,7 +364,7 @@ export class PieceRenderer {
     const shared = (p: Program): void => {
       gl.useProgram(p.prog);
       gl.uniform2f(p.u.u_res, canvas.width, canvas.height);
-      gl.uniform3f(p.u.u_xf, view.scale, view.ox, view.oy);
+      gl.uniform3f(p.u.u_xf, view.scale * k, view.ox * k, view.oy * k);
       gl.uniform1f(p.u.u_tile, masks.tile);
       gl.uniform1f(p.u.u_o, l.size / 2 + masks.pad);
       gl.uniform1i(p.u.u_cover, 1);
@@ -376,6 +398,12 @@ export class PieceRenderer {
       draw(nBack, nSel);                                            // the glow of the whole group first ...
       gl.useProgram(p.prog);
       draw(nBack, nSel);                                            // ... then its pieces over it
+    }
+    if (nFlash && flash) {                                          // pieces that have just joined the picture light up for a moment
+      const f = this.flashProg;
+      shared(f);
+      gl.uniform1f(f.u.u_k, 0.35 * flash.k);
+      draw(nBack + nSel, nFlash);
     }
     return canvas;
   }

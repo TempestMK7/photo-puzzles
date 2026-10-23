@@ -120,6 +120,7 @@ body.dragging .library::after {
 .vbar .seek { flex: 1; accent-color: var(--accent); min-width: 0; height: 28px; }
 .vbar button.icon { padding: 4px 10px; min-width: 40px; }
 .board { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.board.overlay { pointer-events: none; }
 .dialog {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); min-width: 280px; max-width: 90%; padding: 20px 26px; text-align: center; background: var(--panel);
   border: 2px solid var(--accent2); border-radius: 12px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);

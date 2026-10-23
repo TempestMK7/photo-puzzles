@@ -37,6 +37,7 @@ export class PlayScreen {
   private muteBtn = h('button', { type: 'button', class: 'icon', title: 'Sound', 'aria-label': 'Sound', onclick: () => this.toggleMute() });
   private vbar = h('div', { class: 'vbar', hidden: true }, this.pauseBtn, this.curEl, this.seekEl, this.totalEl, this.muteBtn);
   // the zoom control of a board with a camera (Jigsaw), bottom right
+  private overlay: HTMLCanvasElement | null = null;
   private zoomLabel = h('button', { type: 'button', class: 'zlabel', title: 'Show everything', 'aria-label': 'Show everything', onclick: () => this.zoomFit() }, '100%');
   private zoomEl = h(
     'div',
@@ -184,16 +185,31 @@ export class PlayScreen {
       this.refreshMute();
       void v.play().catch(() => undefined);
     });
+    // Draw when the video shows a new picture. requestVideoFrameCallback says so exactly, but on a slow device it fires several times less often than the video shows
+    // pictures, and `currentTime` alone moves between pictures in some browsers: so a draw is due when the callback has fired, or when the playing time is more than a
+    // frame ahead of the last drawing.
     const token = ++this.pumpToken;
-    const pump = (): void => {
+    let called = false;
+    let drawnAt = -1;
+    const callback = (): void => {
       if (token !== this.pumpToken) return;
-      const again = (): void => {
-        this.requestDraw();
-        this.updateBar();
+      called = true;
+      if ('requestVideoFrameCallback' in v) v.requestVideoFrameCallback(callback);
+    };
+    if ('requestVideoFrameCallback' in v) v.requestVideoFrameCallback(callback);
+    const pump = (): void => {
+      requestAnimationFrame(() => {
+        if (token !== this.pumpToken) return;
+        if (called || Math.abs(v.currentTime - drawnAt) > 0.04) {
+          called = false;
+          drawnAt = v.currentTime;
+          const s = this.session;
+          if (s?.videoFrame) s.videoFrame(performance.now());
+          else this.requestDraw();
+          this.updateBar();
+        }
         pump();
-      };
-      if ('requestVideoFrameCallback' in v) v.requestVideoFrameCallback(again);
-      else requestAnimationFrame(again);
+      });
     };
     pump();
   }
@@ -264,6 +280,7 @@ export class PlayScreen {
         progress: () => this.after(),
       });
     this.session?.dispose?.();
+    this.overlay?.remove();
     try {
       this.session = make(rec?.state);
     } catch {
@@ -271,6 +288,11 @@ export class PlayScreen {
       this.session = make(undefined);
     }
     this.loading = false;
+    this.overlay = this.session.overlay ?? null;
+    if (this.overlay) {
+      this.overlay.className = 'board overlay';
+      this.stage.insertBefore(this.overlay, this.dialogEl);
+    }
     this.buildToggles();
     this.buildTabs();
     this.rotateBtn.hidden = !this.session.rotatable;
@@ -427,6 +449,8 @@ export class PlayScreen {
     this.stopClock();
     this.closeSource();
     this.session?.dispose?.();
+    this.overlay?.remove();
+    this.overlay = null;
     this.session = null;
     this.deps.onExit();
   }

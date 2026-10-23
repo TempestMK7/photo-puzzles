@@ -24,6 +24,10 @@ const SNAP_HOVER = 1;
 export class JigsawSession implements PuzzleSession {
   readonly toggles = [];
   readonly rotatable: boolean;
+  /** The canvas the pieces are drawn on when they are drawn on the graphics card: it lies over the board's. */
+  get overlay(): HTMLCanvasElement | undefined {
+    return this.gl?.canvas;
+  }
   private layout_: JigsawLayout;
   private game: JigsawGame;
   private atlas: Atlas | null = null;
@@ -46,6 +50,8 @@ export class JigsawSession implements PuzzleSession {
   private rightClick = false;                 // the right button is down and has not moved the camera: letting go turns the selected piece
   private sel = -1;                           // a piece of the selected group
   private hover = 0;                          // 0, or the timer of a join that is waiting for its half second
+  private fixedRes = false;
+  private adapt = { t0: 0, decoded0: 0, renders: 0 };
   private pendingCam: { ratio: number; cx: number; cy: number } | null = null;     // the camera of a saved game, until the canvas has a size
   private flash = new Set<number>();
   private flashStart = 0;
@@ -65,6 +71,17 @@ export class JigsawSession implements PuzzleSession {
       }
     }
     if (!this.gl) this.atlas = buildAtlas(snapshot(init), l);
+    if (this.gl) {
+      try {
+        const fixed = Number(window.localStorage.getItem('photo-puzzles/gl-res'));      // for trying a resolution out: 0.25 - 1
+        if (fixed >= 0.25 && fixed <= 1) {
+          this.gl.res = fixed;
+          this.fixedRes = true;
+        }
+      } catch {
+        // storage is not available: the resolution adapts by itself
+      }
+    }
     const puzzleW = l.cols * l.size;
     const puzzleH = l.rows * l.size;
     this.worldW = puzzleW * WORLD_K;
@@ -208,19 +225,57 @@ export class JigsawSession implements PuzzleSession {
     ctx.setLineDash([8 / view.scale, 6 / view.scale]);
     ctx.strokeRect(this.frameX, this.frameY, pw, ph);
     ctx.setLineDash([]);
-    if (this.gl) this.drawGl(ctx, view);
-    else this.draw2d(ctx, view);
     // a moment's glow where pieces have just joined the picture
     let running = false;
-    if (this.flash.size) {
-      const k = 1 - (now - this.flashStart) / 500;
-      if (k > 0) {
-        ctx.fillStyle = `rgba(255,255,255,${0.35 * k})`;
+    const flashK = this.flashLeft(now);
+    if (flashK > 0) running = true;
+    if (this.gl) this.drawGl(view, flashK > 0 ? { members: [...this.flash], k: flashK } : null);
+    else {
+      this.draw2d(ctx, view);
+      if (flashK > 0) {
+        ctx.fillStyle = `rgba(255,255,255,${0.35 * flashK})`;
         for (const m of this.flash) ctx.fillRect(this.frameX + (m % l.cols) * l.size, this.frameY + Math.floor(m / l.cols) * l.size, l.size, l.size);
-        running = true;
-      } else this.flash.clear();
+      }
     }
     return running;
+  }
+
+  /**
+   * A slow graphics card cannot show the pieces at the board's full resolution at the video's frame rate: whenever the pieces were drawn for clearly fewer pictures
+   * than the video decoded in the last two seconds, the piece canvas gets a quarter fewer pixels in each direction (down to half).
+   */
+  private adaptResolution(): void {
+    const v = this.init.source as HTMLVideoElement;
+    if (this.fixedRes || v.paused) {
+      this.adapt.t0 = 0;
+      return;
+    }
+    const now = performance.now();
+    const decoded = v.getVideoPlaybackQuality().totalVideoFrames;
+    if (!this.adapt.t0) {
+      this.adapt = { t0: now, decoded0: decoded, renders: 0 };
+      return;
+    }
+    this.adapt.renders++;
+    if (now - this.adapt.t0 < 2000) return;
+    const shown = this.adapt.renders / Math.max(1, decoded - this.adapt.decoded0);
+    if (decoded - this.adapt.decoded0 >= 30 && shown < 0.85 && this.gl!.res > 0.5) this.gl!.res = Math.max(0.5, this.gl!.res * 0.75);
+    this.adapt.t0 = 0;
+  }
+
+  /** How much of the join glow is left (0: none), forgetting the pieces once it is over. */
+  private flashLeft(now: number): number {
+    if (!this.flash.size) return 0;
+    const k = 1 - (now - this.flashStart) / 500;
+    if (k <= 0) this.flash.clear();
+    return Math.max(0, k);
+  }
+
+  /** A new picture of the video: only the pieces are drawn again, on their own canvas; the board under them is as it was. */
+  videoFrame(now: number): void {
+    if (!this.gl || !this.inited) return;
+    const k = this.flashLeft(now);
+    this.drawGl(this.view(this.canvasW, this.canvasH), k > 0 ? { members: [...this.flash], k } : null);
   }
 
   /** The pieces cut from a still picture: tiles of the atlas, one drawImage each. */
@@ -268,25 +323,22 @@ export class JigsawSession implements PuzzleSession {
     }
   }
 
-  /** The pieces cut from a video: drawn on the graphics card, then laid over the board. */
-  private drawGl(ctx: CanvasRenderingContext2D, view: View): void {
+  /** The pieces cut from a video: drawn on the graphics card into a canvas of their own that lies over the board (copying it onto the board's canvas every frame would cost far too much on a slow GPU). */
+  private drawGl(view: View, flash: { members: number[]; k: number } | null): void {
+    this.adaptResolution();
     const g = this.game;
     const selId = this.selectedGroup();
     const loose: Group[] = [];
     for (const id of g.z) if (id !== selId) loose.push(g.groups.get(id)!);
     const anchored: Group[] = [];
     for (const grp of g.groups.values()) if (grp.anchored) anchored.push(grp);
-    const cv = this.gl!.render(
+    this.gl!.render(
       { width: this.canvasW, height: this.canvasH, scale: view.scale, ox: view.ox, oy: view.oy, frameX: this.frameX, frameY: this.frameY },
       anchored,
       loose,
       selId >= 0 ? g.groups.get(selId)! : null,
+      flash,
     );
-    if (!cv) return;
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(cv, 0, 0);
-    ctx.restore();
   }
 
   // ---------------------------------------------------------------------------------------------------------------- input

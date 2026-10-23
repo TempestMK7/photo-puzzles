@@ -49,6 +49,10 @@ export interface PuzzleSession {
   secondary(): void;
   /** Everything that has to be kept to carry on later, as plain data (JSON-able); the rest follows from the seed. */
   serialize(): unknown;
+  /** A canvas the session draws on itself, shown over the board's (and the same size): the play screen puts it in the page. */
+  readonly overlay?: HTMLCanvasElement;
+  /** The video the puzzle is cut from shows a new picture: redraw only what depends on it (the board underneath did not change). Without this the whole board is drawn. */
+  videoFrame?(now: number): void;
   /** The session is being replaced or left: let go of anything held on the graphics card. */
   dispose?(): void;
   /** The progress text for the header ("3 swaps", "5 / 12 placed"). */

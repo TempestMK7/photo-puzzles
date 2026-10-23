@@ -31,8 +31,11 @@ Playable now:
   that joins a solved piece becomes part of the picture. The mouse wheel (or the control at the bottom right: -, the zoom, +; click the zoom to show everything) zooms about the
   pointer; the right button - or the left one on bare ground - moves the camera (two fingers zoom and move it on a touch screen). A video keeps playing in the pieces:
   they are drawn on the graphics card (WebGL 2, `src/sessions/jigsawGl.ts`) - the video frame is a texture, the piece shapes are made once, and every piece is one instance of a
-  quad, so a frame is a single draw call however many pieces there are (a few thousand cost well under a millisecond of script). A browser without WebGL 2 stops the video at its
-  first picture instead and cuts the pieces from that (`jigsawArt.ts`).
+  quad, so a frame is a single draw call however many pieces there are (a few thousand cost well under a millisecond of script). The pieces have a canvas of their own laid over
+  the board (copying it onto the board's canvas every frame was by far the most expensive step on a slow GPU), only that canvas is redrawn for each new picture of the video,
+  and when the graphics card cannot keep up with the video the piece canvas drops to as little as half the resolution by itself. On a 2016 tablet (Mali-T830) this gives
+  about 25-30 pictures a second from a 720p video and 19-24 from a 1080p one, with 300-5000 pieces. A browser without WebGL 2 stops the video at its first picture instead and
+  cuts the pieces from that (`jigsawArt.ts`).
   Two more options: **Turned pieces** (loose pieces start turned by quarter turns; click a piece to select it - it glows - and right-click, R or the Rotate button turns the selected
   piece, or the one in your hand when you right-click while dragging it; pieces only join when turned the same way, and only upright pieces join the picture) and **Joining pieces**,
   how eagerly pieces that lie against one they fit join it: *snap while dragging* (as soon as they touch, even before you let go), *snap when held together* (the piece has to
