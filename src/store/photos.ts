@@ -76,6 +76,9 @@ export class PhotoLibrary {
   private memory: StoredPhoto[] = [];
   private urls = new Map<string, { thumb: string; preview: string }>();
 
+  /** `onRemove` is told when a photo or video is deleted (its saved puzzles go with it). */
+  constructor(private readonly onRemove?: (id: string) => Promise<void>) {}
+
   async init(): Promise<void> {
     try {
       this.db = await open();
@@ -168,6 +171,7 @@ export class PhotoLibrary {
         // nothing more to do
       }
     }
+    await this.onRemove?.(id);
   }
 
   /** The picture or video, ready to play (a picture is at most 1600 px on its longest side). */

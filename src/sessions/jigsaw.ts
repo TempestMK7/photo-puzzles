@@ -1,4 +1,4 @@
-import { edgeSegments, JigsawGame, layoutJigsaw, reverseSegments, rotVec, TAB_REACH, type JigsawLayout } from '../core/jigsaw';
+import { edgeSegments, JigsawGame, layoutJigsaw, reverseSegments, rotVec, TAB_REACH, type JigsawLayout, type JigsawState } from '../core/jigsaw';
 import { Rng } from '../core/rng';
 import { beginFrame, type View } from '../render';
 import type { Pt, PuzzleSession, SessionInit } from './types';
@@ -10,7 +10,7 @@ const HOVER_MS = 500;           // how long pieces have to be held together to s
 
 const SNAP_DRAG = 0;
 const SNAP_HOVER = 1;
-const SNAP_RELEASE = 2;
+// (2: snap only when let go)
 
 /** The pieces, cut out of the picture once and laid side by side on one canvas (the "atlas"), so that drawing a piece is a single drawImage. */
 interface Atlas {
@@ -107,12 +107,11 @@ function snapshot(init: SessionInit): HTMLCanvasElement {
  * joined pieces move as one; anything that joins a corner piece becomes part of the finished picture. The mouse wheel (and the control at the bottom right) zooms, the right
  * button (or the left one, on bare ground) pans. With turning on the pieces start turned in quarter turns: a click selects a piece, and the right button (or R) turns the
  * piece being dragged or the selected one; pieces only join when turned the same way (the picture only takes upright pieces). The "joining" option says when a piece that lies
- * right against one it fits joins it: as soon as it does, once it has been held there for a moment, or when it is let go.
+ * right against one it fits joins it: as soon as it does, once it has been held there for a moment (or when it is let go there), or only when it is let go.
  */
 export class JigsawSession implements PuzzleSession {
   readonly toggles = [];
   readonly rotatable: boolean;
-  readonly stillSource = true;
   private layout_: JigsawLayout;
   private game: JigsawGame;
   private atlas: Atlas;
@@ -133,7 +132,7 @@ export class JigsawSession implements PuzzleSession {
   private rightClick = false;                 // the right button is down and has not moved the camera: letting go turns the selected piece
   private sel = -1;                           // a piece of the selected group
   private hover = 0;                          // 0, or the timer of a join that is waiting for its half second
-  private hovering = false;
+  private pendingCam: { ratio: number; cx: number; cy: number } | null = null;     // the camera of a saved game, until the canvas has a size
   private flash = new Set<number>();
   private flashStart = 0;
 
@@ -171,6 +170,16 @@ export class JigsawSession implements PuzzleSession {
       const [cx, cy] = rotVec(rot, (c + 0.5) * l.size, (r + 0.5) * l.size);
       return { rot, dx: x + l.size / 2 - this.frameX - cx, dy: y + l.size / 2 - this.frameY - cy };
     });
+    if (init.restore) {
+      const saved = init.restore as { game: JigsawState; sel: number; cam: { ratio: number; cx: number; cy: number } };
+      this.game.restore(saved.game);
+      if (Number.isInteger(saved.sel) && saved.sel >= 0 && saved.sel < this.game.count) this.sel = saved.sel;
+      if (saved.cam && [saved.cam.ratio, saved.cam.cx, saved.cam.cy].every(Number.isFinite)) this.pendingCam = saved.cam;
+    }
+  }
+
+  serialize(): unknown {
+    return { game: this.game.snapshot(), sel: this.sel, cam: this.inited ? { ratio: this.cam.zoom / this.fitZoom, cx: this.cam.cx, cy: this.cam.cy } : this.pendingCam };
   }
 
   // ---------------------------------------------------------------------------------------------------------------- camera
@@ -203,6 +212,11 @@ export class JigsawSession implements PuzzleSession {
       this.canvasH = ch;
       if (first) {
         this.fit();
+        if (this.pendingCam) {                                    // the camera of a saved game: as far in as it was, looking where it was
+          this.cam = { zoom: Math.min(this.maxZoom, Math.max(this.minZoom, this.fitZoom * this.pendingCam.ratio)), cx: this.pendingCam.cx, cy: this.pendingCam.cy };
+          this.clampCentre();
+          this.pendingCam = null;
+        }
         this.inited = true;
       } else this.cam.zoom = Math.min(this.maxZoom, Math.max(this.minZoom, this.cam.zoom));
     }
@@ -306,7 +320,7 @@ export class JigsawSession implements PuzzleSession {
     for (const id of g.z) {
       const grp = g.groups.get(id)!;
       if (id === selId) {                                         // a glow round the selected group: drawn under it, and over again by the pieces themselves
-        ctx.shadowColor = this.hovering ? '#8cff9a' : '#ffd84a';
+        ctx.shadowColor = '#ffd84a';
         ctx.shadowBlur = 16;
         drawGroup(lit, grp);
         ctx.shadowBlur = 0;
@@ -388,7 +402,7 @@ export class JigsawSession implements PuzzleSession {
   pointerUp(): void {
     const d = this.drag;
     this.cancelHover();
-    if (d && d.moved && this.snap === SNAP_RELEASE) this.settle(d.gid);
+    if (d && d.moved && this.snap !== SNAP_DRAG) this.settle(d.gid);        // let go with pieces together: they join, whatever was left of the wait
     if (this.pan?.deselect && !this.pan.moved) this.sel = -1;      // a click on bare ground
     this.drag = null;
     this.pan = null;
@@ -457,12 +471,10 @@ export class JigsawSession implements PuzzleSession {
     else if (this.snap === SNAP_HOVER) {
       if (!this.game.canJoin(d.gid, this.tolerance())) this.cancelHover();
       else if (!this.hover) {
-        this.hovering = true;
         this.hover = window.setTimeout(() => {
           this.hover = 0;
           const cur = this.drag;
           if (cur && this.game.canJoin(cur.gid, this.tolerance())) this.settle(cur.gid);
-          this.hovering = false;
           this.init.requestDraw();
           this.init.progress?.();
         }, HOVER_MS);
@@ -473,7 +485,6 @@ export class JigsawSession implements PuzzleSession {
   private cancelHover(): void {
     if (this.hover) window.clearTimeout(this.hover);
     this.hover = 0;
-    this.hovering = false;
   }
 
   /** Joins the group to whatever it now lies right against (turned the same way); if it was being dragged, the drag ends there. */

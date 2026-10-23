@@ -1,4 +1,4 @@
-import { FocusGame } from '../core/focus';
+import { FocusGame, type FocusState } from '../core/focus';
 import type { Rect } from '../core/layout';
 import { draw, type Anim, type View } from '../render';
 import type { Pt, PuzzleSession, SessionInit } from './types';
@@ -16,6 +16,11 @@ export class FocusSession implements PuzzleSession {
 
   constructor(private readonly init: SessionInit) {
     this.game = new FocusGame(init.width, init.height, { seed: init.seed, pieces: init.opts.pieces, irregular: init.opts.irregular === 1 });
+    if (init.restore) this.game.restore(init.restore as FocusState);
+  }
+
+  serialize(): unknown {
+    return this.game.snapshot();
   }
 
   layout(): { width: number; height: number } {

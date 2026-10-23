@@ -132,6 +132,12 @@ export interface Group {
   anchored: boolean;
 }
 
+export interface JigsawState {
+  groups: { members: number[]; rot: number; dx: number; dy: number; anchored: boolean }[];
+  /** Loose groups back to front, as indexes into `groups`. */
+  z: number[];
+}
+
 export class JigsawGame {
   readonly cols: number;
   readonly rows: number;
@@ -161,6 +167,49 @@ export class JigsawGame {
     }
     // corners that touch (a 2 x n picture) are one piece of the finished picture from the start
     for (const g of [...this.groups.values()]) if (g.anchored && this.groups.has(g.id)) this.connect(g.id, 1);
+  }
+
+  /** Everything that changes while the puzzle is played, as plain data (the pieces and their shapes follow from the seed). */
+  snapshot(): JigsawState {
+    const groups = [...this.groups.values()];
+    const index = new Map(groups.map((g, i) => [g.id, i]));
+    return {
+      groups: groups.map((g) => ({ members: [...g.members], rot: g.rot, dx: g.dx, dy: g.dy, anchored: g.anchored })),
+      z: this.z.map((id) => index.get(id)!),
+    };
+  }
+
+  /** Puts a snapshot back; throws if it does not belong to this puzzle (every piece must lie in exactly one group, the corners in anchored ones). */
+  restore(s: JigsawState): void {
+    const seen = new Uint8Array(this.count);
+    for (const g of s.groups ?? []) {
+      if (!Array.isArray(g.members) || !g.members.length || !Number.isInteger(g.rot) || g.rot < 0 || g.rot > 3 || !Number.isFinite(g.dx) || !Number.isFinite(g.dy)) throw new Error('not this puzzle');
+      for (const m of g.members) {
+        if (!Number.isInteger(m) || m < 0 || m >= this.count || seen[m]) throw new Error('not this puzzle');
+        seen[m] = 1;
+      }
+    }
+    if (seen.includes(0)) throw new Error('not this puzzle');
+    const corners = [0, this.cols - 1, (this.rows - 1) * this.cols, this.count - 1];
+    this.groups.clear();
+    this.z.length = 0;
+    this.nextId = 0;
+    const ids: number[] = [];
+    for (const g of s.groups) {
+      const grp: Group = { id: this.nextId++, members: [...g.members], rot: g.anchored ? 0 : g.rot, dx: g.anchored ? 0 : g.dx, dy: g.anchored ? 0 : g.dy, anchored: !!g.anchored };
+      this.groups.set(grp.id, grp);
+      ids.push(grp.id);
+      for (const m of grp.members) this.groupOf[m] = grp.id;
+    }
+    for (const c of corners) if (!this.groups.get(this.groupOf[c])!.anchored) throw new Error('not this puzzle');
+    const listed = new Set<number>();
+    for (const i of s.z) {
+      const id = ids[i];
+      if (id === undefined || this.groups.get(id)!.anchored || listed.has(id)) throw new Error('not this puzzle');
+      listed.add(id);
+      this.z.push(id);
+    }
+    for (const g of this.groups.values()) if (!g.anchored && !listed.has(g.id)) this.z.push(g.id);
   }
 
   get anchoredCount(): number {

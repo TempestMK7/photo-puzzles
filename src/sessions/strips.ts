@@ -1,5 +1,5 @@
 import { Rng } from '../core/rng';
-import { boxOf, generateStrips, MARGIN, pictureSize, StripsGame } from '../core/strips';
+import { boxOf, generateStrips, MARGIN, pictureSize, StripsGame, type StripsState } from '../core/strips';
 import { beginFrame, drawSlice, type View } from '../render';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
@@ -45,12 +45,21 @@ export class StripsSession implements PuzzleSession {
     if (sw * this.picRows > sh * this.picCols) sw = (sh * this.picCols) / this.picRows;
     else sh = (sw * this.picRows) / this.picCols;
     this.crop = { sx: (init.width - sw) / 2, sy: (init.height - sh) / 2, sw, sh };
-    this.tab = Math.max(0, this.game.looseCounts().findIndex((n) => n > 0));
+    if (init.restore) {
+      const saved = init.restore as { game: StripsState; tab: number };
+      this.game.restore(saved.game);
+      this.tab = Number.isInteger(saved.tab) && saved.tab >= 0 && saved.tab < this.game.tabs ? saved.tab : 0;
+    }
+    if (!init.restore || this.game.looseCounts()[this.tab] === 0) this.tab = Math.max(0, this.game.looseCounts().findIndex((n) => n > 0));
     this.owners = Array.from({ length: this.picCols * this.picRows }, () => []);
     for (const d of this.game.defs) {
       const b = boxOf(d, 0);
       for (let dy = 0; dy < b.h; dy++) for (let dx = 0; dx < b.w; dx++) this.owners[(d.hy - MARGIN + dy) * this.picCols + d.hx - MARGIN + dx].push(d.id);
     }
+  }
+
+  serialize(): unknown {
+    return { game: this.game.snapshot(), tab: this.tab };
   }
 
   layout(): { width: number; height: number } {

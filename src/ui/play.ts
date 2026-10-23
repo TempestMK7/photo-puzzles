@@ -4,11 +4,14 @@ import { randomSeedText, seedFromText } from '../core/rng';
 import { fitView, type View } from '../render';
 import { startSession, type PuzzleSession } from '../sessions';
 import type { PhotoEntry, PhotoLibrary, PlaySource } from '../store/photos';
+import type { SaveRecord, SaveStore } from '../store/saves';
 import { h } from './dom';
 
 export interface PlayDeps {
   prefs: Prefs;
   photos: PhotoLibrary;
+  /** Where puzzles left unfinished are kept. */
+  saves: SaveStore;
   /** Back to the main screen. */
   onExit(): void;
 }
@@ -62,6 +65,10 @@ export class PlayScreen {
   private running = false;
   private clock = 0;
   private token = 0;                // a start that was overtaken by another is dropped
+  private beginRun = 0;             // likewise for a begin
+  private loading = false;          // a puzzle is being set up: nothing is saved meanwhile
+  private saveKey = '';
+  private saveTimer = 0;
 
   constructor(private readonly deps: PlayDeps) {
     this.el = h(
@@ -113,6 +120,13 @@ export class PlayScreen {
     this.seekEl.addEventListener('pointerup', endSeek);
     this.seekEl.addEventListener('pointercancel', endSeek);
     this.seekEl.addEventListener('change', endSeek);
+    // a puzzle that is being played is kept when the page is hidden or closed, as well as shortly after each move and when leaving
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && !this.el.hidden) this.saveNow();
+    });
+    window.addEventListener('pagehide', () => {
+      if (!this.el.hidden) this.saveNow();
+    });
     window.addEventListener('keydown', (e) => {
       if (this.el.hidden) return;
       if (e.key === 'Escape') this.leave();
@@ -144,7 +158,7 @@ export class PlayScreen {
     this.closeSource();
     this.src = src;
     this.setupVideo();
-    this.begin();
+    await this.begin();
   }
 
   private closeSource(): void {
@@ -216,37 +230,57 @@ export class PlayScreen {
     if (!this.seeking && dur > 0) this.seekEl.value = String(Math.round((v.currentTime / dur) * 1000));
   }
 
-  /** The same photo again with the saved seed (Restart) - or with a fresh one (New puzzle). */
-  private begin(): void {
-    if (!this.entry || !this.src) return;
-    const { prefs } = this.deps;
+  /**
+   * Starts the puzzle of the saved type, difficulty and seed on this photo: as it was left if it was left unfinished, else from the start. `fresh` (Restart, New
+   * puzzle) throws the unfinished one away.
+   */
+  private async begin(fresh = false): Promise<void> {
+    const entry = this.entry;
+    const src = this.src;
+    if (!entry || !src) return;
+    const run = ++this.beginRun;
+    const { prefs, saves } = this.deps;
     const kind = this.kind;
-    this.session = startSession(kind.id, {
-      source: this.src.source,
-      width: this.src.width,
-      height: this.src.height,
-      seed: seedFromText(puzzleSeedText(prefs.data.seed, this.entry.id, kind.id)),
-      opts: optionsOf(prefs.data.settings, kind),
-      flag: (key) => this.flag(key),
-      requestDraw: () => this.requestDraw(),
-      tabsChanged: () => this.refreshTabs(),
-      progress: () => this.after(),
-    });
+    this.loading = true;
+    window.clearTimeout(this.saveTimer);
+    this.saveKey = recordKey(kind, entry.id, prefs.data.settings);
+    let rec: SaveRecord | undefined;
+    if (fresh) await saves.remove(this.saveKey);
+    else rec = await saves.get(this.saveKey);
+    if (rec && (rec.seed !== prefs.data.seed || rec.width !== src.width || rec.height !== src.height)) rec = undefined;      // another puzzle: that one is not this one
+    if (kind.still && src.video) await this.freezeVideo(src.video);
+    if (run !== this.beginRun || src !== this.src) return;
+    const make = (restore: unknown): PuzzleSession =>
+      startSession(kind.id, {
+        source: src.source,
+        width: src.width,
+        height: src.height,
+        seed: seedFromText(puzzleSeedText(prefs.data.seed, entry.id, kind.id)),
+        opts: optionsOf(prefs.data.settings, kind),
+        restore,
+        flag: (key) => this.flag(key),
+        requestDraw: () => this.requestDraw(),
+        tabsChanged: () => this.refreshTabs(),
+        progress: () => this.after(),
+      });
+    try {
+      this.session = make(rec?.state);
+    } catch {
+      rec = undefined;                                          // a save that does not fit (an older version): start over
+      this.session = make(undefined);
+    }
+    this.loading = false;
     this.buildToggles();
     this.buildTabs();
     this.rotateBtn.hidden = !this.session.rotatable;
     this.zoomEl.hidden = !this.session.zoomBy;
     this.touches.clear();
     this.rightPointer = -1;
-    if (this.session.stillSource && this.src.video) {          // the pieces were cut from this picture: the video stops here
-      this.pumpToken++;
-      this.src.video.pause();
-      this.vbar.hidden = true;
-    }
+    this.activePointer = -1;
     this.dialogEl.hidden = true;
     this.viewBar.hidden = true;
-    this.elapsed = 0;
-    this.startedAt = performance.now();
+    this.elapsed = rec?.elapsed ?? 0;
+    this.startedAt = performance.now() - this.elapsed;
     this.running = true;
     window.clearInterval(this.clock);
     this.clock = window.setInterval(() => this.tick(), 250);
@@ -254,6 +288,56 @@ export class PlayScreen {
     this.statusEl.textContent = this.session.status();
     this.resize();
     if (this.session.zoomLabel) this.zoomLabel.textContent = this.session.zoomLabel();
+  }
+
+  /** A video that a puzzle is cut from stops at its first picture, so the same pieces come back every time. */
+  private async freezeVideo(v: HTMLVideoElement): Promise<void> {
+    this.pumpToken++;
+    v.pause();
+    this.vbar.hidden = true;
+    await new Promise<void>((resolve) => {
+      const give = window.setTimeout(resolve, 800);
+      v.addEventListener(
+        'seeked',
+        () => {
+          window.clearTimeout(give);
+          resolve();
+        },
+        { once: true },
+      );
+      v.currentTime = 0;
+    });
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- saving
+
+  private scheduleSave(): void {
+    if (this.loading || !this.session) return;
+    window.clearTimeout(this.saveTimer);
+    this.saveTimer = window.setTimeout(() => this.saveNow(), 1500);
+  }
+
+  /** Keeps the puzzle as it is (or, if it is solved, forgets it: there is nothing to carry on). */
+  private saveNow(): void {
+    window.clearTimeout(this.saveTimer);
+    const { entry, session, src } = this;
+    if (!entry || !session || !src || this.loading || !this.saveKey) return;
+    const { prefs, saves } = this.deps;
+    if (session.solved) {
+      void saves.remove(this.saveKey);
+      return;
+    }
+    void saves.put({
+      key: this.saveKey,
+      photoId: entry.id,
+      kind: this.kind.id,
+      seed: prefs.data.seed,
+      width: src.width,
+      height: src.height,
+      elapsed: this.running ? performance.now() - this.startedAt : this.elapsed,
+      savedAt: Date.now(),
+      state: session.serialize(),
+    });
   }
 
   /** A display setting of the chosen type (grid lines, animations): on unless the player turned it off. */
@@ -326,17 +410,19 @@ export class PlayScreen {
   }
 
   private restart(): void {
-    this.begin();
+    void this.begin(true);
   }
 
   private newPuzzle(): void {
     this.deps.prefs.data.seed = randomSeedText();
     this.deps.prefs.save();
-    this.begin();
+    void this.begin(true);
   }
 
   private leave(): void {
+    this.saveNow();
     this.token++;
+    this.beginRun++;
     this.stopClock();
     this.closeSource();
     this.session = null;
@@ -503,6 +589,7 @@ export class PlayScreen {
     if (session.zoomLabel) this.zoomLabel.textContent = session.zoomLabel();
     this.refreshTabs();
     if (session.solved && this.running) this.finish();
+    else this.scheduleSave();
     this.requestDraw();
   }
 
@@ -514,6 +601,8 @@ export class PlayScreen {
     this.elapsed = performance.now() - this.startedAt;
     this.stopClock();
     this.tick();
+    window.clearTimeout(this.saveTimer);
+    void this.deps.saves.remove(this.saveKey);
     const { prefs } = this.deps;
     const key = recordKey(this.kind, entry.id, prefs.data.settings);
     const isBest = prefs.recordTime(key, this.elapsed);

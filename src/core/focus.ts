@@ -7,6 +7,12 @@ export interface FocusOptions {
   irregular: boolean;
 }
 
+export interface FocusState {
+  slotOf: number[];
+  selected: number;
+  swaps: number;
+}
+
 /**
  * Focus Point style puzzle. The picture is cut into rectangles ("homes"). Piece i shows the part of the picture that belongs in home i, but starts in some other
  * home's place (its "slot") and is stretched to that slot's size. Clicking two pieces makes them trade places and sizes; the puzzle is solved when every piece is
@@ -73,6 +79,20 @@ export class FocusGame {
     this.swap(this.selected, piece);
     this.selected = -1;
     return 'swap';
+  }
+
+  /** Everything that changes while the puzzle is played, as plain data (the rest follows from the seed). */
+  snapshot(): FocusState {
+    return { slotOf: [...this.slotOf], selected: this.selected, swaps: this.swaps };
+  }
+
+  /** Puts a snapshot back; throws if it does not belong to this puzzle. */
+  restore(s: FocusState): void {
+    const n = this.count;
+    if (!Array.isArray(s.slotOf) || s.slotOf.length !== n || new Set(s.slotOf).size !== n || !s.slotOf.every((v) => Number.isInteger(v) && v >= 0 && v < n)) throw new Error('not this puzzle');
+    for (let i = 0; i < n; i++) this.slotOf[i] = s.slotOf[i];
+    this.selected = Number.isInteger(s.selected) && s.selected >= 0 && s.selected < n ? s.selected : -1;
+    this.swaps = Math.max(0, Math.floor(Number(s.swaps) || 0));
   }
 
   swap(a: number, b: number): void {

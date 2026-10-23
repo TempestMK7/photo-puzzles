@@ -1,4 +1,4 @@
-import { generateOverlap, OverlapGame, STACKS } from '../core/overlap';
+import { generateOverlap, OverlapGame, STACKS, type OverlapState } from '../core/overlap';
 import { Rng } from '../core/rng';
 import { makePattern } from './patterns';
 import { beginFrame, drawSlice, type View } from '../render';
@@ -54,7 +54,16 @@ export class OverlapSession implements PuzzleSession {
     else sh = (sw * this.rows) / this.cols;
     this.crop = { sx: (init.width - sw) / 2, sy: (init.height - sh) / 2, sw, sh };
     this.activeStack = Math.max(0, this.game.stacks.findIndex((s) => s.length));
+    if (init.restore) {
+      const saved = init.restore as { game: OverlapState; activeStack: number };
+      this.game.restore(saved.game);
+      if (Number.isInteger(saved.activeStack) && saved.activeStack >= 0 && saved.activeStack < this.game.stacks.length) this.activeStack = saved.activeStack;
+    }
     this.arrange('side');
+  }
+
+  serialize(): unknown {
+    return { game: this.game.snapshot(), activeStack: this.activeStack };
   }
 
   // ---------------------------------------------------------------------------------------------------------------- layout

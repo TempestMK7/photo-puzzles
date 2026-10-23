@@ -33,10 +33,16 @@ Playable now:
   Two more options: **Turned pieces** (loose pieces start turned by quarter turns; click a piece to select it - it glows - and right-click, R or the Rotate button turns the selected
   piece, or the one in your hand when you right-click while dragging it; pieces only join when turned the same way, and only upright pieces join the picture) and **Joining pieces**,
   how eagerly pieces that lie against one they fit join it: *snap while dragging* (as soon as they touch, even before you let go), *snap when held together* (the piece has to
-  stay there, held, for half a second - the glow turns green while it waits) or *snap on release* (only when you let go with the pieces together).
+  stay there, held, for half a second - or you let go with the pieces together, which snaps them at once) or *snap on release* (only when you let go with the pieces together).
 
 In Overlap and Strips a tap on a piece turns it a quarter turn (so does the right button, a second finger, the R key or the Rotate button). Grid lines can be switched off
 in the types that have them. Listed as "soon": Sliding Tiles.
+
+## Saved puzzles
+
+A puzzle that is left unfinished (back to the photo screen, closing the page) is kept, and comes back exactly as it was - pieces, turns, tabs, the Jigsaw camera, the time -
+when you start the same photo, type and difficulty again with the same seed. Restart and New puzzle throw the kept one away; a solved puzzle leaves nothing to keep. Deleting a
+photo or video deletes its saved puzzles too. Saves live only in this browser (IndexedDB, `src/store/saves.ts`); nothing is sent anywhere.
 
 ## Run it
 
@@ -55,9 +61,10 @@ the browser cannot play is reported when you add it) with the button or by dropp
 
 ## Layout
 
-- `src/core/` - rules with no browser dependency: seeded random (`rng.ts`), picture cutting (`layout.ts`), the games (`focus.ts`, `overlap.ts`, `strips.ts`, `jigsaw.ts`: generator + rules),
+- `src/core/` - rules with no browser dependency: seeded random (`rng.ts`), picture cutting (`layout.ts`), the games (`focus.ts`, `overlap.ts`, `strips.ts`, `jigsaw.ts`: generator + rules, and `snapshot` / `restore` for saving),
   the list of puzzle types and their options (`kinds.ts`), saved preferences and best times (`prefs.ts`)
 - `src/sessions/` - one `PuzzleSession` per type (layout, drawing, pointer input) behind the interface in `types.ts`; `index.ts` says how to start each
+- `src/store/saves.ts` - unfinished puzzles (IndexedDB)
 - `src/store/photos.ts` - the photo library (samples + the player's photos and videos in IndexedDB, thumbnails, duplicates by content hash) and what a puzzle draws from (`PlaySource`)
 - `src/ui/` - `library.ts` (main screen), `play.ts` (play screen), small DOM helpers and the type icons (drawn in code)
 - `src/render.ts` - canvas drawing and the swap animation; `src/image.ts` - loading a photo (EXIF-aware, reduced to 1600 px), thumbnails, the sample pictures

@@ -152,6 +152,12 @@ export function generateStrips(rng: Rng, o: StripsOptions): StripsSetup {
   return { cols, rows, picCols, picRows, tabs, defs, state };
 }
 
+export interface StripsState {
+  state: StripState[];
+  z: number[];
+  moves: number;
+}
+
 /** The rules of Strips. */
 export class StripsGame {
   readonly cols: number;
@@ -174,6 +180,24 @@ export class StripsGame {
     this.defs = setup.defs;
     this.state = setup.state.map((s) => ({ ...s }));
     this.z = this.defs.map((d) => d.id);
+  }
+
+  /** Everything that changes while the puzzle is played, as plain data (the rest follows from the seed). */
+  snapshot(): StripsState {
+    return { state: this.state.map((s) => ({ ...s })), z: [...this.z], moves: this.moves };
+  }
+
+  /** Puts a snapshot back; throws if it does not belong to this puzzle. */
+  restore(s: StripsState): void {
+    const n = this.defs.length;
+    if (s.state?.length !== n || s.z?.length !== n || new Set(s.z).size !== n || !s.z.every((v) => Number.isInteger(v) && v >= 0 && v < n)) throw new Error('not this puzzle');
+    const ok = s.state.every(
+      (t) => Number.isInteger(t.angle) && t.angle >= 0 && t.angle < 4 && Number.isInteger(t.x) && Number.isInteger(t.y) && Number.isInteger(t.tab) && t.tab >= 0 && t.tab < this.tabs,
+    );
+    if (!ok) throw new Error('not this puzzle');
+    for (let i = 0; i < n; i++) this.state[i] = { angle: s.state[i].angle, x: s.state[i].x, y: s.state[i].y, locked: !!s.state[i].locked, tab: s.state[i].tab };
+    for (let i = 0; i < n; i++) this.z[i] = s.z[i];
+    this.moves = Math.max(0, Math.floor(Number(s.moves) || 0));
   }
 
   get total(): number {

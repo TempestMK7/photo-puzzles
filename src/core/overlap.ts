@@ -128,6 +128,14 @@ export function generateOverlap(rng: Rng, o: OverlapOptions): OverlapSetup {
 export type DropResult = 'placed' | 'wrong';
 
 /** The rules of Overlap. */
+export interface OverlapState {
+  rot: number[];
+  revealed: boolean[];
+  stacks: number[][];
+  done: boolean[];
+  misses: number;
+}
+
 export class OverlapGame {
   readonly cols: number;
   readonly rows: number;
@@ -150,6 +158,33 @@ export class OverlapGame {
     this.done = new Array<boolean>(this.pieces.length).fill(false);
     for (const id of setup.placedAtStart) this.reveal(id);
     this.dropRedundant();
+  }
+
+  /** Everything that changes while the puzzle is played, as plain data (the rest follows from the seed). */
+  snapshot(): OverlapState {
+    return { rot: [...this.rot], revealed: [...this.revealed], stacks: this.stacks.map((s) => [...s]), done: [...this.done], misses: this.misses };
+  }
+
+  /** Puts a snapshot back; throws if it does not belong to this puzzle. */
+  restore(s: OverlapState): void {
+    const n = this.pieces.length;
+    const onStacks = s.stacks?.flat() ?? [];
+    if (
+      s.rot?.length !== n ||
+      s.done?.length !== n ||
+      s.revealed?.length !== this.revealed.length ||
+      s.stacks?.length !== this.stacks.length ||
+      !onStacks.every((id) => Number.isInteger(id) && id >= 0 && id < n) ||
+      !s.rot.every((r) => Number.isInteger(r) && r >= 0 && r < 4)
+    )
+      throw new Error('not this puzzle');
+    for (let i = 0; i < n; i++) {
+      this.rot[i] = s.rot[i];
+      this.done[i] = !!s.done[i];
+    }
+    for (let i = 0; i < this.revealed.length; i++) this.revealed[i] = !!s.revealed[i];
+    for (let i = 0; i < this.stacks.length; i++) this.stacks[i] = [...s.stacks[i]];
+    this.misses = Math.max(0, Math.floor(Number(s.misses) || 0));
   }
 
   get total(): number {

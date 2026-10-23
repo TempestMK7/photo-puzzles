@@ -25,6 +25,8 @@ export interface SessionInit {
   requestDraw(): void;
   /** The session changed the tab by itself (a dragged piece rested on a tab): the tab bar should be refreshed. */
   tabsChanged?(): void;
+  /** What `serialize` gave when this puzzle was left: the session puts it back (and throws if it does not fit). */
+  restore?: unknown;
   /** The session changed the game by itself, not because of a pointer event (a timer): the progress text and the end of the puzzle should be looked at again. */
   progress?(): void;
 }
@@ -45,6 +47,8 @@ export interface PuzzleSession {
   pointerCancel(): void;
   /** Right click, a second finger, the Rotate button, the R key: turn the piece in hand (or the chosen one). */
   secondary(): void;
+  /** Everything that has to be kept to carry on later, as plain data (JSON-able); the rest follows from the seed. */
+  serialize(): unknown;
   /** The progress text for the header ("3 swaps", "5 / 12 placed"). */
   status(): string;
   readonly solved: boolean;
@@ -71,8 +75,6 @@ export interface PuzzleSession {
   zoomBy?(factor: number): void;
   zoomFit?(): void;
   zoomLabel?(): string;
-  /** The pieces are cut from a still copy of the source, so a video is paused and its controls hidden. */
-  readonly stillSource?: boolean;
 }
 
 export type SessionFactory = (init: SessionInit) => PuzzleSession;

@@ -1,6 +1,7 @@
 import './style.css';
 import { Prefs } from './core/prefs';
 import { PhotoLibrary } from './store/photos';
+import { SaveStore } from './store/saves';
 import { LibraryScreen } from './ui/library';
 import { PlayScreen } from './ui/play';
 
@@ -14,11 +15,12 @@ function storage(): Storage | null {
 
 async function main(): Promise<void> {
   const prefs = new Prefs(storage());
-  const photos = new PhotoLibrary();
+  const saves = new SaveStore();
+  const photos = new PhotoLibrary((id) => saves.removeForPhoto(id));
   await photos.init();
 
   const root = document.getElementById('app')!;
-  const play = new PlayScreen({ prefs, photos, onExit: () => showLibrary() });
+  const play = new PlayScreen({ prefs, photos, saves, onExit: () => showLibrary() });
   const library = new LibraryScreen({
     prefs,
     photos,
