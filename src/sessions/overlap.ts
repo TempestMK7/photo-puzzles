@@ -169,9 +169,7 @@ export class OverlapSession implements PuzzleSession {
             } else this.flash.delete(i);
           }
         } else {
-          this.patternImage(ctx, cx, cy, x, y);
-          ctx.fillStyle = 'rgba(0,0,0,0.3)';
-          ctx.fillRect(x, y, CELL, CELL);
+          this.patternImage(ctx, cx, cy, x, y);                    // (undimmed: a window tile shows exactly these colours)
         }
       }
     }
