@@ -65,6 +65,9 @@ export class PlayScreen {
   private touches = new Map<number, { x: number; y: number }>();      // fingers down, in canvas pixels, while the board has a camera
   private lastButtons = 0;
   private frame = 0;
+  /** A video puzzle's pieces are cut from this canvas, which holds the video's current picture (see SessionInit.source). */
+  private frameCanvas: HTMLCanvasElement | null = null;
+  private frameTime = -1;
   private startedAt = 0;
   private elapsed = 0;
   private running = false;
@@ -285,9 +288,18 @@ export class PlayScreen {
     if (rec && (rec.seed !== prefs.data.seed || rec.width !== src.width || rec.height !== src.height)) rec = undefined;      // another puzzle: that one is not this one
     if (needsStill(kind.id) && src.video) await this.freezeVideo(src.video);
     if (run !== this.beginRun || src !== this.src) return;
+    this.frameCanvas = null;
+    if (src.video) {
+      this.frameCanvas = document.createElement('canvas');
+      this.frameCanvas.width = src.width;
+      this.frameCanvas.height = src.height;
+      this.frameTime = -1;
+      this.copyFrame();
+    }
     const make = (restore: unknown): PuzzleSession =>
       startSession(kind.id, {
-        source: src.source,
+        source: this.frameCanvas ?? src.source,
+        video: src.video ?? undefined,
         width: src.width,
         height: src.height,
         seed: seedFromText(puzzleSeedText(prefs.data.seed, entry.id, kind.id)),
@@ -514,9 +526,19 @@ export class PlayScreen {
     if (!this.frame) this.frame = requestAnimationFrame((now) => this.render(now));
   }
 
+  /** Copies the video's picture into the canvas the pieces are cut from, if it has changed since the last copy (one video-frame copy per picture, not one per piece). */
+  private copyFrame(): void {
+    const v = this.src?.video;
+    const c = this.frameCanvas;
+    if (!v || !c || v.readyState < 2 || v.currentTime === this.frameTime) return;
+    this.frameTime = v.currentTime;
+    c.getContext('2d')!.drawImage(v, 0, 0, c.width, c.height);
+  }
+
   private render(now: number): void {
     this.frame = 0;
     if (!this.session || !this.src) return;
+    if (!this.session.videoFrame) this.copyFrame();          // (a session that draws on the graphics card takes the video's frames itself)
     this.syncView();
     if (this.session.draw(this.ctx, this.view, now)) this.requestDraw();
   }
