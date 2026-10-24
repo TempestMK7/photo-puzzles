@@ -52,11 +52,11 @@ async function fromBitmap(file: Blob): Promise<HTMLCanvasElement> {
   }
 }
 
-const VIDEO_EXT = /\.(webm|mp4|m4v|mov|ogv)$/i;
+const VIDEO_EXT = /\.(webm|mp4|m4v|mov|ogv|mkv)$/i;
 
-/** Is this file a video? (By its type, or by its extension when the browser gives no type.) */
+/** Is this file a video? (By its type, or by its extension when the browser gives no type or only a general one.) */
 export function isVideoFile(f: { name: string; type: string }): boolean {
-  return f.type.startsWith('video/') || (!f.type && VIDEO_EXT.test(f.name));
+  return f.type.startsWith('video/') || ((!f.type || f.type === 'application/octet-stream') && VIDEO_EXT.test(f.name));
 }
 
 export interface VideoInfo {
@@ -81,10 +81,10 @@ export function readVideo(file: Blob): Promise<VideoInfo> {
       URL.revokeObjectURL(url);
       fn();
     };
-    const timer = window.setTimeout(() => done(() => reject(new Error('video timed out'))), 20000);
+    const timer = window.setTimeout(() => done(() => reject(new Error('it did not open: this device may not decode its format'))), 20000);
     v.onerror = () => {
       window.clearTimeout(timer);
-      done(() => reject(new Error('This browser cannot play that video')));
+      done(() => reject(new Error('this browser cannot play it')));
     };
     v.onloadedmetadata = () => {
       v.currentTime = Math.min(1, (v.duration || 0) * 0.1);

@@ -68,8 +68,8 @@ npm test         # unit tests (layout, shuffle, game rules)
 npm run build    # type-check + production build in dist/
 ```
 
-Add photos or **videos** (webm and mp4 with H.264 / AAC play in every mainstream browser; HEVC and other formats only where the browser or the device decodes them - a file
-the browser cannot play is reported when you add it) with the button or by dropping them on the page; three generated sample pictures are always there. Photos and records stay on your device
+Add photos or **videos** (webm, mp4 and mkv with H.264 / VP9 / AAC / Opus play in every mainstream browser; HEVC, AC-3 and other formats only where the browser or the device
+decodes them - a file the browser cannot play is reported when you add it; an Android WebView does not open H.264 inside mkv at all, VP9 or HEVC inside mkv are fine) with the button or by dropping them on the page; three generated sample pictures are always there. Photos and records stay on your device
 (IndexedDB / localStorage): nothing is uploaded.
 
 ## Layout
