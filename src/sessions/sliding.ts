@@ -1,5 +1,6 @@
 import { slidingGrid, SlidingGame, type SlidingState } from '../core/sliding';
-import { drawSlice, type View } from '../render';
+import { beginFrame, drawSlice, type View } from '../render';
+import { VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const SLIDE_MS = 170;
@@ -27,6 +28,12 @@ export class SlidingSession implements PuzzleSession {
   private ch: number;
   private slides = new Map<number, Slide>();      // by piece
   private hover = -1;
+  /** A puzzle made from a video draws its tiles on the graphics card (see videoGl.ts) and gives this canvas to the play screen to lay over the board. */
+  private layer: VideoLayer | null = null;
+  private lastView: View = { scale: 1, ox: 0, oy: 0 };
+  private canvasW = 1;
+  private canvasH = 1;
+  videoFrame?: (now: number) => void;
 
   constructor(private readonly init: SessionInit) {
     const grid = slidingGrid(init.width, init.height, init.opts.tiles);
@@ -34,6 +41,22 @@ export class SlidingSession implements PuzzleSession {
     if (init.restore) this.game.restore((init.restore as { game: SlidingState }).game);
     this.cw = init.width / grid.cols;
     this.ch = init.height / grid.rows;
+    if (init.video && videoGlAvailable()) {
+      try {
+        this.layer = new VideoLayer(init.video);
+        this.videoFrame = (now) => void this.drawGl(now);
+      } catch {
+        this.layer = null;                                        // no graphics card to draw with: the tiles are cut from copies of the video's pictures
+      }
+    }
+  }
+
+  get overlay(): HTMLCanvasElement | undefined {
+    return this.layer?.canvas;
+  }
+
+  dispose(): void {
+    this.layer?.dispose();
   }
 
   serialize(): unknown {
@@ -50,7 +73,64 @@ export class SlidingSession implements PuzzleSession {
     return c < 0 || r < 0 || c >= this.game.cols || r >= this.game.rows ? -1 : r * this.game.cols + c;
   }
 
+  /** The tiles of a video puzzle, drawn on the graphics card; true while a tile is still sliding. */
+  private drawGl(now: number): boolean {
+    const L = this.layer!;
+    const g = this.game;
+    const view = this.lastView;
+    if (!L.begin(this.canvasW, this.canvasH, view)) return false;
+    let running = false;
+    const hole = g.hole;
+    const { width, height } = this.init;
+    for (let cell = 0; cell < g.count; cell++) {
+      const piece = g.cells[cell];
+      if (piece === hole && !g.solved) continue;
+      let x = (cell % g.cols) * this.cw;
+      let y = Math.floor(cell / g.cols) * this.ch;
+      const s = this.slides.get(piece);
+      if (s) {
+        const t = (now - s.start) / SLIDE_MS;
+        if (t >= 1) this.slides.delete(piece);
+        else {
+          const k = ease(Math.max(0, t));
+          x = ((s.from % g.cols) * (1 - k) + (s.to % g.cols) * k) * this.cw;
+          y = (Math.floor(s.from / g.cols) * (1 - k) + Math.floor(s.to / g.cols) * k) * this.ch;
+          running = true;
+        }
+      }
+      const sx = (piece % g.cols) * this.cw;
+      const sy = Math.floor(piece / g.cols) * this.ch;
+      L.quad(x, y, this.cw, this.ch, sx / width, sy / height, (sx + this.cw) / width, (sy + this.ch) / height);
+    }
+    const white: [number, number, number, number] = [1, 1, 1, 0.85];
+    if (this.init.flag('grid') && !g.solved) {
+      for (let c = 0; c <= g.cols; c++) L.seg(c * this.cw, 0, c * this.cw, height, 1.5, white);
+      for (let r = 0; r <= g.rows; r++) L.seg(0, r * this.ch, width, r * this.ch, 1.5, white);
+    }
+    if (!g.solved && this.hover >= 0 && g.chain(this.hover).length) {
+      const x = (this.hover % g.cols) * this.cw;
+      const y = Math.floor(this.hover / g.cols) * this.ch;
+      const gold: [number, number, number, number] = [1, 0.85, 0.29, 1];
+      const e = 2 / view.scale;
+      L.seg(x + e, y + e, x + this.cw - e, y + e, 4, gold);
+      L.seg(x + this.cw - e, y + e, x + this.cw - e, y + this.ch - e, 4, gold);
+      L.seg(x + this.cw - e, y + this.ch - e, x + e, y + this.ch - e, 4, gold);
+      L.seg(x + e, y + this.ch - e, x + e, y + e, 4, gold);
+    }
+    L.end();
+    return running;
+  }
+
   draw(ctx: CanvasRenderingContext2D, view: View, now: number): boolean {
+    if (this.layer) {
+      beginFrame(ctx, view);
+      ctx.fillStyle = '#100a08';
+      ctx.fillRect(0, 0, this.init.width, this.init.height);
+      this.lastView = view;
+      this.canvasW = ctx.canvas.width;
+      this.canvasH = ctx.canvas.height;
+      return this.drawGl(now);
+    }
     const g = this.game;
     const { canvas } = ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
