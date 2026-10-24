@@ -42,7 +42,9 @@ Playable now:
   stay there, held, for half a second - or you let go with the pieces together, which snaps them at once) or *snap on release* (only when you let go with the pieces together).
 - **Sliding Tiles** - the picture is cut into a grid of tiles with the last one taken out, then shuffled by sliding (so it can always be solved). You choose the *approximate* number of
   tiles (8-99; the grid is the one nearest that with tiles as square as the picture allows, so a wide picture gets more columns). Click a tile in the empty cell's row or column and it
-  slides over, taking the tiles between it and the empty cell along; the missing tile appears when the puzzle is solved. Videos keep playing in the tiles.
+  slides over, taking the tiles between it and the empty cell along; the missing tile appears when the puzzle is solved. Videos keep playing in the tiles: they are drawn on the graphics card (`src/sessions/videoGl.ts`: each tile is a textured
+  quad of the video's picture), because on a slow device a video picture costs 25-40 ms to get onto a 2D canvas but about a millisecond to give to the graphics card (a 2016 tablet: 1-10 pictures a
+  second with the 2D canvas, 30 with the graphics card, 1080p and 99 tiles included).
 
 In Overlap and Strips a tap on a piece turns it a quarter turn (so does the right button, a second finger, the R key or the Rotate button). Grid lines can be switched off
 in the types that have them.
