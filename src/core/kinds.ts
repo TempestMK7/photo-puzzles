@@ -16,7 +16,7 @@ export interface OptionDef {
   display?: boolean;
 }
 
-export type KindId = 'focus' | 'overlap' | 'strips' | 'jigsaw' | 'sliding';
+export type KindId = 'focus' | 'overlap' | 'strips' | 'jigsaw' | 'sliding' | 'rotascope';
 
 export interface KindDef {
   id: KindId;
@@ -84,6 +84,18 @@ export const KINDS: readonly KindDef[] = [
     available: true,
     options: [
       { key: 'tiles', label: 'Approximate tiles', min: 8, max: 99, def: 15 },
+      { key: 'grid', label: 'Grid lines', min: 0, max: 1, def: 1, toggle: true, display: true },
+      { key: 'animate', label: 'Animations', min: 0, max: 1, def: 1, toggle: true, display: true },
+    ],
+  },
+  {
+    id: 'rotascope',
+    name: 'Rotascope',
+    blurb: 'A round picture is cut into rings of wedges round an empty middle. Click a piece that touches the empty space to slide it in; it changes size and turns as it passes between rings.',
+    available: true,
+    options: [
+      { key: 'rings', label: 'Rings', min: 2, max: 6, def: 3 },
+      { key: 'wedges', label: 'Wedges in each ring', min: 3, max: 12, def: 5 },
       { key: 'grid', label: 'Grid lines', min: 0, max: 1, def: 1, toggle: true, display: true },
       { key: 'animate', label: 'Animations', min: 0, max: 1, def: 1, toggle: true, display: true },
     ],
