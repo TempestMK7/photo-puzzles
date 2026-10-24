@@ -36,7 +36,9 @@ export class LibraryScreen {
   private removing: 'no' | 'choose' | 'sure' = 'no';
   private marked = new Set<string>();
   private fileInput = h('input', { type: 'file', accept: 'image/*,video/*,.webm,.mp4,.m4v,.mov', multiple: true, hidden: true, onchange: () => this.filesChosen() });
-  private noteTimer = 0;
+  private photoNoteEl = h('div', { class: 'note', 'aria-live': 'polite' });
+  private noteTimers = new Map<HTMLElement, number>();
+  private adding: Promise<void> = Promise.resolve();
 
   constructor(private readonly deps: LibraryDeps) {
     const { prefs } = deps;
@@ -53,7 +55,7 @@ export class LibraryScreen {
       h(
         'div',
         { class: 'main' },
-        h('aside', { class: 'photos' }, this.listEl, this.footEl),
+        h('aside', { class: 'photos' }, this.listEl, this.photoNoteEl, this.footEl),
         h('section', { class: 'preview' }, h('div', { class: 'frame' }, this.previewImg, this.previewVideo), this.nameEl, this.bestEl, this.blurbEl),
         h(
           'aside',
@@ -319,17 +321,30 @@ export class LibraryScreen {
     void this.addFiles(files);
   }
 
-  /** Adds picture files (from the button or dropped on the page) and chooses the last one. */
-  async addFiles(files: File[]): Promise<void> {
+  /** Adds picture files (from the button or dropped on the page) and chooses the last one. Files given while others are still being added wait their turn. */
+  addFiles(files: File[]): Promise<void> {
+    const run = () => this.addNow(files);
+    this.adding = this.adding.then(run, run);
+    return this.adding;
+  }
+
+  private async addNow(files: File[]): Promise<void> {
     const pictures = files.filter((f) => f.type.startsWith('image/') || isVideoFile(f) || !f.type);       // no type at all: some pickers give none, so try it
     if (!pictures.length) {
-      if (files.length) this.note('Those are not pictures or videos');
+      if (files.length) this.photoNote('Those are not pictures or videos');
       return;
     }
-    this.note('Adding…');
-    const { ids, failed } = await this.deps.photos.add(pictures);
-    await this.refresh(ids[ids.length - 1]);
-    this.note(failed.length ? `Could not open ${failed.join(', ')} - this browser may not support that format` : ids.length === 1 ? 'Added 1 photo' : `Added ${ids.length} photos`);
+    const ids: string[] = [];
+    const failed: string[] = [];
+    for (let i = 0; i < pictures.length; i++) {
+      // the note stays up for as long as the work goes on (a long video, or many files), and each one appears in the list the moment it is ready
+      this.photoNote(pictures.length === 1 ? 'Adding…' : `Adding ${i + 1} of ${pictures.length}…`, true);
+      const done = await this.deps.photos.add([pictures[i]]);
+      ids.push(...done.ids);
+      failed.push(...done.failed);
+      if (done.ids.length) await this.refresh(done.ids[done.ids.length - 1]);
+    }
+    this.photoNote(failed.length ? `Could not open ${failed.join(', ')} - this browser may not support that format` : ids.length === 1 ? 'Added 1 photo' : `Added ${ids.length} photos`);
   }
 
   // ---------------------------------------------------------------------------------------------------------------- the buttons under the list
@@ -379,12 +394,18 @@ export class LibraryScreen {
     this.removing = 'no';
     this.marked.clear();
     await this.refresh();
-    this.note(ids.length === 1 ? 'Removed 1 photo' : `Removed ${ids.length} photos`);
+    this.photoNote(ids.length === 1 ? 'Removed 1 photo' : `Removed ${ids.length} photos`);
   }
 
-  private note(text: string): void {
-    this.noteEl.textContent = text;
-    window.clearTimeout(this.noteTimer);
-    this.noteTimer = window.setTimeout(() => (this.noteEl.textContent = ''), 3000);
+  /** Shows a message; it goes away by itself, unless it says that something is still going on. */
+  private note(text: string, busy = false, el: HTMLElement = this.noteEl): void {
+    el.textContent = text;
+    window.clearTimeout(this.noteTimers.get(el));
+    if (!busy) this.noteTimers.set(el, window.setTimeout(() => (el.textContent = ''), 3000));
+  }
+
+  /** The same, in the photo panel above its buttons. */
+  private photoNote(text: string, busy = false): void {
+    this.note(text, busy, this.photoNoteEl);
   }
 }
