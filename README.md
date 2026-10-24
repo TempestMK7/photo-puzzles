@@ -48,7 +48,8 @@ Playable now:
 - **Rotascope** - a round picture is cut into concentric rings of equal wedges round a hole in the middle: a sliding puzzle with one empty cell, as in Pandora's Box. You choose the number of
   **rings** (2-6) and of **wedges in each ring** (3-12). Click a piece that touches the empty cell - the next ring in or out, the neighbour in its own ring (the ring closes up), or, for ring 0,
   the middle - and it slides in. Each ring is a fixed ratio wider than the one inside it, so a piece grows or shrinks and turns as it passes between rings. The picture is whole again
-  when every piece is home. The empty cell and the middle show a dimmed ghost of the picture.
+  when every piece is home. The empty cell and the middle show a dimmed ghost of the picture. Videos keep playing in the pieces, drawn on the graphics card like the tiles of Sliding Tiles
+  (each wedge is a few triangles whose colours come from the turned and scaled picture).
 
 In Overlap and Strips a tap on a piece turns it a quarter turn (so does the right button, a second finger, the R key or the Rotate button). Grid lines can be switched off
 in the types that have them.
