@@ -35,7 +35,7 @@ export class LibraryScreen {
   /** Taking photos out: not at all, choosing which ones, or asking whether to go ahead with the ones chosen. */
   private removing: 'no' | 'choose' | 'sure' = 'no';
   private marked = new Set<string>();
-  private fileInput = h('input', { type: 'file', accept: 'image/*,video/*,.webm,.mp4,.m4v,.mov', multiple: true, hidden: true, onchange: () => this.filesChosen() });
+  private fileInput = h('input', { type: 'file', accept: 'image/*,video/*,.webm,.mp4,.m4v,.mov,.mkv', multiple: true, hidden: true, onchange: () => this.filesChosen() });
   private photoNoteEl = h('div', { class: 'note', 'aria-live': 'polite' });
   private noteTimers = new Map<HTMLElement, number>();
   private adding: Promise<void> = Promise.resolve();
@@ -344,7 +344,7 @@ export class LibraryScreen {
       failed.push(...done.failed);
       if (done.ids.length) await this.refresh(done.ids[done.ids.length - 1]);
     }
-    this.photoNote(failed.length ? `Could not open ${failed.join(', ')} - this browser may not support that format` : ids.length === 1 ? 'Added 1 photo' : `Added ${ids.length} photos`);
+    this.photoNote(failed.length ? `Could not open ${failed.join('; ')}` : ids.length === 1 ? 'Added 1 photo' : `Added ${ids.length} photos`);
   }
 
   // ---------------------------------------------------------------------------------------------------------------- the buttons under the list
