@@ -42,7 +42,9 @@ Playable now:
   stay there, held, for half a second - or you let go with the pieces together, which snaps them at once) or *snap on release* (only when you let go with the pieces together).
 - **Sliding Tiles** - the picture is cut into a grid of tiles with the last one taken out, then shuffled by sliding (so it can always be solved). You choose the *approximate* number of
   tiles (8-99; the grid is the one nearest that with tiles as square as the picture allows, so a wide picture gets more columns). Click a tile in the empty cell's row or column and it
-  slides over, taking the tiles between it and the empty cell along; the missing tile appears when the puzzle is solved. Videos keep playing in the tiles.
+  slides over, taking the tiles between it and the empty cell along; the missing tile appears when the puzzle is solved. Videos keep playing in the tiles: they are drawn on the graphics card (`src/sessions/videoGl.ts`: each tile is a textured
+  quad of the video's picture), because on a slow device a video picture costs 25-40 ms to get onto a 2D canvas but about a millisecond to give to the graphics card (a 2016 tablet: 1-10 pictures a
+  second with the 2D canvas, 30 with the graphics card, 1080p and 99 tiles included).
 - **Rotascope** - a round picture is cut into concentric rings of equal wedges round a hole in the middle: a sliding puzzle with one empty cell, as in Pandora's Box. You choose the number of
   **rings** (2-6) and of **wedges in each ring** (3-12). Click a piece that touches the empty cell - the next ring in or out, the neighbour in its own ring (the ring closes up), or, for ring 0,
   the middle - and it slides in. Each ring is a fixed ratio wider than the one inside it, so a piece grows or shrinks and turns as it passes between rings. The picture is whole again
