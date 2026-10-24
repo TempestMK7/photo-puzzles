@@ -10,8 +10,8 @@ function memoryStorage(initial: Record<string, string> = {}): StorageLike & { ma
 describe('kinds', () => {
   const focus = findKind('focus')!;
 
-  it('lists Focus Point, Overlap, Strips and Jigsaw as playable, the rest as coming', () => {
-    expect(KINDS.filter((k) => k.available).map((k) => k.id)).toEqual(['focus', 'overlap', 'strips', 'jigsaw']);
+  it('lists every puzzle type as playable', () => {
+    expect(KINDS.filter((k) => k.available).map((k) => k.id)).toEqual(['focus', 'overlap', 'strips', 'jigsaw', 'sliding']);
     expect(KINDS.length).toBeGreaterThan(1);
   });
 
@@ -55,7 +55,7 @@ describe('prefs', () => {
 
   it('ignores damaged storage and types that cannot be played', () => {
     expect(new Prefs(memoryStorage({ 'photo-puzzles/v1': '{nope' })).data.kind).toBe('focus');
-    expect(new Prefs(memoryStorage({ 'photo-puzzles/v1': JSON.stringify({ kind: 'sliding' }) })).data.kind).toBe('focus');
+    expect(new Prefs(memoryStorage({ 'photo-puzzles/v1': JSON.stringify({ kind: 'nonsense' }) })).data.kind).toBe('focus');
     expect(() => new Prefs(null)).not.toThrow();
   });
 

@@ -77,7 +77,17 @@ export const KINDS: readonly KindDef[] = [
       { key: 'snap', label: 'Joining pieces', min: 0, max: 2, def: 0, choices: ['Snap while dragging', 'Snap when held together', 'Snap on release'] },
     ],
   },
-  { id: 'sliding', name: 'Sliding Tiles', blurb: 'Slide the tiles into the empty space.', available: false, options: [] },
+  {
+    id: 'sliding',
+    name: 'Sliding Tiles',
+    blurb: 'The picture is cut into tiles and one is missing. Click a tile in the empty space\'s row or column to slide it (and the tiles in between) over.',
+    available: true,
+    options: [
+      { key: 'tiles', label: 'Approximate tiles', min: 8, max: 99, def: 15 },
+      { key: 'grid', label: 'Grid lines', min: 0, max: 1, def: 1, toggle: true, display: true },
+      { key: 'animate', label: 'Animations', min: 0, max: 1, def: 1, toggle: true, display: true },
+    ],
+  },
 ];
 
 export function findKind(id: string): KindDef | undefined {

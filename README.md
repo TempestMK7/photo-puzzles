@@ -40,9 +40,12 @@ Playable now:
   piece, or the one in your hand when you right-click while dragging it; pieces only join when turned the same way, and only upright pieces join the picture) and **Joining pieces**,
   how eagerly pieces that lie against one they fit join it: *snap while dragging* (as soon as they touch, even before you let go), *snap when held together* (the piece has to
   stay there, held, for half a second - or you let go with the pieces together, which snaps them at once) or *snap on release* (only when you let go with the pieces together).
+- **Sliding Tiles** - the picture is cut into a grid of tiles with the last one taken out, then shuffled by sliding (so it can always be solved). You choose the *approximate* number of
+  tiles (8-99; the grid is the one nearest that with tiles as square as the picture allows, so a wide picture gets more columns). Click a tile in the empty cell's row or column and it
+  slides over, taking the tiles between it and the empty cell along; the missing tile appears when the puzzle is solved. Videos keep playing in the tiles.
 
 In Overlap and Strips a tap on a piece turns it a quarter turn (so does the right button, a second finger, the R key or the Rotate button). Grid lines can be switched off
-in the types that have them. Listed as "soon": Sliding Tiles.
+in the types that have them.
 
 ## The original
 
@@ -74,7 +77,7 @@ decodes them - a file the browser cannot play is reported when you add it; an An
 
 ## Layout
 
-- `src/core/` - rules with no browser dependency: seeded random (`rng.ts`), picture cutting (`layout.ts`), the games (`focus.ts`, `overlap.ts`, `strips.ts`, `jigsaw.ts`: generator + rules, and `snapshot` / `restore` for saving),
+- `src/core/` - rules with no browser dependency: seeded random (`rng.ts`), picture cutting (`layout.ts`), the games (`focus.ts`, `overlap.ts`, `strips.ts`, `jigsaw.ts`, `sliding.ts`: generator + rules, and `snapshot` / `restore` for saving),
   the list of puzzle types and their options (`kinds.ts`), saved preferences and best times (`prefs.ts`)
 - `src/sessions/` - one `PuzzleSession` per type (layout, drawing, pointer input) behind the interface in `types.ts`; `index.ts` says how to start each
 - `src/store/saves.ts` - unfinished puzzles (IndexedDB)

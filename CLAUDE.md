@@ -32,7 +32,7 @@ npm run build      # type check + production build into dist/
 
 ## How the code is organised
 
-- `src/core/` has the rules and no browser dependency, so it is unit tested: `focus`, `overlap`, `strips`, `jigsaw` (each game also has `snapshot()` / `restore()` for saved
+- `src/core/` has the rules and no browser dependency, so it is unit tested: `focus`, `overlap`, `strips`, `jigsaw`, `sliding` (each game also has `snapshot()` / `restore()` for saved
   puzzles), `kinds.ts` (the puzzle types and their options), `prefs.ts`, `rng.ts`.
 - `src/sessions/` has one `PuzzleSession` per type (drawing and pointer input) behind `types.ts`; `index.ts` says how to start each. `jigsawGl.ts` draws video pieces on the
   graphics card, `jigsawArt.ts` makes the piece shapes.
