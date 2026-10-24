@@ -538,7 +538,7 @@ export class PlayScreen {
   private render(now: number): void {
     this.frame = 0;
     if (!this.session || !this.src) return;
-    if (!this.session.videoFrame) this.copyFrame();          // (a session that draws on the graphics card takes the video's frames itself)
+    if (!this.session.overlay) this.copyFrame();             // (a session that draws on the graphics card takes the video's pictures itself)
     this.syncView();
     if (this.session.draw(this.ctx, this.view, now)) this.requestDraw();
   }
