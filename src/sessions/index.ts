@@ -3,6 +3,7 @@ import { FocusSession } from './focus';
 import { JigsawSession } from './jigsaw';
 import { glAvailable } from './jigsawGl';
 import { OverlapSession } from './overlap';
+import { SlidingSession } from './sliding';
 import { StripsSession } from './strips';
 import type { PuzzleSession, SessionFactory } from './types';
 
@@ -12,6 +13,7 @@ const FACTORIES: Partial<Record<KindId, SessionFactory>> = {
   overlap: (init) => new OverlapSession(init),
   strips: (init) => new StripsSession(init),
   jigsaw: (init) => new JigsawSession(init),
+  sliding: (init) => new SlidingSession(init),
 };
 
 export function startSession(kind: KindId, init: Parameters<SessionFactory>[0]): PuzzleSession {

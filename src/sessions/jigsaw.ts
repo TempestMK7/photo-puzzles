@@ -63,9 +63,9 @@ export class JigsawSession implements PuzzleSession {
     this.rotatable = this.turning;
     this.layout_ = layoutJigsaw(rng, init.width, init.height, init.opts.pieces);
     const l = this.layout_;
-    if (init.source instanceof HTMLVideoElement && glAvailable()) {
+    if (init.video && glAvailable()) {
       try {
-        this.gl = new PieceRenderer(buildMasks(l), l, init.source);
+        this.gl = new PieceRenderer(buildMasks(l), l, init.video);
       } catch {
         this.gl = null;                                           // no way to draw video pieces here: they are cut from the picture the video is stopped at
       }
@@ -245,7 +245,7 @@ export class JigsawSession implements PuzzleSession {
    * than the video decoded in the last two seconds, the piece canvas gets a quarter fewer pixels in each direction (down to half).
    */
   private adaptResolution(): void {
-    const v = this.init.source as HTMLVideoElement;
+    const v = this.init.video!;
     if (this.fixedRes || v.paused) {
       this.adapt.t0 = 0;
       return;

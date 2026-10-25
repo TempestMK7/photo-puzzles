@@ -12,8 +12,13 @@ export interface ToggleDef {
 }
 
 export interface SessionInit {
-  /** What the pieces are cut from: a picture or a playing video. */
+  /**
+   * What the pieces are cut from: a picture, or - when the puzzle is made from a video - a canvas that holds the video's current picture (the play screen copies each new
+   * picture into it once, so drawing a piece costs a canvas draw and not a video-frame copy, which is slow on a slow device).
+   */
   source: CanvasImageSource;
+  /** The video itself, when the puzzle is made from one: for a session that takes the frames to the graphics card by itself. */
+  video?: HTMLVideoElement;
   width: number;
   height: number;
   /** Seed of this puzzle (already mixed with the photo and the type). */
