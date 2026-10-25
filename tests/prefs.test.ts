@@ -11,7 +11,7 @@ describe('kinds', () => {
   const focus = findKind('focus')!;
 
   it('lists every puzzle type as playable', () => {
-    expect(KINDS.filter((k) => k.available).map((k) => k.id)).toEqual(['focus', 'overlap', 'strips', 'jigsaw', 'sliding']);
+    expect(KINDS.filter((k) => k.available).map((k) => k.id)).toEqual(['focus', 'overlap', 'strips', 'jigsaw', 'sliding', 'rotascope']);
     expect(KINDS.length).toBeGreaterThan(1);
   });
 
