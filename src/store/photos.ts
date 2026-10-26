@@ -1,3 +1,4 @@
+import { gifToWebm, isGifFile } from '../gif';
 import { isVideoFile, loadPhoto, makeThumb, readVideo, samplePhoto, SAMPLES } from '../image';
 
 /** One photo in the list: the built-in samples and the player's own. */
@@ -123,17 +124,25 @@ export class PhotoLibrary {
     return out;
   }
 
-  /** Adds picture files; returns the ids that were added (or already there) and the names that could not be read. */
-  async add(files: File[]): Promise<{ ids: string[]; failed: string[] }> {
+  /**
+   * Adds picture files; returns the ids that were added (or already there) and the names that could not be read. `onStatus` is told what is going on when it takes a
+   * while (an animated GIF is turned into a video).
+   */
+  async add(files: File[], onStatus?: (text: string) => void): Promise<{ ids: string[]; failed: string[] }> {
     const ids: string[] = [];
     const failed: string[] = [];
     for (const file of files) {
       try {
         const id = await hashOf(file);
         let rec: StoredPhoto;
-        if (isVideoFile(file)) {                                       // a video is kept as it is: the browser plays the file itself
-          const info = await readVideo(file);
-          rec = { id, name: file.name, addedAt: Date.now(), blob: file, thumb: await makeThumb(info.poster), video: true, duration: Number.isFinite(info.duration) ? info.duration : 0 };
+        let video: Blob | null = isVideoFile(file) ? file : null;      // a video is kept as it is: the browser plays the file itself
+        if (!video && isGifFile(file)) {                               // an animated GIF becomes a video (a still one stays a picture)
+          const gif = await gifToWebm(file, (done, total) => onStatus?.(`Converting ${file.name}: frame ${done} of ${total}…`));
+          if (gif) video = gif.blob;
+        }
+        if (video) {
+          const info = await readVideo(video);
+          rec = { id, name: file.name, addedAt: Date.now(), blob: video, thumb: await makeThumb(info.poster), video: true, duration: Number.isFinite(info.duration) ? info.duration : 0 };
         } else {
           const canvas = await loadPhoto(file);
           rec = { id, name: file.name, addedAt: Date.now(), blob: await toBlob(canvas, 0.92), thumb: await makeThumb(canvas) };

@@ -339,7 +339,7 @@ export class LibraryScreen {
     for (let i = 0; i < pictures.length; i++) {
       // the note stays up for as long as the work goes on (a long video, or many files), and each one appears in the list the moment it is ready
       this.photoNote(pictures.length === 1 ? 'Adding…' : `Adding ${i + 1} of ${pictures.length}…`, true);
-      const done = await this.deps.photos.add([pictures[i]]);
+      const done = await this.deps.photos.add([pictures[i]], (text) => this.photoNote(text, true));
       ids.push(...done.ids);
       failed.push(...done.failed);
       if (done.ids.length) await this.refresh(done.ids[done.ids.length - 1]);
