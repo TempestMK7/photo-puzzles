@@ -29,8 +29,11 @@ Playable now:
   count is the nearest grid to that). The four corner pieces start solved and fixed; the rest lie scattered round the frame on a table four times the size of the picture in each
   direction. Put a loose piece against a piece it belongs beside and it joins it - the moment it is close enough, even before you let go - and joined pieces move as one; anything
   that joins a solved piece becomes part of the picture. The mouse wheel (or the control at the bottom right: -, the zoom, +; click the zoom to show everything) zooms about the
-  pointer; the right button - or the left one on bare ground - moves the camera (two fingers zoom and move it on a touch screen). On a touch screen a piece you pick up rises 76 px above your finger, so that the finger does not hide it (a mouse or pen holds it where it is), and a phone vibrates when a
-  piece is picked up, set down, joins another piece or the picture, and when the puzzle is finished (the **Vibration** option, also a header button where the device can vibrate). A video keeps playing in the pieces:
+  pointer; the right button - or the left one on bare ground - moves the camera (two fingers zoom and move it on a touch screen). On a touch screen a piece you pick up rises 76 px above your finger, so that the finger does not hide it (a mouse or pen holds it where it is), and a phone gives feedback when a
+  piece is picked up, set down, joins another piece or the picture, and when the puzzle is finished (the **Vibration** option, also a header button where the device can give it). A
+  browser asks for it with `navigator.vibrate`; an app that wraps the game in a web view can offer `window.PhotoPuzzlesNative.haptic(kind)` (`grab`, `drop`, `join`, `placed`, `turn`,
+  `solved`) instead and play the phone's own haptic effects, which are felt on every phone, whereas a web page's short vibrate-for-a-few-milliseconds is often too weak to notice
+  (`src/haptics.ts`). A video keeps playing in the pieces:
   they are drawn on the graphics card (WebGL 2, `src/sessions/jigsawGl.ts`) - the video frame is a texture, the piece shapes are made once, and every piece is one instance of a
   quad, so a frame is a single draw call however many pieces there are (a few thousand cost well under a millisecond of script). The pieces have a canvas of their own laid over
   the board (copying it onto the board's canvas every frame was by far the most expensive step on a slow GPU), only that canvas is redrawn for each new picture of the video,

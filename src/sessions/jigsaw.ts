@@ -1,5 +1,6 @@
 import { JigsawGame, layoutJigsaw, rotVec, type Group, type JigsawLayout, type JigsawState } from '../core/jigsaw';
 import { Rng } from '../core/rng';
+import { canHaptic, haptic, type Haptic } from '../haptics';
 import { beginFrame, type View } from '../render';
 import { buildAtlas, buildMasks, snapshot, type Atlas } from './jigsawArt';
 import { glAvailable, PieceRenderer } from './jigsawGl';
@@ -13,14 +14,6 @@ const HOVER_MS = 500;           // how long pieces have to be held together to s
 /** A finger holds a piece this far (CSS pixels) below the point of the piece it grabbed, so that the finger does not hide it; it rises to there over LIFT_MS. */
 const LIFT_CSS = 76;
 const LIFT_MS = 110;
-
-// vibration patterns (milliseconds): picked up, set down, joined another piece, joined the picture, finished, turned
-const BUZZ_GRAB = 12;
-const BUZZ_DROP = 8;
-const BUZZ_JOIN = 20;
-const BUZZ_PLACED = [22, 40, 34];
-const BUZZ_SOLVED = [40, 60, 40, 60, 160];
-const BUZZ_TURN = 6;
 
 interface Drag {
   gid: number;
@@ -46,9 +39,7 @@ const SNAP_HOVER = 1;
  * right against one it fits joins it: as soon as it does, once it has been held there for a moment (or when it is let go there), or only when it is let go.
  */
 export class JigsawSession implements PuzzleSession {
-  readonly toggles: ToggleDef[] = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function'
-    ? [{ key: 'haptics', label: 'Vibrate', title: 'Vibrate when a piece is picked up, set down or joins' }]
-    : [];
+  readonly toggles: ToggleDef[] = canHaptic() ? [{ key: 'haptics', label: 'Vibrate', title: 'Vibrate when a piece is picked up, set down or joins' }] : [];
   readonly rotatable: boolean;
   /** The canvas the pieces are drawn on when they are drawn on the graphics card: it lies over the board's. */
   get overlay(): HTMLCanvasElement | undefined {
@@ -408,18 +399,13 @@ export class JigsawSession implements PuzzleSession {
     const [px, py] = this.game.toSolved(grp, q.x - this.frameX, q.y - this.frameY);
     const dpr = window.devicePixelRatio || 1;
     this.drag = { gid, px, py, qx: q.x - this.frameX, qy: q.y - this.frameY, moved: false, lift: touch ? (LIFT_CSS * dpr) / this.cam.zoom : 0, t0: performance.now(), k: touch ? 0 : 1 };
-    this.buzz(BUZZ_GRAB);
+    this.buzz('grab');
     this.init.requestDraw();
   }
 
-  /** Vibrates (on a device that can, if the player has not turned it off). */
-  private buzz(pattern: number | number[]): void {
-    if (!this.init.flag('haptics')) return;
-    try {
-      navigator.vibrate?.(pattern);
-    } catch {
-      // some browsers refuse until the page has been touched; the game does not depend on it
-    }
+  /** Gives touch feedback (on a device that can, if the player has not turned it off). */
+  private buzz(kind: Haptic): void {
+    if (this.init.flag('haptics')) haptic(kind);
   }
 
   /** Where the dragged group is held: at the pointer, or, for a finger, a little above it (but never off the top of the screen). */
@@ -461,7 +447,7 @@ export class JigsawSession implements PuzzleSession {
     const d = this.drag;
     this.cancelHover();
     if (d && d.moved && this.snap !== SNAP_DRAG) this.settle(d.gid);        // let go with pieces together: they join, whatever was left of the wait
-    if (d && d.moved && this.drag === d) this.buzz(BUZZ_DROP);                 // set down without joining anything
+    if (d && d.moved && this.drag === d) this.buzz('drop');                 // set down without joining anything
     if (this.pan?.deselect && !this.pan.moved) this.sel = -1;      // a click on bare ground
     this.drag = null;
     this.pan = null;
@@ -511,7 +497,7 @@ export class JigsawSession implements PuzzleSession {
       g.rotate(d.gid, h.x, h.y);                                  // about the point it is held by, so the piece stays in hand
       const grp = g.groups.get(d.gid)!;
       [d.px, d.py] = g.toSolved(grp, h.x, h.y);
-      this.buzz(BUZZ_TURN);
+      this.buzz('turn');
       d.moved = true;
       this.snapCheck();
     } else {
@@ -519,7 +505,7 @@ export class JigsawSession implements PuzzleSession {
       if (id < 0) return;
       const [cx, cy] = g.centre(id);
       g.rotate(id, cx, cy);
-      this.buzz(BUZZ_TURN);
+      this.buzz('turn');
       if (this.snap === SNAP_DRAG) this.settle(id);
     }
     this.init.requestDraw();
@@ -564,7 +550,7 @@ export class JigsawSession implements PuzzleSession {
       this.flashStart = performance.now();
       if (this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
     }
-    this.buzz(g.solved ? BUZZ_SOLVED : g.anchoredCount > wasAnchored ? BUZZ_PLACED : BUZZ_JOIN);
+    this.buzz(g.solved ? 'solved' : g.anchoredCount > wasAnchored ? 'placed' : 'join');
   }
 
   dispose(): void {
