@@ -46,7 +46,8 @@ export interface PuzzleSession {
   layout(canvasW: number, canvasH: number): { width: number; height: number };
   /** Clears and draws the canvas. Returns true while something is still moving. */
   draw(ctx: CanvasRenderingContext2D, view: View, now: number): boolean;
-  pointerDown(p: Pt): void;
+  /** `touch`: a finger (and not a mouse or a pen) pressed: a session may then hold the piece where a finger does not cover it. */
+  pointerDown(p: Pt, touch?: boolean): void;
   pointerMove(p: Pt): void;
   pointerUp(p: Pt): void;
   pointerCancel(): void;

@@ -587,7 +587,7 @@ export class PlayScreen {
     this.activePointer = e.pointerId;
     this.lastButtons = e.buttons;
     this.canvas.setPointerCapture(e.pointerId);
-    session.pointerDown(this.boardPoint(e));
+    session.pointerDown(this.boardPoint(e), e.pointerType === 'touch');
     this.after();
   }
 
