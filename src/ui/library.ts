@@ -114,6 +114,7 @@ export class LibraryScreen {
     try {
       await this.deps.photos.each(async (e, done, total) => {
         this.entries.push(e);
+        if (!this.deps.prefs.data.photo) this.deps.prefs.data.photo = e.id;           // nothing chosen yet (first run): the first photo is
         const li = this.itemFor(e);
         this.listEl.append(li);
         this.loadingEl.hidden = true;
@@ -122,7 +123,7 @@ export class LibraryScreen {
           this.renderChosen();
         }
         if (done < total) this.photoNote(`Loading photos: ${done} of ${total}`, true);
-        if (done === 1 || performance.now() - sliceStart > 16) {         // let the screen draw what is there now, but not after every photo
+        if (done === 1 || performance.now() - sliceStart > 50) {         // let the screen draw what is there now, but not after every photo
           await nextFrame();
           sliceStart = performance.now();
         }
