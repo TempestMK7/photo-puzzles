@@ -13,6 +13,8 @@ export interface SaveRecord {
   height: number;
   elapsed: number;
   savedAt: number;
+  /** Where it stood ("12 / 300 placed"), for the list of puzzles in progress (saves from before this was added have none). */
+  status?: string;
   state: unknown;
 }
 
@@ -63,6 +65,25 @@ export class SaveStore {
     } catch {
       return undefined;
     }
+  }
+
+  /** Every unfinished puzzle, the one played last first. */
+  async list(): Promise<SaveRecord[]> {
+    const all = new Map(this.memory);
+    const db = await this.db;
+    if (db) {
+      try {
+        const found = await new Promise<SaveRecord[]>((resolve, reject) => {
+          const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAll();
+          req.onsuccess = () => resolve(req.result as SaveRecord[]);
+          req.onerror = () => reject(req.error);
+        });
+        for (const rec of found) all.set(rec.key, rec);
+      } catch {
+        // only what is in memory
+      }
+    }
+    return [...all.values()].sort((a, b) => b.savedAt - a.savedAt);
   }
 
   async put(rec: SaveRecord): Promise<void> {

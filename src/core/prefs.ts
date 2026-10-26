@@ -68,6 +68,17 @@ export class Prefs {
   }
 }
 
+/** How long ago, roughly: "just now", "5 min ago", "3 h ago", "yesterday", "4 days ago". */
+export function formatAgo(now: number, then: number): string {
+  const minutes = Math.floor(Math.max(0, now - then) / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? 'yesterday' : `${days} days ago`;
+}
+
 export function formatTime(ms: number): string {
   const s = Math.floor(ms / 1000);
   const mm = Math.floor(s / 60);

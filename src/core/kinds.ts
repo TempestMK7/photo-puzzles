@@ -146,6 +146,31 @@ export function recordKey(kind: KindDef, photoId: string, settings: Settings): s
   return [kind.id, photoId, ...difficulty.map((k) => `${k}=${opts[k]}`)].join('|');
 }
 
+/** The difficulty options a recordKey holds ("cells=7|turned=1"), as settings, so that a saved puzzle can be set up again. */
+export function settingsOfKey(kind: KindDef, key: string): Settings {
+  const out: Settings = {};
+  for (const part of key.split('|').slice(2)) {
+    const [name, value] = part.split('=');
+    const o = kind.options.find((x) => x.key === name && !x.display);
+    const n = Number(value);
+    if (o && Number.isFinite(n)) out[`${kind.id}.${o.key}`] = n;
+  }
+  return out;
+}
+
+/** The difficulty of a puzzle in words, for lists: "Approximate pieces: 300 · Turned pieces: off". */
+export function describeDifficulty(kind: KindDef, settings: Settings): string {
+  return kind.options
+    .filter((o) => !o.display)
+    .map((o) => {
+      const v = optionValue(settings, kind.id, o);
+      if (o.toggle) return `${o.label}: ${v ? 'on' : 'off'}`;
+      if (o.choices) return o.choices[v] ?? `${o.label}: ${v}`;
+      return `${o.label}: ${v}`;
+    })
+    .join(' · ');
+}
+
 /** The seed of one puzzle: the player's seed, mixed with the photo and the type so each photo / type gets its own puzzle from one seed. */
 export function puzzleSeedText(seed: string, photoId: string, kind: KindId): string {
   return `${seed.trim().toUpperCase()}|${photoId}|${kind}`;

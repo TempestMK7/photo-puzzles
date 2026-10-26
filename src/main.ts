@@ -24,6 +24,7 @@ async function main(): Promise<void> {
   const library = new LibraryScreen({
     prefs,
     photos,
+    saves,
     onPlay: (entry) => {
       library.hide();
       library.el.hidden = true;

@@ -390,6 +390,7 @@ export class PlayScreen {
       height: src.height,
       elapsed: this.running ? performance.now() - this.startedAt : this.elapsed,
       savedAt: Date.now(),
+      status: session.status(),
       state: session.serialize(),
     });
   }

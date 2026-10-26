@@ -74,6 +74,9 @@ A puzzle that is left unfinished (back to the photo screen, closing the page) is
 when you start the same photo, type and difficulty again with the same seed. Restart and New puzzle throw the kept one away; a solved puzzle leaves nothing to keep. Deleting a
 photo or video deletes its saved puzzles too. Saves live only in this browser (IndexedDB, `src/store/saves.ts`); nothing is sent anywhere.
 
+The **In progress** button at the top of the photo screen lists every unfinished puzzle (photo, type, difficulty, time played, how far it got, when it was left, the last played
+first). Tapping one sets the type, photo, difficulty and seed it was made with and opens it as it was left; Discard (tap twice) forgets it.
+
 ## Run it
 
 Needs [Node.js](https://nodejs.org) 20 or newer.
