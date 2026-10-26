@@ -89,6 +89,10 @@ Add photos or **videos** (webm, mp4 and mkv with H.264 / VP9 / AAC / Opus play i
 decodes them - a file the browser cannot play is reported when you add it; an Android WebView does not open H.264 inside mkv at all, VP9 or HEVC inside mkv are fine) with the button or by dropping them on the page; three generated sample pictures are always there. Photos and records stay on your device
 (IndexedDB / localStorage): nothing is uploaded.
 
+**Animated GIFs** are turned into a WebM video when they are added (the browser's own `ImageDecoder` reads the frames and their delays, `VideoEncoder` encodes them as VP8 and
+`src/webm.ts` writes the file), so they play, loop and seek like any other video; a one-frame GIF stays a picture, and a browser without those WebCodecs APIs adds the GIF as a still
+picture as before. A long GIF takes a few seconds to convert, with the progress shown on the Adding line.
+
 ## Layout
 
 - `src/core/` - rules with no browser dependency: seeded random (`rng.ts`), picture cutting (`layout.ts`), the games (`focus.ts`, `overlap.ts`, `strips.ts`, `jigsaw.ts`, `sliding.ts`, `rotascope.ts`: generator + rules, and `snapshot` / `restore` for saving),
@@ -97,7 +101,7 @@ decodes them - a file the browser cannot play is reported when you add it; an An
 - `src/store/saves.ts` - unfinished puzzles (IndexedDB)
 - `src/store/photos.ts` - the photo library (samples + the player's photos and videos in IndexedDB, thumbnails, duplicates by content hash) and what a puzzle draws from (`PlaySource`)
 - `src/ui/` - `library.ts` (main screen), `play.ts` (play screen), small DOM helpers and the type icons (drawn in code)
-- `src/render.ts` - canvas drawing and the swap animation; `src/image.ts` - loading a photo (EXIF-aware, reduced to 1600 px), thumbnails, the sample pictures
+- `src/render.ts` - canvas drawing and the swap animation; `src/image.ts` - loading a photo (EXIF-aware, reduced to 1600 px), thumbnails, the sample pictures; `src/gif.ts` + `src/webm.ts` - animated GIF to WebM on import
 - `src/main.ts` - starts the app and switches between the two screens
 - `tests/` - Vitest
 
