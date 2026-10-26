@@ -2,6 +2,7 @@ import { generateOverlap, OverlapGame, STACKS, type OverlapState } from '../core
 import { Rng } from '../core/rng';
 import { makePattern } from './patterns';
 import { beginFrame, drawSlice, type View } from '../render';
+import { buzz, hapticToggles, startLift, type Lift } from './feedback';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const CELL = 50;
@@ -18,12 +19,23 @@ interface Slot {
   y: number;
 }
 
+/** The piece in hand: where the pointer is, whether it has moved (else a tap), and - for a finger - the lift that holds the piece above it. */
+interface Held {
+  id: number;
+  stack: number;
+  at: Pt;
+  moved: boolean;
+  start: Pt;
+  touch: boolean;
+  lift: Lift | null;
+}
+
 /**
  * Overlap: the picture is covered by L-shaped pieces that overlap. Pieces wait in stacks; drag the top one onto the grid, turned the way it lies in the picture,
  * and it stays and shows its part of the picture. A tap on a piece turns it; the arrows next to a stack shuffle the pieces under it.
  */
 export class OverlapSession implements PuzzleSession {
-  readonly toggles = [{ key: 'grid', label: 'Grid', title: 'Grid lines' }];
+  readonly toggles = [{ key: 'grid', label: 'Grid', title: 'Grid lines' }, ...hapticToggles()];
   readonly rotatable = true;
   private game: OverlapGame;
   private cols: number;
@@ -35,7 +47,8 @@ export class OverlapSession implements PuzzleSession {
   private gridX = 0;
   private gridY = 0;
   private slots: Slot[] = [];
-  private held: { id: number; stack: number; at: Pt; moved: boolean; start: Pt } | null = null;
+  private held: Held | null = null;
+  private lastView: View = { scale: 1, ox: 0, oy: 0 };
   private hoverStack = -1;
   private activeStack = 0;
   private flash = new Map<number, number>();
@@ -153,6 +166,7 @@ export class OverlapSession implements PuzzleSession {
 
   draw(ctx: CanvasRenderingContext2D, view: View, now: number): boolean {
     beginFrame(ctx, view);
+    this.lastView = view;
     let running = false;
     const g = this.game;
     const gw = this.cols * CELL;
@@ -207,7 +221,10 @@ export class OverlapSession implements PuzzleSession {
     // the stacks
     if (!g.solved) {
       for (let s = 0; s < STACKS; s++) this.drawSlot(ctx, s);
-      if (this.held) this.drawHeld(ctx);
+      if (this.held) {
+        this.drawHeld(ctx, now);
+        if (this.held.lift && !this.held.lift.done(now)) running = true;           // a piece a finger has picked up is still rising
+      }
     }
     return running;
   }
@@ -274,10 +291,15 @@ export class OverlapSession implements PuzzleSession {
     return { x: h.at.x - CELL, y: h.at.y - CELL, cell: null };
   }
 
-  private drawHeld(ctx: CanvasRenderingContext2D): void {
+  /** Where the held piece is: at the pointer, or - held by a finger - a little above it. */
+  private heldPoint(h: Held, now: number): Pt {
+    return h.lift ? h.lift.held(h.at, now, this.lastView) : h.at;
+  }
+
+  private drawHeld(ctx: CanvasRenderingContext2D, now: number): void {
     const h = this.held;
     if (!h || !h.moved) return;
-    const box = this.heldBox(h);
+    const box = this.heldBox({ at: this.heldPoint(h, now) });
     ctx.save();
     if (this.init.flag('grid')) {                                  // (with the grid off the held piece has no shadow either)
       ctx.shadowColor = 'rgba(0,0,0,0.6)';
@@ -294,7 +316,7 @@ export class OverlapSession implements PuzzleSession {
     return this.slots.findIndex((s) => p.x >= s.x && p.y >= s.y && p.x < s.x + SLOT_W && p.y < s.y + SLOT_H);
   }
 
-  pointerDown(p: Pt): void {
+  pointerDown(p: Pt, touch = false): void {
     const g = this.game;
     if (g.solved) return;
     const s = this.slotAt(p);
@@ -304,6 +326,7 @@ export class OverlapSession implements PuzzleSession {
       const r = this.arrowRect(s, up);
       if (g.stacks[s].length > 1 && p.x >= r.x && p.y >= r.y && p.x < r.x + r.w && p.y < r.y + r.h) {
         g.cycle(s, up ? -1 : 1);
+        buzz(this.init, 'turn');
         this.init.requestDraw();
         return;
       }
@@ -311,7 +334,8 @@ export class OverlapSession implements PuzzleSession {
     const top = g.top(s);
     const slot = this.slots[s];
     if (top >= 0 && p.x >= slot.x + 8 && p.x < slot.x + 8 + 2 * CELL && p.y >= slot.y + PIECE_Y && p.y < slot.y + PIECE_Y + 2 * CELL) {
-      this.held = { id: top, stack: s, at: p, moved: false, start: p };
+      this.held = { id: top, stack: s, at: p, moved: false, start: p, touch, lift: null };
+      buzz(this.init, 'grab');
     }
     this.init.requestDraw();
   }
@@ -322,7 +346,10 @@ export class OverlapSession implements PuzzleSession {
     const h = this.held;
     if (!h) return;
     h.at = p;
-    if (!h.moved && Math.hypot(p.x - h.start.x, p.y - h.start.y) > TAP) h.moved = true;
+    if (!h.moved && Math.hypot(p.x - h.start.x, p.y - h.start.y) > TAP) {
+      h.moved = true;
+      h.lift = startLift(this.init, h.touch, this.lastView, performance.now());          // a finger lifts the piece above itself from here on (a tap does not)
+    }
     this.init.requestDraw();
   }
 
@@ -332,14 +359,16 @@ export class OverlapSession implements PuzzleSession {
     this.held = null;
     h.at = p;
     const g = this.game;
-    if (!h.moved) {                                           // a tap turns the piece
+    if (!h.moved) {                                           // a tap turns the piece (the press has buzzed already: a second buzz would only cancel it)
       g.rotate(h.id);
     } else {
-      const box = this.heldBox(h);
-      const drawer = this.slotAt(p);
+      const at = this.heldPoint(h, performance.now());       // where the piece is, which is not where a finger is
+      const box = this.heldBox({ at });
+      const drawer = this.slotAt(at);
       if (drawer >= 0) {                                      // put down on a drawer (its own or another): the piece goes on top of it
         g.moveToStack(h.id, drawer);
         this.activeStack = drawer;
+        buzz(this.init, 'drop');
       } else if (box.cell) {
         const before = [...g.revealed];
         if (g.drop(h.id, box.cell.x, box.cell.y) === 'placed') {
@@ -347,10 +376,12 @@ export class OverlapSession implements PuzzleSession {
           g.revealed.forEach((r, i) => {
             if (r && !before[i]) this.flash.set(i, now);
           });
+          buzz(this.init, g.solved ? 'solved' : 'placed');
         } else {
           this.wrong = { bx: box.cell.x, by: box.cell.y, at: performance.now() };
+          buzz(this.init, 'drop');
         }
-      }
+      } else buzz(this.init, 'drop');
     }
     this.init.requestDraw();
   }
@@ -365,6 +396,7 @@ export class OverlapSession implements PuzzleSession {
     if (g.solved) return;
     const id = this.held ? this.held.id : g.top(this.hoverStack >= 0 ? this.hoverStack : this.activeStack);
     g.rotate(id);
+    buzz(this.init, 'turn');
     this.init.requestDraw();
   }
 

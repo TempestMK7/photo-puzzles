@@ -1,6 +1,7 @@
 import { Rng } from '../core/rng';
 import { boxOf, generateStrips, MARGIN, pictureSize, StripsGame, type StripsState } from '../core/strips';
 import { beginFrame, drawSlice, type View } from '../render';
+import { buzz, hapticToggles, startLift, type Lift } from './feedback';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const S = 30;                  // one cell, in board units
@@ -8,12 +9,24 @@ const DWELL_MS = 600;          // a dragged strip that rests on a tab goes to it
 const TAP = 5;
 const FLASH_MS = 600;
 
+/** The strip in hand: the cell it was grabbed by, where the pointer is, whether it has moved (else a tap), and - for a finger - the lift that holds it above the finger. */
+interface Drag {
+  id: number;
+  gx: number;
+  gy: number;
+  start: Pt;
+  moved: boolean;
+  at: Pt;
+  touch: boolean;
+  lift: Lift | null;
+}
+
 /**
  * Strips: straight strips have been cut out of the picture and lie turned and scattered over the board. Drag each one back to the hole it came from; a tap (or the
  * right button, a second finger, R) turns it a quarter turn. It locks when it lies exactly in its hole, turned the right way.
  */
 export class StripsSession implements PuzzleSession {
-  readonly toggles = [{ key: 'grid', label: 'Grid', title: 'Grid lines' }];
+  readonly toggles = [{ key: 'grid', label: 'Grid', title: 'Grid lines' }, ...hapticToggles()];
   readonly rotatable = true;
   private game: StripsGame;
   private picCols: number;
@@ -22,7 +35,8 @@ export class StripsSession implements PuzzleSession {
   /** For each picture cell, the strips cut from it. */
   private owners: number[][];
   private selected = -1;
-  private drag: { id: number; gx: number; gy: number; start: Pt; moved: boolean } | null = null;
+  private drag: Drag | null = null;
+  private lastView: View = { scale: 1, ox: 0, oy: 0 };
   private flash = new Map<number, number>();
   private tab = 0;
   private overTab = -1;
@@ -75,8 +89,14 @@ export class StripsSession implements PuzzleSession {
 
   draw(ctx: CanvasRenderingContext2D, view: View, now: number): boolean {
     beginFrame(ctx, view);
+    this.lastView = view;
     const g = this.game;
     let running = false;
+    const held = this.drag;
+    if (held?.lift && !held.lift.done(now)) {                      // a strip that a finger has picked up rises above it
+      running = true;
+      this.placeDrag(held, now);
+    }
     const { width, height } = this.layout();
     ctx.fillStyle = '#100a08';
     ctx.fillRect(0, 0, width, height);
@@ -158,7 +178,7 @@ export class StripsSession implements PuzzleSession {
 
   // ---------------------------------------------------------------------------------------------------------------- input
 
-  pointerDown(p: Pt): void {
+  pointerDown(p: Pt, touch = false): void {
     const g = this.game;
     if (g.solved) return;
     const cx = Math.floor(p.x / S);
@@ -169,7 +189,8 @@ export class StripsSession implements PuzzleSession {
     } else {
       g.bringToFront(id);
       this.selected = id;
-      this.drag = { id, gx: cx - g.state[id].x, gy: cy - g.state[id].y, start: p, moved: false };
+      this.drag = { id, gx: cx - g.state[id].x, gy: cy - g.state[id].y, start: p, moved: false, at: p, touch, lift: null };
+      buzz(this.init, 'grab');
     }
     this.init.requestDraw();
   }
@@ -177,17 +198,26 @@ export class StripsSession implements PuzzleSession {
   pointerMove(p: Pt): void {
     const d = this.drag;
     if (!d) return;
-    if (!d.moved && Math.hypot(p.x - d.start.x, p.y - d.start.y) > TAP) d.moved = true;
-    if (d.moved) {
-      this.game.moveTo(d.id, Math.floor(p.x / S) - d.gx, Math.floor(p.y / S) - d.gy);
-      if (this.game.lockIfHome(d.id)) {                            // over its own hole, turned right: it drops by itself, the button need not be released
-        this.locked(d.id);
-        this.drag = null;
-        window.clearTimeout(this.dwell);
-        this.overTab = -1;
-      }
+    d.at = p;
+    if (!d.moved && Math.hypot(p.x - d.start.x, p.y - d.start.y) > TAP) {
+      d.moved = true;
+      d.lift = startLift(this.init, d.touch, this.lastView, performance.now());       // a finger lifts the strip above itself from here on (a tap does not)
     }
+    if (d.moved) this.placeDrag(d, performance.now());
     this.init.requestDraw();
+  }
+
+  /** Puts the dragged strip where the pointer holds it - or, for a finger, a little above it - and drops it if that is its own hole, turned right. */
+  private placeDrag(d: Drag, now: number): void {
+    const p = d.lift ? d.lift.held(d.at, now, this.lastView) : d.at;
+    this.game.moveTo(d.id, Math.floor(p.x / S) - d.gx, Math.floor(p.y / S) - d.gy);
+    if (this.game.lockIfHome(d.id)) {                              // over its own hole, turned right: it drops by itself, the button need not be released
+      this.locked(d.id);
+      this.drag = null;
+      window.clearTimeout(this.dwell);
+      this.overTab = -1;
+      this.init.progress?.();                                      // (this may have happened while drawing, not on a pointer event)
+    }
   }
 
   pointerUp(): void {
@@ -198,8 +228,10 @@ export class StripsSession implements PuzzleSession {
     if (d.moved && this.overTab >= 0 && this.overTab !== this.tab) {                  // let go over another tab: the strip goes there
       this.game.moveToTab(d.id, this.overTab);
       this.tab = this.overTab;
-    } else if (!d.moved) this.turn(d.id);                              // a tap turns the strip
+      buzz(this.init, 'drop');
+    } else if (!d.moved) this.turn(d.id, true);                        // a tap turns the strip
     else if (this.game.lockIfHome(d.id)) this.locked(d.id);
+    else buzz(this.init, 'drop');
     this.overTab = -1;
     this.init.requestDraw();
   }
@@ -217,8 +249,10 @@ export class StripsSession implements PuzzleSession {
     this.init.requestDraw();
   }
 
-  private turn(id: number): void {
+  /** Turns a strip a quarter. A tap has buzzed when it pressed, so it only buzzes again if the strip locks; the other ways of turning (right button, R, a second finger) buzz. */
+  private turn(id: number, tap = false): void {
     if (this.game.rotate(id)) this.locked(id);
+    else if (!tap) buzz(this.init, 'turn');
   }
 
   private locked(id: number): void {
@@ -228,6 +262,7 @@ export class StripsSession implements PuzzleSession {
     for (let dy = 0; dy < b.h; dy++) for (let dx = 0; dx < b.w; dx++) this.flash.set((d.hy - MARGIN + dy) * this.picCols + d.hx - MARGIN + dx, now);
     if (this.selected === id) this.selected = -1;
     this.game.moves++;
+    buzz(this.init, this.game.solved ? 'solved' : 'placed');
     const counts = this.game.looseCounts();                       // the tab is empty: on to the next one that still has strips
     if (counts[this.tab] === 0 && !this.game.solved) {
       for (let k = 1; k <= counts.length; k++) {

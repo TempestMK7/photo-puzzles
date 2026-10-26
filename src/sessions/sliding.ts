@@ -1,5 +1,6 @@
 import { slidingGrid, SlidingGame, type SlidingState } from '../core/sliding';
 import { beginFrame, drawSlice, type View } from '../render';
+import { buzz, hapticToggles } from './feedback';
 import { VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
@@ -21,6 +22,7 @@ export class SlidingSession implements PuzzleSession {
   readonly toggles = [
     { key: 'grid', label: 'Grid', title: 'Lines between the tiles' },
     { key: 'animate', label: 'Animate', title: 'Sliding animations' },
+    ...hapticToggles(),
   ];
   readonly rotatable = false;
   private game: SlidingGame;
@@ -189,6 +191,7 @@ export class SlidingSession implements PuzzleSession {
     const cell = this.cellAt(p);
     if (cell < 0) return;
     const moved = this.game.click(cell);
+    if (moved.length) buzz(this.init, this.game.solved ? 'solved' : 'move');
     if (moved.length && this.init.flag('animate')) {
       const now = performance.now();
       for (const m of moved) this.slides.set(m.piece, { from: m.from, to: m.to, start: now });

@@ -1,14 +1,28 @@
 import { JigsawGame, layoutJigsaw, rotVec, type Group, type JigsawLayout, type JigsawState } from '../core/jigsaw';
 import { Rng } from '../core/rng';
+import { haptic, type Haptic } from '../haptics';
 import { beginFrame, type View } from '../render';
 import { buildAtlas, buildMasks, snapshot, type Atlas } from './jigsawArt';
 import { glAvailable, PieceRenderer } from './jigsawGl';
-import type { Pt, PuzzleSession, SessionInit } from './types';
+import { hapticToggles, LIFT_CSS, LIFT_MS } from './feedback';
+import type { Pt, PuzzleSession, SessionInit, ToggleDef } from './types';
 
 const WORLD_K = 4;             // the usable area is this many puzzles wide and high
 const SCATTER_K = 0.75;        // pieces start this far round the puzzle (in puzzle widths / heights), not all over the world
 const PAN_TAP = 3;
 const HOVER_MS = 500;           // how long pieces have to be held together to snap, when joining is on hover
+
+interface Drag {
+  gid: number;
+  px: number;
+  py: number;
+  qx: number;
+  qy: number;
+  moved: boolean;
+  lift: number;
+  t0: number;
+  k: number;
+}
 
 const SNAP_DRAG = 0;
 const SNAP_HOVER = 1;
@@ -22,7 +36,7 @@ const SNAP_HOVER = 1;
  * right against one it fits joins it: as soon as it does, once it has been held there for a moment (or when it is let go there), or only when it is let go.
  */
 export class JigsawSession implements PuzzleSession {
-  readonly toggles = [];
+  readonly toggles: ToggleDef[] = hapticToggles();
   readonly rotatable: boolean;
   /** The canvas the pieces are drawn on when they are drawn on the graphics card: it lies over the board's. */
   get overlay(): HTMLCanvasElement | undefined {
@@ -44,8 +58,11 @@ export class JigsawSession implements PuzzleSession {
   private inited = false;
   private readonly turning: boolean;
   private readonly snap: number;
-  /** The dragged group, the solved-picture point it is held by, where the pointer is (relative to the frame), and whether it has been moved or turned. */
-  private drag: { gid: number; px: number; py: number; qx: number; qy: number; moved: boolean } | null = null;
+  /**
+   * The dragged group, the solved-picture point it is held by, where the pointer is (relative to the frame), whether it has been moved or turned, and - for a finger - how far
+   * (in world units) the piece is held above the finger once it has risen (`k`: how far it has got, 0 to 1, from the moment `t0` it was picked up).
+   */
+  private drag: Drag | null = null;
   private pan: { anchor: Pt; moved: boolean; deselect: boolean } | null = null;
   private rightClick = false;                 // the right button is down and has not moved the camera: letting go turns the selected piece
   private sel = -1;                           // a piece of the selected group
@@ -229,6 +246,12 @@ export class JigsawSession implements PuzzleSession {
     let running = false;
     const flashK = this.flashLeft(now);
     if (flashK > 0) running = true;
+    const d = this.drag;
+    if (d && d.k < 1) {                                           // a piece picked up by a finger rises above it
+      d.k = Math.min(1, (now - d.t0) / LIFT_MS);
+      this.placeDragged();
+      running = true;
+    }
     if (this.gl) this.drawGl(view, flashK > 0 ? { members: [...this.flash], k: flashK } : null);
     else {
       this.draw2d(ctx, view);
@@ -360,7 +383,7 @@ export class JigsawSession implements PuzzleSession {
     return this.game.groups.get(id)!.anchored ? -1 : id;
   }
 
-  pointerDown(p: Pt): void {
+  pointerDown(p: Pt, touch = false): void {
     const gid = this.game.groupAt(p.x - this.frameX, p.y - this.frameY);
     if (gid < 0) {
       this.pan = { anchor: p, moved: false, deselect: true };
@@ -371,8 +394,25 @@ export class JigsawSession implements PuzzleSession {
     this.sel = grp.members[0];
     const q = this.world(p);
     const [px, py] = this.game.toSolved(grp, q.x - this.frameX, q.y - this.frameY);
-    this.drag = { gid, px, py, qx: q.x - this.frameX, qy: q.y - this.frameY, moved: false };
+    const dpr = window.devicePixelRatio || 1;
+    this.drag = { gid, px, py, qx: q.x - this.frameX, qy: q.y - this.frameY, moved: false, lift: touch && this.init.flag('offset') ? (LIFT_CSS * dpr) / this.cam.zoom : 0, t0: performance.now(), k: touch && this.init.flag('offset') ? 0 : 1 };
+    this.buzz('grab');
     this.init.requestDraw();
+  }
+
+  /** Gives touch feedback (on a device that can, if the player has not turned it off). */
+  private buzz(kind: Haptic): void {
+    if (this.init.flag('haptics')) haptic(kind);
+  }
+
+  /** Where the dragged group is held: at the pointer, or, for a finger, a little above it (but never off the top of the screen). */
+  private hold(d: Drag): { x: number; y: number } {
+    let y = d.qy - d.lift * (d.k * d.k * (3 - 2 * d.k));
+    if (d.lift) {
+      const dpr = window.devicePixelRatio || 1;
+      y = Math.max(y, this.cam.cy - this.frameY - (this.canvasH / 2 - 24 * dpr) / this.cam.zoom, -this.frameY);
+    }
+    return { x: d.qx, y };
   }
 
   pointerMove(p: Pt): void {
@@ -396,13 +436,15 @@ export class JigsawSession implements PuzzleSession {
     const d = this.drag!;
     const grp = this.game.groups.get(d.gid)!;
     const [rx, ry] = rotVec(grp.rot, d.px, d.py);
-    this.game.moveTo(d.gid, d.qx - rx, d.qy - ry);
+    const h = this.hold(d);
+    this.game.moveTo(d.gid, h.x - rx, h.y - ry);
   }
 
   pointerUp(): void {
     const d = this.drag;
     this.cancelHover();
     if (d && d.moved && this.snap !== SNAP_DRAG) this.settle(d.gid);        // let go with pieces together: they join, whatever was left of the wait
+    if (d && d.moved && this.drag === d) this.buzz('drop');                 // set down without joining anything
     if (this.pan?.deselect && !this.pan.moved) this.sel = -1;      // a click on bare ground
     this.drag = null;
     this.pan = null;
@@ -448,9 +490,11 @@ export class JigsawSession implements PuzzleSession {
     const g = this.game;
     const d = this.drag;
     if (d && g.groups.has(d.gid)) {
-      g.rotate(d.gid, d.qx, d.qy);                                // about the pointer, so the piece stays in hand
+      const h = this.hold(d);
+      g.rotate(d.gid, h.x, h.y);                                  // about the point it is held by, so the piece stays in hand
       const grp = g.groups.get(d.gid)!;
-      [d.px, d.py] = g.toSolved(grp, d.qx, d.qy);
+      [d.px, d.py] = g.toSolved(grp, h.x, h.y);
+      this.buzz('turn');
       d.moved = true;
       this.snapCheck();
     } else {
@@ -458,6 +502,7 @@ export class JigsawSession implements PuzzleSession {
       if (id < 0) return;
       const [cx, cy] = g.centre(id);
       g.rotate(id, cx, cy);
+      this.buzz('turn');
       if (this.snap === SNAP_DRAG) this.settle(id);
     }
     this.init.requestDraw();
@@ -502,6 +547,7 @@ export class JigsawSession implements PuzzleSession {
       this.flashStart = performance.now();
       if (this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
     }
+    this.buzz(g.solved ? 'solved' : g.anchoredCount > wasAnchored ? 'placed' : 'join');
   }
 
   dispose(): void {

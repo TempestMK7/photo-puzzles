@@ -27,6 +27,11 @@ export interface KindDef {
   options: OptionDef[];
 }
 
+/** Touch feedback (a display setting: it does not change the puzzle, nor its records). */
+const HAPTICS: OptionDef = { key: 'haptics', label: 'Vibration', min: 0, max: 1, def: 1, toggle: true, display: true };
+/** Pieces picked up by a finger are held above it, so that the finger does not hide them. */
+const OFFSET: OptionDef = { key: 'offset', label: 'Lift pieces above the finger', min: 0, max: 1, def: 1, toggle: true, display: true };
+
 export const KINDS: readonly KindDef[] = [
   {
     id: 'focus',
@@ -38,6 +43,7 @@ export const KINDS: readonly KindDef[] = [
       { key: 'irregular', label: 'Irregular pieces', min: 0, max: 1, def: 1, toggle: true },
       { key: 'grid', label: 'Grid lines', min: 0, max: 1, def: 1, toggle: true, display: true },
       { key: 'animate', label: 'Animations', min: 0, max: 1, def: 1, toggle: true, display: true },
+      HAPTICS,
     ],
   },
   {
@@ -51,6 +57,8 @@ export const KINDS: readonly KindDef[] = [
       { key: 'windows', label: 'Window pieces', min: 0, max: 1, def: 1, toggle: true },
       { key: 'placed', label: 'Placed at the start (%)', min: 0, max: 50, def: 20, step: 5 },
       { key: 'grid', label: 'Grid lines', min: 0, max: 1, def: 1, toggle: true, display: true },
+      HAPTICS,
+      OFFSET,
     ],
   },
   {
@@ -64,6 +72,8 @@ export const KINDS: readonly KindDef[] = [
       { key: 'tabs', label: 'Tabs', min: 1, max: 10, def: 3 },
       { key: 'placed', label: 'Placed at the start (%)', min: 0, max: 50, def: 20, step: 5 },
       { key: 'grid', label: 'Grid lines', min: 0, max: 1, def: 1, toggle: true, display: true },
+      HAPTICS,
+      OFFSET,
     ],
   },
   {
@@ -75,6 +85,8 @@ export const KINDS: readonly KindDef[] = [
       { key: 'pieces', label: 'Approximate pieces', min: 100, max: 5000, def: 300, step: 100 },
       { key: 'turning', label: 'Turned pieces', min: 0, max: 1, def: 0, toggle: true },
       { key: 'snap', label: 'Joining pieces', min: 0, max: 2, def: 0, choices: ['Snap while dragging', 'Snap when held together', 'Snap on release'] },
+      HAPTICS,
+      OFFSET,
     ],
   },
   {
@@ -86,6 +98,7 @@ export const KINDS: readonly KindDef[] = [
       { key: 'tiles', label: 'Approximate tiles', min: 8, max: 99, def: 15 },
       { key: 'grid', label: 'Grid lines', min: 0, max: 1, def: 1, toggle: true, display: true },
       { key: 'animate', label: 'Animations', min: 0, max: 1, def: 1, toggle: true, display: true },
+      HAPTICS,
     ],
   },
   {
@@ -98,6 +111,7 @@ export const KINDS: readonly KindDef[] = [
       { key: 'wedges', label: 'Wedges in each ring', min: 3, max: 12, def: 5 },
       { key: 'grid', label: 'Grid lines', min: 0, max: 1, def: 1, toggle: true, display: true },
       { key: 'animate', label: 'Animations', min: 0, max: 1, def: 1, toggle: true, display: true },
+      HAPTICS,
     ],
   },
 ];
