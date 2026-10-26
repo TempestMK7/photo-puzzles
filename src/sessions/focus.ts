@@ -1,6 +1,7 @@
 import { FocusGame, type FocusState } from '../core/focus';
 import type { Rect } from '../core/layout';
 import { draw, type Anim, type View } from '../render';
+import { buzz, hapticToggles } from './feedback';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 /** Focus Point: click two pieces to trade places and sizes. */
@@ -8,6 +9,7 @@ export class FocusSession implements PuzzleSession {
   readonly toggles = [
     { key: 'grid', label: 'Grid', title: 'Grid lines' },
     { key: 'animate', label: 'Animate', title: 'Swap animations' },
+    ...hapticToggles(),
   ];
   readonly rotatable = false;
   private game: FocusGame;
@@ -36,13 +38,18 @@ export class FocusSession implements PuzzleSession {
     const piece = game.pieceAt(p.x, p.y);
     if (piece < 0) return;
     const before = game.slotOf.map((_, i) => game.slotRect(i));
-    if (game.click(piece) === 'swap' && this.init.flag('animate')) {
-      const now = performance.now();
-      for (let i = 0; i < game.count; i++) {
-        const to: Rect = game.slotRect(i);
-        if (to !== before[i]) this.anims.set(i, { from: before[i], to, start: now });
+    const result = game.click(piece);
+    if (result === 'swap') {
+      buzz(this.init, game.solved ? 'solved' : 'join');
+      if (this.init.flag('animate')) {
+        const now = performance.now();
+        for (let i = 0; i < game.count; i++) {
+          const to: Rect = game.slotRect(i);
+          if (to !== before[i]) this.anims.set(i, { from: before[i], to, start: now });
+        }
       }
-    }
+    } else if (result === 'select') buzz(this.init, 'grab');
+    else if (result === 'deselect') buzz(this.init, 'drop');
     this.init.requestDraw();
   }
 

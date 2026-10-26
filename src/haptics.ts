@@ -8,7 +8,7 @@
  * 2. `navigator.vibrate`, with pulses long enough to be felt.
  */
 
-export type Haptic = 'grab' | 'drop' | 'join' | 'placed' | 'turn' | 'solved';
+export type Haptic = 'grab' | 'drop' | 'join' | 'placed' | 'turn' | 'move' | 'solved';
 
 /** Milliseconds, or on / off / on... for `navigator.vibrate`. */
 const PATTERNS: Record<Haptic, number | number[]> = {
@@ -17,6 +17,7 @@ const PATTERNS: Record<Haptic, number | number[]> = {
   join: 45,
   placed: [50, 45, 70],
   turn: 20,
+  move: 30,
   solved: [60, 70, 60, 70, 220],
 };
 

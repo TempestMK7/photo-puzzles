@@ -23,6 +23,8 @@ describe('haptics', () => {
     haptic('grab');
     haptic('placed');
     haptic('solved');
+    haptic('move');
+    expect(seen[3]).toBeGreaterThanOrEqual(25);
     expect(seen[0]).toBeGreaterThanOrEqual(30);                     // short buzzes of ~10 ms are not felt on many phones
     expect(Array.isArray(seen[1]) && seen[1].length).toBe(3);
     expect(Array.isArray(seen[2]) && seen[2].length).toBeGreaterThan(3);

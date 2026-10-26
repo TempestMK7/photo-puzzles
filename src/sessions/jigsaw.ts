@@ -1,19 +1,16 @@
 import { JigsawGame, layoutJigsaw, rotVec, type Group, type JigsawLayout, type JigsawState } from '../core/jigsaw';
 import { Rng } from '../core/rng';
-import { canHaptic, haptic, type Haptic } from '../haptics';
+import { haptic, type Haptic } from '../haptics';
 import { beginFrame, type View } from '../render';
 import { buildAtlas, buildMasks, snapshot, type Atlas } from './jigsawArt';
 import { glAvailable, PieceRenderer } from './jigsawGl';
+import { hapticToggles, LIFT_CSS, LIFT_MS } from './feedback';
 import type { Pt, PuzzleSession, SessionInit, ToggleDef } from './types';
 
 const WORLD_K = 4;             // the usable area is this many puzzles wide and high
 const SCATTER_K = 0.75;        // pieces start this far round the puzzle (in puzzle widths / heights), not all over the world
 const PAN_TAP = 3;
 const HOVER_MS = 500;           // how long pieces have to be held together to snap, when joining is on hover
-
-/** A finger holds a piece this far (CSS pixels) below the point of the piece it grabbed, so that the finger does not hide it; it rises to there over LIFT_MS. */
-const LIFT_CSS = 76;
-const LIFT_MS = 110;
 
 interface Drag {
   gid: number;
@@ -39,7 +36,7 @@ const SNAP_HOVER = 1;
  * right against one it fits joins it: as soon as it does, once it has been held there for a moment (or when it is let go there), or only when it is let go.
  */
 export class JigsawSession implements PuzzleSession {
-  readonly toggles: ToggleDef[] = canHaptic() ? [{ key: 'haptics', label: 'Vibrate', title: 'Vibrate when a piece is picked up, set down or joins' }] : [];
+  readonly toggles: ToggleDef[] = hapticToggles();
   readonly rotatable: boolean;
   /** The canvas the pieces are drawn on when they are drawn on the graphics card: it lies over the board's. */
   get overlay(): HTMLCanvasElement | undefined {
@@ -398,7 +395,7 @@ export class JigsawSession implements PuzzleSession {
     const q = this.world(p);
     const [px, py] = this.game.toSolved(grp, q.x - this.frameX, q.y - this.frameY);
     const dpr = window.devicePixelRatio || 1;
-    this.drag = { gid, px, py, qx: q.x - this.frameX, qy: q.y - this.frameY, moved: false, lift: touch ? (LIFT_CSS * dpr) / this.cam.zoom : 0, t0: performance.now(), k: touch ? 0 : 1 };
+    this.drag = { gid, px, py, qx: q.x - this.frameX, qy: q.y - this.frameY, moved: false, lift: touch && this.init.flag('offset') ? (LIFT_CSS * dpr) / this.cam.zoom : 0, t0: performance.now(), k: touch && this.init.flag('offset') ? 0 : 1 };
     this.buzz('grab');
     this.init.requestDraw();
   }
