@@ -37,11 +37,16 @@ interface StoredPhoto {
 
 const DB = 'photo-puzzles';
 const STORE = 'photos';
+/** The order the photos are listed in; with it the keys come back in that order, without reading the pictures. */
+const BY_DATE = 'addedAt';
 
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'id' });
+    const req = indexedDB.open(DB, 2);
+    req.onupgradeneeded = () => {
+      const store = req.result.objectStoreNames.contains(STORE) ? req.transaction!.objectStore(STORE) : req.result.createObjectStore(STORE, { keyPath: 'id' });
+      if (!store.indexNames.contains(BY_DATE)) store.createIndex(BY_DATE, 'addedAt');
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
@@ -88,40 +93,73 @@ export class PhotoLibrary {
     }
   }
 
-  private async stored(): Promise<StoredPhoto[]> {
-    if (!this.db) return [];
+  /** The ids of the player's photos in the order they were added (not reading the photos themselves), then those that only live in memory. */
+  private async ids(): Promise<string[]> {
+    let keys: string[] = [];
+    if (this.db) {
+      try {
+        keys = await request<IDBValidKey[]>(this.db, 'readonly', (s) => s.index(BY_DATE).getAllKeys()) as string[];
+      } catch {
+        keys = [];
+      }
+    }
+    const out = new Set(keys);
+    for (const m of [...this.memory].sort((a, b) => a.addedAt - b.addedAt)) out.add(m.id);
+    return [...out];
+  }
+
+  private async record(id: string): Promise<StoredPhoto | undefined> {
+    const kept = this.memory.find((m) => m.id === id);
+    if (kept) return kept;
+    if (!this.db) return undefined;
     try {
-      return await request<StoredPhoto[]>(this.db, 'readonly', (s) => s.getAll());
+      return await request<StoredPhoto | undefined>(this.db, 'readonly', (s) => s.get(id));
     } catch {
-      return [];
+      return undefined;
     }
   }
 
-  async list(): Promise<PhotoEntry[]> {
-    const out: PhotoEntry[] = [];
-    for (const s of SAMPLES) {
-      let u = this.urls.get(s.id);
-      if (!u) {
-        const canvas = samplePhoto(s.id);
-        const [thumb, full] = await Promise.all([makeThumb(canvas), toBlob(canvas, 0.9)]);
-        u = { thumb: URL.createObjectURL(thumb), preview: URL.createObjectURL(full) };
-        this.urls.set(s.id, u);
-      }
-      out.push({ id: s.id, name: s.name, sample: true, thumbUrl: u.thumb, previewUrl: u.preview, video: false, duration: 0 });
+  private async sampleEntry(s: { id: string; name: string }): Promise<PhotoEntry> {
+    let u = this.urls.get(s.id);
+    if (!u) {
+      const canvas = samplePhoto(s.id);
+      const [thumb, full] = await Promise.all([makeThumb(canvas), toBlob(canvas, 0.9)]);
+      u = { thumb: URL.createObjectURL(thumb), preview: URL.createObjectURL(full) };
+      this.urls.set(s.id, u);
     }
-    const mine = [...(await this.stored()), ...this.memory].sort((a, b) => a.addedAt - b.addedAt);
-    const seen = new Set<string>();
-    for (const p of mine) {
-      if (seen.has(p.id)) continue;
-      seen.add(p.id);
-      let u = this.urls.get(p.id);
-      if (!u) {
-        u = { thumb: URL.createObjectURL(p.thumb), preview: URL.createObjectURL(p.blob) };
-        this.urls.set(p.id, u);
-      }
-      out.push({ id: p.id, name: p.name, sample: false, thumbUrl: u.thumb, previewUrl: u.preview, video: !!p.video, duration: p.duration ?? 0 });
+    return { id: s.id, name: s.name, sample: true, thumbUrl: u.thumb, previewUrl: u.preview, video: false, duration: 0 };
+  }
+
+  private entryOf(p: StoredPhoto): PhotoEntry {
+    let u = this.urls.get(p.id);
+    if (!u) {
+      u = { thumb: URL.createObjectURL(p.thumb), preview: URL.createObjectURL(p.blob) };
+      this.urls.set(p.id, u);
     }
-    return out;
+    return { id: p.id, name: p.name, sample: false, thumbUrl: u.thumb, previewUrl: u.preview, video: !!p.video, duration: p.duration ?? 0 };
+  }
+
+  /** One photo of the list, or null if it is gone. */
+  async entry(id: string): Promise<PhotoEntry | null> {
+    const sample = SAMPLES.find((s) => s.id === id);
+    if (sample) return this.sampleEntry(sample);
+    const rec = await this.record(id);
+    return rec ? this.entryOf(rec) : null;
+  }
+
+  /**
+   * Hands over the photos of the list one at a time, in order (the samples, then the player's by date added), waiting for `onEntry` before reading the next, so that a
+   * long library can show up as it is read. `total` is how many there will be; it is known before the first.
+   */
+  async each(onEntry: (entry: PhotoEntry, done: number, total: number) => void | Promise<void>): Promise<void> {
+    const ids = await this.ids();
+    const total = SAMPLES.length + ids.length;
+    let done = 0;
+    for (const s of SAMPLES) await onEntry(await this.sampleEntry(s), ++done, total);
+    for (const id of ids) {
+      const rec = await this.record(id);
+      if (rec) await onEntry(this.entryOf(rec), ++done, total);
+    }
   }
 
   /**
