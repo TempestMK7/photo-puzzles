@@ -56,7 +56,7 @@ async function main(): Promise<void> {
   });
 
   if (import.meta.env.DEV) Object.assign(window, { __play: play, __library: library });        // for poking at the game from the console while developing
-  await library.refresh();
+  await library.load();
 }
 
 void main();

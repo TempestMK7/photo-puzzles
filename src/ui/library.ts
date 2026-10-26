@@ -13,6 +13,16 @@ export interface LibraryDeps {
   onPlay(entry: PhotoEntry): void;
 }
 
+/** Resolves when the screen has been drawn (or soon anyway: a page in the background does not draw). */
+const nextFrame = () =>
+  new Promise<void>((resolve) => {
+    const t = window.setTimeout(resolve, 50);
+    requestAnimationFrame(() => {
+      window.clearTimeout(t);
+      resolve();
+    });
+  });
+
 /**
  * The main screen: the puzzle types along the top, the list of photos on the left, the chosen photo in the middle and everything else (seed, difficulty,
  * adding photos, Play) on the right. Narrow screens stack the same parts.
@@ -38,7 +48,11 @@ export class LibraryScreen {
   private fileInput = h('input', { type: 'file', accept: 'image/*,video/*,.webm,.mp4,.m4v,.mov,.mkv', multiple: true, hidden: true, onchange: () => this.filesChosen() });
   private photoNoteEl = h('div', { class: 'note', 'aria-live': 'polite' });
   private noteTimers = new Map<HTMLElement, number>();
-  private adding: Promise<void> = Promise.resolve();
+  /** Reading the list, adding and removing take turns. */
+  private queue: Promise<void> = Promise.resolve();
+  private loading = false;
+  /** The pop-up over the screen while the first photo is being read. */
+  private loadingEl = h('div', { class: 'loading', role: 'status', hidden: true }, h('div', { class: 'card' }, h('div', { class: 'spin', 'aria-hidden': 'true' }), h('div', {}, 'Loading your photos…')));
 
   constructor(private readonly deps: LibraryDeps) {
     const { prefs } = deps;
@@ -74,15 +88,60 @@ export class LibraryScreen {
         ),
       ),
       this.fileInput,
+      this.loadingEl,
     );
     this.listEl.addEventListener('keydown', (e) => this.listKey(e));
     this.buildKinds();
     this.renderFoot();
   }
 
-  /** Reads the photo list again (after adding / removing) and shows it. */
-  async refresh(selectId?: string): Promise<void> {
-    this.entries = await this.deps.photos.list();
+  /**
+   * Reads the photo list into the drawer one photo at a time, so it fills in as they come: a pop-up says that photos are loading until the first one is there, and the note
+   * under the list counts the rest.
+   */
+  load(): Promise<void> {
+    return this.queued(() => this.loadNow());
+  }
+
+  private async loadNow(): Promise<void> {
+    this.loading = true;
+    this.entries = [];
+    this.listEl.replaceChildren();
+    this.loadingEl.hidden = false;
+    this.renderChosen();
+    this.renderFoot();
+    let sliceStart = performance.now();
+    try {
+      await this.deps.photos.each(async (e, done, total) => {
+        this.entries.push(e);
+        const li = this.itemFor(e);
+        this.listEl.append(li);
+        this.loadingEl.hidden = true;
+        if (e.id === this.deps.prefs.data.photo) {
+          li.scrollIntoView({ block: 'nearest' });
+          this.renderChosen();
+        }
+        if (done < total) this.photoNote(`Loading photos: ${done} of ${total}`, true);
+        if (done === 1 || performance.now() - sliceStart > 16) {         // let the screen draw what is there now, but not after every photo
+          await nextFrame();
+          sliceStart = performance.now();
+        }
+      });
+    } finally {
+      this.loading = false;
+      this.loadingEl.hidden = true;
+      this.photoNote('');
+    }
+    this.refresh();
+  }
+
+  private queued(run: () => Promise<void>): Promise<void> {
+    this.queue = this.queue.then(run, run);
+    return this.queue;
+  }
+
+  /** Shows the list as it is now (after adding / removing). */
+  private refresh(selectId?: string): void {
     for (const id of [...this.marked]) if (!this.entries.some((e) => e.id === id)) this.marked.delete(id);
     if (selectId) this.deps.prefs.data.photo = selectId;
     if (!this.entries.some((e) => e.id === this.deps.prefs.data.photo)) this.deps.prefs.data.photo = this.entries[0]?.id ?? '';
@@ -150,26 +209,27 @@ export class LibraryScreen {
 
   private renderList(): void {
     this.listEl.classList.toggle('removing', this.removing !== 'no');
-    const items = this.entries.map((e) => {
-      const best = this.recordFor(e);
-      return h(
-        'li',
-        {
-          class:
-            'item' + (e.id === this.deps.prefs.data.photo ? ' on' : '') + (best !== undefined ? ' done' : '') + (e.video ? ' video' : '') + (e.sample ? ' sample' : '') + (this.marked.has(e.id) ? ' marked' : ''),
-          role: 'option',
-          'aria-selected': e.id === this.deps.prefs.data.photo,
-          dataset: { id: e.id },
-          onclick: () => (this.removing === 'no' ? this.choosePhoto(e.id) : this.mark(e)),
-          ondblclick: () => (this.removing === 'no' ? this.play() : undefined),
-        },
-        h('span', { class: 'chk', 'aria-hidden': 'true' }),
-        h('img', { src: e.thumbUrl, alt: '', width: 56, height: 56, loading: 'lazy' }),
-        h('span', { class: 'txt' }, h('span', { class: 'n' }, e.name), h('span', { class: 'b' }, (e.video ? `Video ${formatTime(e.duration * 1000)} · ` : '') + (best !== undefined ? `Best ${formatTime(best)}` : 'Not solved'))),
-      );
-    });
-    this.listEl.replaceChildren(...items);
+    this.listEl.replaceChildren(...this.entries.map((e) => this.itemFor(e)));
     this.listEl.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+  }
+
+  private itemFor(e: PhotoEntry): HTMLElement {
+    const best = this.recordFor(e);
+    return h(
+      'li',
+      {
+        class:
+          'item' + (e.id === this.deps.prefs.data.photo ? ' on' : '') + (best !== undefined ? ' done' : '') + (e.video ? ' video' : '') + (e.sample ? ' sample' : '') + (this.marked.has(e.id) ? ' marked' : ''),
+        role: 'option',
+        'aria-selected': e.id === this.deps.prefs.data.photo,
+        dataset: { id: e.id },
+        onclick: () => (this.removing === 'no' ? this.choosePhoto(e.id) : this.mark(e)),
+        ondblclick: () => (this.removing === 'no' ? this.play() : undefined),
+      },
+      h('span', { class: 'chk', 'aria-hidden': 'true' }),
+      h('img', { src: e.thumbUrl, alt: '', width: 56, height: 56, loading: 'lazy' }),
+      h('span', { class: 'txt' }, h('span', { class: 'n' }, e.name), h('span', { class: 'b' }, (e.video ? `Video ${formatTime(e.duration * 1000)} · ` : '') + (best !== undefined ? `Best ${formatTime(best)}` : 'Not solved'))),
+    );
   }
 
   private renderChosen(): void {
@@ -194,7 +254,7 @@ export class LibraryScreen {
       this.previewImg.src = e?.previewUrl ?? '';
       this.previewImg.hidden = !e;
     }
-    this.nameEl.textContent = e?.name ?? 'No photos yet';
+    this.nameEl.textContent = e?.name ?? (this.loading ? 'Loading photos…' : 'No photos yet');
     const best = e ? this.recordFor(e) : undefined;
     this.bestEl.textContent = e ? (best !== undefined ? `Best time ${formatTime(best)}` : 'Not solved yet') : '';
     this.blurbEl.textContent = this.kind.blurb;
@@ -323,9 +383,7 @@ export class LibraryScreen {
 
   /** Adds picture files (from the button or dropped on the page) and chooses the last one. Files given while others are still being added wait their turn. */
   addFiles(files: File[]): Promise<void> {
-    const run = () => this.addNow(files);
-    this.adding = this.adding.then(run, run);
-    return this.adding;
+    return this.queued(() => this.addNow(files));
   }
 
   private async addNow(files: File[]): Promise<void> {
@@ -342,7 +400,12 @@ export class LibraryScreen {
       const done = await this.deps.photos.add([pictures[i]], (text) => this.photoNote(text, true));
       ids.push(...done.ids);
       failed.push(...done.failed);
-      if (done.ids.length) await this.refresh(done.ids[done.ids.length - 1]);
+      if (done.ids.length) {
+        const id = done.ids[done.ids.length - 1];
+        const added = await this.deps.photos.entry(id);
+        if (added && !this.entries.some((x) => x.id === id)) this.entries.push(added);           // the newest goes last
+        this.refresh(id);
+      }
     }
     this.photoNote(failed.length ? `Could not open ${failed.join('; ')}` : ids.length === 1 ? 'Added 1 photo' : `Added ${ids.length} photos`);
   }
@@ -388,12 +451,17 @@ export class LibraryScreen {
     }
   }
 
-  private async removeMarked(): Promise<void> {
+  private removeMarked(): Promise<void> {
+    return this.queued(() => this.removeNow());
+  }
+
+  private async removeNow(): Promise<void> {
     const ids = [...this.marked].filter((id) => this.entries.some((e) => e.id === id && !e.sample));
     for (const id of ids) await this.deps.photos.remove(id);
+    this.entries = this.entries.filter((e) => !ids.includes(e.id));
     this.removing = 'no';
     this.marked.clear();
-    await this.refresh();
+    this.refresh();
     this.photoNote(ids.length === 1 ? 'Removed 1 photo' : `Removed ${ids.length} photos`);
   }
 
