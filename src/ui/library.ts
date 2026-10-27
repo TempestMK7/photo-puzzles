@@ -1,4 +1,5 @@
 import { describeDifficulty, findKind, KINDS, optionValue, recordKey, settingsOfKey, type KindDef } from '../core/kinds';
+import { pickAnother } from '../core/pick';
 import { randomSeedText } from '../core/rng';
 import { isVideoFile } from '../image';
 import { formatAgo, formatTime, type Prefs } from '../core/prefs';
@@ -222,6 +223,12 @@ export class LibraryScreen {
 
   private get chosen(): PhotoEntry | undefined {
     return this.entries.find((e) => e.id === this.deps.prefs.data.photo);
+  }
+
+  /** A photo for the next puzzle once the one with this id is done (see pickAnother): one not solved yet with the chosen settings, if there is one. */
+  otherPhoto(id: string): PhotoEntry | undefined {
+    const { prefs } = this.deps;
+    return pickAnother(this.entries, id, (e) => prefs.bestTime(recordKey(this.kind, e.id, prefs.data.settings)) !== undefined);
   }
 
   private buildKinds(): void {

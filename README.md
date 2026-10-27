@@ -5,7 +5,7 @@ Turn your own photos (later: videos) into puzzles, in the browser. Planned targe
 
 The **main screen** has the puzzle types along the top, your photos as a list on the left, the chosen photo in the middle, and the seed, difficulty,
 Add photos and Play on the right. Choosing a photo and pressing Play (or double-clicking it) opens the **play screen**; when a puzzle is solved a dialog offers
-View, New puzzle (the same photo with a new seed) and Photos. Best times are kept per photo, puzzle type and difficulty - not per seed.
+View, New puzzle (the same photo with a new seed), Other photo (a new puzzle with the same type and settings on another photo - one not yet solved with these settings if there is one, picked at random) and Photos. Best times are kept per photo, puzzle type and difficulty - not per seed.
 
 **Video puzzles:** the browser plays the file itself (looped, with its sound) and the board is drawn again each time the video shows a new picture - one `drawImage` per piece, no
 frame copying - so a 30 fps clip redraws 30 times a second. A bar under the board has pause / play, a draggable position and a sound switch (remembered). A new puzzle
