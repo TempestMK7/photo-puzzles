@@ -85,6 +85,7 @@ export const KINDS: readonly KindDef[] = [
       { key: 'pieces', label: 'Approximate pieces', min: 100, max: 5000, def: 300, step: 100 },
       { key: 'turning', label: 'Turned pieces', min: 0, max: 1, def: 0, toggle: true },
       { key: 'snap', label: 'Joining pieces', min: 0, max: 2, def: 0, choices: ['Snap while dragging', 'Snap when held together', 'Snap on release'] },
+      { key: 'light', label: 'Light background', min: 0, max: 1, def: 0, toggle: true, display: true },
       HAPTICS,
       OFFSET,
     ],
