@@ -1,7 +1,8 @@
-import { findKind, KINDS, optionValue, recordKey, type KindDef } from '../core/kinds';
+import { describeDifficulty, findKind, KINDS, optionValue, recordKey, settingsOfKey, type KindDef } from '../core/kinds';
 import { randomSeedText } from '../core/rng';
 import { isVideoFile } from '../image';
-import { formatTime, type Prefs } from '../core/prefs';
+import { formatAgo, formatTime, type Prefs } from '../core/prefs';
+import type { SaveRecord, SaveStore } from '../store/saves';
 import type { PhotoEntry, PhotoLibrary } from '../store/photos';
 import { h, svg } from './dom';
 import { KIND_ICONS } from './icons';
@@ -9,6 +10,7 @@ import { KIND_ICONS } from './icons';
 export interface LibraryDeps {
   prefs: Prefs;
   photos: PhotoLibrary;
+  saves: SaveStore;
   /** Start the chosen puzzle type on this photo. */
   onPlay(entry: PhotoEntry): void;
 }
@@ -51,6 +53,25 @@ export class LibraryScreen {
   /** Reading the list, adding and removing take turns. */
   private queue: Promise<void> = Promise.resolve();
   private loading = false;
+  private progressBtn = h('button', { type: 'button', class: 'progress-btn', onclick: () => void this.openProgress() }, 'In progress');
+  private progressList = h('ul', {});
+  private progressEmpty = h('p', { class: 'empty' }, 'No puzzles in progress. Start one and leave it, and it is listed here.');
+  /** The list of puzzles left unfinished, over the screen. */
+  private progressEl = h(
+    'div',
+    { class: 'inprogress', role: 'dialog', 'aria-label': 'Puzzles in progress', hidden: true, onclick: (e: Event) => (e.target === this.progressEl ? this.closeProgress() : undefined) },
+    h(
+      'div',
+      { class: 'card' },
+      h('header', {}, h('h2', {}, 'Puzzles in progress'), h('button', { type: 'button', class: 'close', onclick: () => this.closeProgress() }, 'Close')),
+      this.progressList,
+      this.progressEmpty,
+    ),
+  );
+  private saved: SaveRecord[] = [];
+  /** The unfinished puzzle whose Discard was tapped once (the second tap does it). */
+  private discarding = '';
+  private discardTimer = 0;
   /** The pop-up over the screen while the first photo is being read. */
   private loadingEl = h('div', { class: 'loading', role: 'status', hidden: true }, h('div', { class: 'card' }, h('div', { class: 'spin', 'aria-hidden': 'true' }), h('div', {}, 'Loading your photos…')));
 
@@ -64,7 +85,7 @@ export class LibraryScreen {
     this.el = h(
       'section',
       { class: 'library' },
-      h('header', { class: 'bar' }, h('h1', {}, 'Photo Puzzles')),
+      h('header', { class: 'bar' }, h('h1', {}, 'Photo Puzzles'), this.progressBtn),
       this.kindsEl,
       h(
         'div',
@@ -89,8 +110,12 @@ export class LibraryScreen {
       ),
       this.fileInput,
       this.loadingEl,
+      this.progressEl,
     );
     this.listEl.addEventListener('keydown', (e) => this.listKey(e));
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !this.progressEl.hidden) this.closeProgress();
+    });
     this.buildKinds();
     this.renderFoot();
   }
@@ -108,6 +133,7 @@ export class LibraryScreen {
     this.entries = [];
     this.listEl.replaceChildren();
     this.loadingEl.hidden = false;
+    this.progressBtn.disabled = true;                              // it lists photos, which are not all here yet
     this.renderChosen();
     this.renderFoot();
     let sliceStart = performance.now();
@@ -131,9 +157,11 @@ export class LibraryScreen {
     } finally {
       this.loading = false;
       this.loadingEl.hidden = true;
+      this.progressBtn.disabled = false;
       this.photoNote('');
     }
     this.refresh();
+    void this.refreshProgress();
   }
 
   private queued(run: () => Promise<void>): Promise<void> {
@@ -161,6 +189,7 @@ export class LibraryScreen {
     this.seedInput.value = this.deps.prefs.data.seed;
     this.renderList();
     this.renderChosen();
+    void this.refreshProgress();
   }
 
   // ---------------------------------------------------------------------------------------------------------------- parts
@@ -411,6 +440,91 @@ export class LibraryScreen {
     this.photoNote(failed.length ? `Could not open ${failed.join('; ')}` : ids.length === 1 ? 'Added 1 photo' : `Added ${ids.length} photos`);
   }
 
+  // ---------------------------------------------------------------------------------------------------------------- puzzles in progress
+
+  /** Reads the unfinished puzzles again; the button says how many there are. */
+  private async refreshProgress(): Promise<void> {
+    this.saved = (await this.deps.saves.list()).filter((r) => findKind(r.kind));
+    this.progressBtn.textContent = this.saved.length ? `In progress (${this.saved.length})` : 'In progress';
+    if (!this.progressEl.hidden) this.renderProgress();
+  }
+
+  private async openProgress(): Promise<void> {
+    await this.refreshProgress();
+    this.progressEl.hidden = false;
+    this.renderProgress();
+    this.progressEl.querySelector<HTMLElement>('.resume, .close')?.focus();
+  }
+
+  private closeProgress(): void {
+    this.progressEl.hidden = true;
+    this.discarding = '';
+    window.clearTimeout(this.discardTimer);
+  }
+
+  private renderProgress(): void {
+    const now = Date.now();
+    const rows = this.saved.flatMap((rec) => {
+      const entry = this.entries.find((e) => e.id === rec.photoId);
+      const kind = findKind(rec.kind);
+      if (!entry || !kind) return [];
+      const asking = this.discarding === rec.key;
+      return [
+        h(
+          'li',
+          { class: 'save' },
+          h(
+            'button',
+            { type: 'button', class: 'resume', onclick: () => this.resume(rec, entry, kind) },
+            h('img', { src: entry.thumbUrl, alt: '', width: 56, height: 56 }),
+            h(
+              'span',
+              { class: 'txt' },
+              h('span', { class: 'n' }, entry.name),
+              h('span', { class: 'b' }, `${kind.name} · ${describeDifficulty(kind, settingsOfKey(kind, rec.key))}`),
+              h('span', { class: 'b' }, [`${formatTime(rec.elapsed)} played`, rec.status, formatAgo(now, rec.savedAt)].filter(Boolean).join(' · ')),
+            ),
+          ),
+          h('button', { type: 'button', class: asking ? 'danger' : '', title: 'Forget this unfinished puzzle', onclick: () => this.discard(rec.key) }, asking ? 'Sure?' : 'Discard'),
+        ),
+      ];
+    });
+    this.progressList.replaceChildren(...rows);
+    this.progressEmpty.hidden = rows.length > 0;
+  }
+
+  /** Carries on with an unfinished puzzle: the type, photo, difficulty and seed it was made with are set again, and it opens as it was left. */
+  private resume(rec: SaveRecord, entry: PhotoEntry, kind: KindDef): void {
+    const { prefs } = this.deps;
+    prefs.data.kind = kind.id;
+    prefs.data.photo = entry.id;
+    prefs.data.seed = rec.seed;
+    Object.assign(prefs.data.settings, settingsOfKey(kind, rec.key));
+    prefs.save();
+    this.seedInput.value = rec.seed;
+    this.closeProgress();
+    this.buildKinds();
+    this.renderList();
+    this.renderChosen();
+    this.deps.onPlay(entry);
+  }
+
+  /** The first tap asks (in the page: a web view may swallow confirm()), the second forgets the puzzle. */
+  private discard(key: string): void {
+    window.clearTimeout(this.discardTimer);
+    if (this.discarding !== key) {
+      this.discarding = key;
+      this.discardTimer = window.setTimeout(() => {
+        this.discarding = '';
+        this.renderProgress();
+      }, 3000);
+      this.renderProgress();
+      return;
+    }
+    this.discarding = '';
+    void this.deps.saves.remove(key).then(() => this.refreshProgress());
+  }
+
   // ---------------------------------------------------------------------------------------------------------------- the buttons under the list
 
   private setRemoving(mode: 'no' | 'choose' | 'sure'): void {
@@ -463,6 +577,7 @@ export class LibraryScreen {
     this.removing = 'no';
     this.marked.clear();
     this.refresh();
+    void this.refreshProgress();
     this.photoNote(ids.length === 1 ? 'Removed 1 photo' : `Removed ${ids.length} photos`);
   }
 
