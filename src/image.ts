@@ -142,16 +142,35 @@ function looksBlack(c: HTMLCanvasElement): boolean {
   return true;
 }
 
-/** A square thumbnail (cut from the middle) as a JPEG blob. */
-export async function makeThumb(photo: HTMLCanvasElement, size = 160): Promise<Blob> {
+/** A square thumbnail canvas (cut from the middle of the picture). */
+function squareThumb(photo: HTMLCanvasElement, size: number, soft: boolean): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = size;
   c.height = size;
-  const g = c.getContext('2d')!;
+  const g = c.getContext('2d', soft ? { willReadFrequently: true } : undefined)!;
   g.imageSmoothingQuality = 'high';
   const side = Math.min(photo.width, photo.height);
   g.drawImage(photo, (photo.width - side) / 2, (photo.height - side) / 2, side, side, 0, 0, size, size);
+  return c;
+}
+
+/** A square thumbnail (cut from the middle) as a JPEG blob. */
+export async function makeThumb(photo: HTMLCanvasElement, size = 160): Promise<Blob> {
+  const c = squareThumb(photo, size, false);
   return new Promise((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new Error('no thumbnail'))), 'image/jpeg', 0.8));
+}
+
+/**
+ * A sample's thumbnail as a data URL, made on the processor: a canvas on the graphics card has to wait for the card to hand its pixels back, and on a phone that wait
+ * was several seconds at launch (up to 17) during which the whole list stood still. A canvas that is read back is kept in memory instead (`willReadFrequently`).
+ */
+export function sampleThumbUrl(id: string, size = 160): string {
+  return squareThumb(samplePhoto(id, true), size, true).toDataURL('image/jpeg', 0.8);
+}
+
+/** A sample's full picture as a data URL, made on the processor (see `sampleThumbUrl`). */
+export function samplePreviewUrl(id: string): string {
+  return samplePhoto(id, true).toDataURL('image/jpeg', 0.9);
 }
 
 export interface SampleInfo {
@@ -173,13 +192,13 @@ const PALETTES: Palette[] = [
 
 export const SAMPLES: SampleInfo[] = PALETTES.map(({ id, name }) => ({ id, name }));
 
-/** A made-up picture so there is something to play without choosing a file (no outside art). */
-export function samplePhoto(id = 'sample-dusk'): HTMLCanvasElement {
+/** A made-up picture so there is something to play without choosing a file (no outside art). `soft`: a canvas in memory, for reading pixels back (see `sampleThumbUrl`). */
+export function samplePhoto(id = 'sample-dusk', soft = false): HTMLCanvasElement {
   const pal = PALETTES.find((p) => p.id === id) ?? PALETTES[0];
   const c = document.createElement('canvas');
   c.width = 1200;
   c.height = 800;
-  const g = c.getContext('2d')!;
+  const g = c.getContext('2d', soft ? { willReadFrequently: true } : undefined)!;
   const sky = g.createLinearGradient(0, 0, 0, 800);
   sky.addColorStop(0, pal.sky[0]);
   sky.addColorStop(0.55, pal.sky[1]);
