@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { edgeSegments, JigsawGame, layoutJigsaw, reverseSegments, rotVec, TAB_REACH, type JigsawLayout } from '../src/core/jigsaw';
+import { edgeSegments, isEdgePiece, JigsawGame, layoutJigsaw, pickPlaced, reverseSegments, rotVec, TAB_REACH, type JigsawLayout } from '../src/core/jigsaw';
 import { Rng } from '../src/core/rng';
 
 const layout = (seed = 1, w = 1200, h = 800, target = 100): JigsawLayout => layoutJigsaw(new Rng(seed), w, h, target);
@@ -73,6 +73,27 @@ describe('JigsawGame', () => {
     expect(g.z).toHaveLength(g.count - 4);
     expect(g.solved).toBe(false);
     expect(g.groupAt(l.size / 2, l.size / 2)).toBe(-1); // an anchored piece cannot be picked up
+  });
+
+  it('starts with the given pieces anchored as well, and the ones that touch are one group', () => {
+    const l = layout(6, 1200, 800, 300);
+    const placed = new Set([1, 2, 3, l.cols + 1, 5 + 3 * l.cols]);        // 1, 2, 3 and the one under 1 touch corner 0; the last stands alone
+    const g = new JigsawGame(l, scatter, placed);
+    expect(g.anchoredCount).toBe(4 + placed.size);
+    expect(g.z).toHaveLength(g.count - 4 - placed.size);
+    expect(g.groupOf[0]).toBe(g.groupOf[1]);
+    expect(g.groupOf[1]).toBe(g.groupOf[l.cols + 1]);
+    expect(g.groupOf[3]).toBe(g.groupOf[0]);
+    expect(g.groupOf[5 + 3 * l.cols]).not.toBe(g.groupOf[0]);
+    const alone = g.groups.get(g.groupOf[5 + 3 * l.cols])!;
+    expect([alone.anchored, alone.dx, alone.dy, alone.rot, alone.members]).toEqual([true, 0, 0, 0, [5 + 3 * l.cols]]);
+    expect(g.groupAt(5.5 * l.size, 3.5 * l.size)).toBe(-1);               // it cannot be picked up
+    expect(g.solved).toBe(false);
+    // a loose neighbour put next to a placed piece joins it
+    const id = g.groupOf[6 + 3 * l.cols];
+    g.moveTo(id, 2, -1);
+    expect(g.connect(id, 8).joins).toBe(1);
+    expect(g.groups.get(g.groupOf[6 + 3 * l.cols])!.anchored).toBe(true);
   });
 
   it('picks the loose group under a point, front-most first', () => {
@@ -162,6 +183,44 @@ describe('JigsawGame', () => {
     expect(g.solved).toBe(true);
     expect(g.groups.size).toBe(1);
     expect(g.z).toHaveLength(0);
+  });
+});
+
+describe('pickPlaced', () => {
+  const l = layout(16, 1200, 800, 300);
+  const corners = [0, l.cols - 1, (l.rows - 1) * l.cols, l.cols * l.rows - 1];
+
+  it('picks that share of the pieces at random, never a corner, and the same ones for the same seed', () => {
+    expect(pickPlaced(l, new Rng(1), 0, false).size).toBe(0);
+    for (const percent of [5, 30, 80]) {
+      const p = pickPlaced(l, new Rng(2), percent, false);
+      expect(p.size).toBe(Math.round((l.cols * l.rows * percent) / 100));
+      for (const c of corners) expect(p.has(c)).toBe(false);
+    }
+    expect([...pickPlaced(l, new Rng(3), 40, false)]).toEqual([...pickPlaced(l, new Rng(3), 40, false)]);
+    expect([...pickPlaced(l, new Rng(3), 40, false)]).not.toEqual([...pickPlaced(l, new Rng(4), 40, false)]);
+  });
+
+  it('with the edge pieces apart picks only inside, as many as fit', () => {
+    const inside = (l.cols - 2) * (l.rows - 2);
+    for (const percent of [10, 80]) {
+      const p = pickPlaced(l, new Rng(5), percent, true);
+      for (const i of p) expect(isEdgePiece(l.cols, l.rows, i)).toBe(false);
+      expect(p.size).toBe(Math.min(inside, Math.round((l.cols * l.rows * percent) / 100)));
+    }
+    expect(pickPlaced(layout(17, 200, 800, 100), new Rng(6), 80, true).size).toBeLessThanOrEqual(inside);
+  });
+
+  it('never places the whole picture', () => {
+    const all = pickPlaced(l, new Rng(7), 100, false);
+    expect(all.size).toBe(l.cols * l.rows - 4 - 1);
+    expect(new JigsawGame(l, scatter, all).solved).toBe(false);
+  });
+
+  it('knows which pieces are on the border', () => {
+    const edges = Array.from({ length: l.cols * l.rows }, (_, i) => i).filter((i) => isEdgePiece(l.cols, l.rows, i));
+    expect(edges).toHaveLength(2 * (l.cols + l.rows) - 4);
+    for (const c of corners) expect(isEdgePiece(l.cols, l.rows, c)).toBe(true);
   });
 });
 

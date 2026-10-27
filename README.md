@@ -36,7 +36,12 @@ Playable now:
   and when the graphics card cannot keep up with the video the piece canvas drops to as little as half the resolution by itself. On a 2016 tablet (Mali-T830) this gives
   about 25-30 pictures a second from a 720p video and 19-24 from a 1080p one, with 300-5000 pieces. A browser without WebGL 2 stops the video at its first picture instead and
   cuts the pieces from that (`jigsawArt.ts`).
-  Two more options: **Turned pieces** (loose pieces start turned by quarter turns; click a piece to select it - it glows - and right-click, R or the Rotate button turns the selected
+  Two ways to make the start easier or tidier: **Placed at the start (%)** (0-80, off by default) puts that share of the pieces, picked at random, in their places as part of the
+  picture, as the corners are (placed pieces that touch are one block, and loose pieces join them the same way), and **Edge pieces start in the picture area** (off by default)
+  scatters the border pieces at random over the area where the finished picture goes - loose, not in their places - while the others lie round it, so the border pieces stand
+  apart from the rest. With both on, the placed pieces are picked from the inside pieces only. Both count as difficulty (they start their own best time), but puzzles saved or
+  recorded before they existed keep their records, because an option added later is left out of the record key while it is at its default.
+  More options: **Turned pieces** (loose pieces start turned by quarter turns; click a piece to select it - it glows - and right-click, R or the Rotate button turns the selected
   piece, or the one in your hand when you right-click while dragging it; pieces only join when turned the same way, and only upright pieces join the picture) and **Joining pieces**,
   how eagerly pieces that lie against one they fit join it: *snap while dragging* (as soon as they touch, even before you let go), *snap when held together* (the piece has to
   stay there, held, for half a second - or you let go with the pieces together, which snaps them at once) or *snap on release* (only when you let go with the pieces together).

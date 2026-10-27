@@ -546,6 +546,7 @@ export class LibraryScreen {
     prefs.data.kind = kind.id;
     prefs.data.photo = entry.id;
     prefs.data.seed = rec.seed;
+    for (const o of kind.options) if (!o.display) delete prefs.data.settings[`${kind.id}.${o.key}`];      // what the key leaves out was at its default
     Object.assign(prefs.data.settings, settingsOfKey(kind, rec.key));
     prefs.save();
     this.seedInput.value = rec.seed;

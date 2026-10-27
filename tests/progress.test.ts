@@ -31,6 +31,14 @@ describe('describeDifficulty', () => {
     expect(text).not.toContain('Vibration');
   });
 
+  it('leaves out options added later while they are at their default, and says them once they are not', () => {
+    const jig = findKind('jigsaw')!;
+    expect(describeDifficulty(jig, { 'jigsaw.placed': 0, 'jigsaw.edges': 0 })).toBe('Approximate pieces: 300 · Turned pieces: off · Snap while dragging');
+    expect(describeDifficulty(jig, { 'jigsaw.placed': 25, 'jigsaw.edges': 1 })).toBe(
+      'Approximate pieces: 300 · Placed at the start (%): 25 · Edge pieces start in the picture area: on · Turned pieces: off · Snap while dragging',
+    );
+  });
+
   it('uses the defaults for what is missing', () => {
     expect(describeDifficulty(findKind('sliding')!, {})).toBe('Approximate tiles: 15');
     expect(optionsOf({}, findKind('sliding')!).tiles).toBe(15);
