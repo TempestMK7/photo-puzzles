@@ -32,8 +32,26 @@ const nextFrame = () =>
 export class LibraryScreen {
   readonly el: HTMLElement;
   private entries: PhotoEntry[] = [];
+  /** The list items, kept so that the list is updated in place (making them again would decode every thumbnail again). */
+  private items = new Map<string, HTMLElement>();
   private kindsEl = h('nav', { class: 'kinds', 'aria-label': 'Puzzle types' });
   private listEl = h('ul', { class: 'plist', role: 'listbox', 'aria-label': 'Photos', tabIndex: 0 });
+  /** A thumbnail is given its picture when it comes near the screen: making the object URLs of a long list at once takes seconds on a phone. */
+  private thumbOf = new WeakMap<Element, PhotoEntry>();
+  private nearby =
+    typeof IntersectionObserver === 'undefined'
+      ? null
+      : new IntersectionObserver(
+          (hits) => {
+            for (const hit of hits) {
+              const e = hit.isIntersecting ? this.thumbOf.get(hit.target) : undefined;
+              if (!e) continue;
+              (hit.target as HTMLImageElement).src = e.thumbUrl;
+              this.nearby?.unobserve(hit.target);
+            }
+          },
+          { root: this.listEl, rootMargin: '300px' },
+        );
   private previewImg = h('img', { alt: '' });
   private previewVideo = h('video', { muted: true, loop: true, playsInline: true, autoplay: true, hidden: true, 'aria-label': 'Preview' });
   private nameEl = h('div', { class: 'pname' });
@@ -131,6 +149,7 @@ export class LibraryScreen {
   private async loadNow(): Promise<void> {
     this.loading = true;
     this.entries = [];
+    this.items.clear();
     this.listEl.replaceChildren();
     this.loadingEl.hidden = false;
     this.progressBtn.disabled = true;                              // it lists photos, which are not all here yet
@@ -160,7 +179,10 @@ export class LibraryScreen {
       this.progressBtn.disabled = false;
       this.photoNote('');
     }
-    this.refresh();
+    if (this.entries.some((e) => e.id === this.deps.prefs.data.photo)) {                 // the list is as it should be: no need to make it all again
+      this.renderChosen();
+      this.renderFoot();
+    } else this.refresh();
     void this.refreshProgress();
   }
 
@@ -239,17 +261,31 @@ export class LibraryScreen {
 
   private renderList(): void {
     this.listEl.classList.toggle('removing', this.removing !== 'no');
-    this.listEl.replaceChildren(...this.entries.map((e) => this.itemFor(e)));
+    const keep = new Set(this.entries.map((e) => e.id));
+    for (const id of this.items.keys()) if (!keep.has(id)) this.items.delete(id);
+    const lis = this.entries.map((e) => this.itemFor(e));
+    const now = this.listEl.children;
+    if (lis.length !== now.length || lis.some((li, i) => li !== now[i])) this.listEl.replaceChildren(...lis);
     this.listEl.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
   }
 
+  /** The list item of a photo: made the first time, after that brought up to date (selected, done, marked, best time). */
   private itemFor(e: PhotoEntry): HTMLElement {
     const best = this.recordFor(e);
-    return h(
+    const cls = 'item' + (e.id === this.deps.prefs.data.photo ? ' on' : '') + (best !== undefined ? ' done' : '') + (e.video ? ' video' : '') + (e.sample ? ' sample' : '') + (this.marked.has(e.id) ? ' marked' : '');
+    const text = (e.video ? `Video ${formatTime(e.duration * 1000)} · ` : '') + (best !== undefined ? `Best ${formatTime(best)}` : 'Not solved');
+    const kept = this.items.get(e.id);
+    if (kept) {
+      if (kept.className !== cls) kept.className = cls;
+      kept.setAttribute('aria-selected', String(e.id === this.deps.prefs.data.photo));
+      const b = kept.querySelector('.b')!;
+      if (b.textContent !== text) b.textContent = text;
+      return kept;
+    }
+    const li = h(
       'li',
       {
-        class:
-          'item' + (e.id === this.deps.prefs.data.photo ? ' on' : '') + (best !== undefined ? ' done' : '') + (e.video ? ' video' : '') + (e.sample ? ' sample' : '') + (this.marked.has(e.id) ? ' marked' : ''),
+        class: cls,
         role: 'option',
         'aria-selected': e.id === this.deps.prefs.data.photo,
         dataset: { id: e.id },
@@ -257,9 +293,20 @@ export class LibraryScreen {
         ondblclick: () => (this.removing === 'no' ? this.play() : undefined),
       },
       h('span', { class: 'chk', 'aria-hidden': 'true' }),
-      h('img', { src: e.thumbUrl, alt: '', width: 56, height: 56, loading: 'lazy' }),
-      h('span', { class: 'txt' }, h('span', { class: 'n' }, e.name), h('span', { class: 'b' }, (e.video ? `Video ${formatTime(e.duration * 1000)} · ` : '') + (best !== undefined ? `Best ${formatTime(best)}` : 'Not solved'))),
+      this.thumbFor(e),
+      h('span', { class: 'txt' }, h('span', { class: 'n' }, e.name), h('span', { class: 'b' }, text)),
     );
+    this.items.set(e.id, li);
+    return li;
+  }
+
+  private thumbFor(e: PhotoEntry): HTMLImageElement {
+    const img = h('img', { alt: '', width: 56, height: 56 });
+    if (this.nearby) {
+      this.thumbOf.set(img, e);
+      this.nearby.observe(img);
+    } else img.src = e.thumbUrl;
+    return img;
   }
 
   private renderChosen(): void {

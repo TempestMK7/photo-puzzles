@@ -39,6 +39,9 @@ const DB = 'photo-puzzles';
 const STORE = 'photos';
 /** The order the photos are listed in; with it the keys come back in that order, without reading the pictures. */
 const BY_DATE = 'addedAt';
+/** How many photos are read from the store at once: the first few, so that the list starts to fill quickly, then more. */
+const FIRST_BATCH = 12;
+const BATCH = 100;
 
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -80,7 +83,7 @@ async function hashOf(blob: Blob): Promise<string> {
 export class PhotoLibrary {
   private db: IDBDatabase | null = null;
   private memory: StoredPhoto[] = [];
-  private urls = new Map<string, { thumb: string; preview: string }>();
+  private urls = new Map<string, { thumb?: string; preview?: string }>();
 
   /** `onRemove` is told when a photo or video is deleted (its saved puzzles go with it). */
   constructor(private readonly onRemove?: (id: string) => Promise<void>) {}
@@ -93,19 +96,28 @@ export class PhotoLibrary {
     }
   }
 
-  /** The ids of the player's photos in the order they were added (not reading the photos themselves), then those that only live in memory. */
-  private async ids(): Promise<string[]> {
-    let keys: string[] = [];
+  /** How many of the player's photos there are, those that only live in memory included. */
+  private async count(): Promise<number> {
+    let n = 0;
     if (this.db) {
       try {
-        keys = await request<IDBValidKey[]>(this.db, 'readonly', (s) => s.index(BY_DATE).getAllKeys()) as string[];
+        n = await request<number>(this.db, 'readonly', (s) => s.count());
       } catch {
-        keys = [];
+        n = 0;
       }
     }
-    const out = new Set(keys);
-    for (const m of [...this.memory].sort((a, b) => a.addedAt - b.addedAt)) out.add(m.id);
-    return [...out];
+    return n + this.memory.length;
+  }
+
+  /** The next `size` records in the order they were added, starting at `from` (a date; ones before it are left out). One request for the lot is much cheaper than one each. */
+  private async batch(from: number | undefined, size: number): Promise<StoredPhoto[]> {
+    if (!this.db) return [];
+    try {
+      const range = from === undefined ? undefined : IDBKeyRange.lowerBound(from);
+      return await request<StoredPhoto[]>(this.db, 'readonly', (s) => s.index(BY_DATE).getAll(range, size));
+    } catch {
+      return [];
+    }
   }
 
   private async record(id: string): Promise<StoredPhoto | undefined> {
@@ -121,22 +133,36 @@ export class PhotoLibrary {
 
   private async sampleEntry(s: { id: string; name: string }): Promise<PhotoEntry> {
     let u = this.urls.get(s.id);
-    if (!u) {
+    if (!u?.thumb || !u.preview) {
       const canvas = samplePhoto(s.id);
       const [thumb, full] = await Promise.all([makeThumb(canvas), toBlob(canvas, 0.9)]);
       u = { thumb: URL.createObjectURL(thumb), preview: URL.createObjectURL(full) };
       this.urls.set(s.id, u);
     }
-    return { id: s.id, name: s.name, sample: true, thumbUrl: u.thumb, previewUrl: u.preview, video: false, duration: 0 };
+    return { id: s.id, name: s.name, sample: true, thumbUrl: u.thumb!, previewUrl: u.preview!, video: false, duration: 0 };
   }
 
+  /** The object URLs are made when first asked for: making one takes about a millisecond on a phone, and the full picture's is only wanted for the one that is chosen. */
   private entryOf(p: StoredPhoto): PhotoEntry {
-    let u = this.urls.get(p.id);
-    if (!u) {
-      u = { thumb: URL.createObjectURL(p.thumb), preview: URL.createObjectURL(p.blob) };
-      this.urls.set(p.id, u);
-    }
-    return { id: p.id, name: p.name, sample: false, thumbUrl: u.thumb, previewUrl: u.preview, video: !!p.video, duration: p.duration ?? 0 };
+    const urls = this.urls;
+    const url = (which: 'thumb' | 'preview', blob: Blob): string => {
+      let u = urls.get(p.id);
+      if (!u) urls.set(p.id, (u = {}));
+      return (u[which] ??= URL.createObjectURL(blob));
+    };
+    return {
+      id: p.id,
+      name: p.name,
+      sample: false,
+      get thumbUrl() {
+        return url('thumb', p.thumb);
+      },
+      get previewUrl() {
+        return url('preview', p.blob);
+      },
+      video: !!p.video,
+      duration: p.duration ?? 0,
+    };
   }
 
   /** One photo of the list, or null if it is gone. */
@@ -152,13 +178,27 @@ export class PhotoLibrary {
    * long library can show up as it is read. `total` is how many there will be; it is known before the first.
    */
   async each(onEntry: (entry: PhotoEntry, done: number, total: number) => void | Promise<void>): Promise<void> {
-    const ids = await this.ids();
-    const total = SAMPLES.length + ids.length;
+    const total = SAMPLES.length + (await this.count());
     let done = 0;
     for (const s of SAMPLES) await onEntry(await this.sampleEntry(s), ++done, total);
-    for (const id of ids) {
-      const rec = await this.record(id);
-      if (rec) await onEntry(this.entryOf(rec), ++done, total);
+    const seen = new Set<string>();
+    let from: number | undefined;
+    let size = FIRST_BATCH;                                        // a few first, so that the list starts to fill at once
+    for (;;) {
+      const recs = await this.batch(from, size);
+      let fresh = 0;
+      for (const rec of recs) {
+        if (seen.has(rec.id)) continue;                            // the date a batch starts at is its last one's: photos added in the same millisecond come twice
+        seen.add(rec.id);
+        fresh++;
+        await onEntry(this.entryOf(rec), ++done, total);
+      }
+      if (recs.length < size) break;
+      from = recs[recs.length - 1].addedAt;
+      size = fresh ? BATCH : size * 2;                             // no progress: that many photos share one date
+    }
+    for (const rec of [...this.memory].sort((a, b) => a.addedAt - b.addedAt)) {
+      if (!seen.has(rec.id)) await onEntry(this.entryOf(rec), ++done, total);
     }
   }
 
@@ -206,8 +246,8 @@ export class PhotoLibrary {
   async remove(id: string): Promise<void> {
     const u = this.urls.get(id);
     if (u) {
-      URL.revokeObjectURL(u.thumb);
-      URL.revokeObjectURL(u.preview);
+      if (u.thumb) URL.revokeObjectURL(u.thumb);
+      if (u.preview) URL.revokeObjectURL(u.preview);
       this.urls.delete(id);
     }
     this.memory = this.memory.filter((m) => m.id !== id);
