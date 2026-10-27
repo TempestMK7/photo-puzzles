@@ -15,6 +15,8 @@ export interface PlayDeps {
   saves: SaveStore;
   /** Back to the main screen. */
   onExit(): void;
+  /** A photo to play next instead of the one with this id, or nothing if there is no other. */
+  otherPhoto(id: string): PhotoEntry | undefined;
 }
 
 /** The screen where a puzzle is played: it owns the canvas, the clock, the video bar and the dialogs; the puzzle itself is a PuzzleSession. */
@@ -474,6 +476,18 @@ export class PlayScreen {
     void this.begin(true);
   }
 
+  /** A new puzzle on another photo, with the type and settings this one had (the photo is remembered as the chosen one, for when the player is back at the list). */
+  private otherPhotoPuzzle(): void {
+    const next = this.entry && this.deps.otherPhoto(this.entry.id);
+    if (!next) return;
+    const { prefs } = this.deps;
+    prefs.data.photo = next.id;
+    prefs.data.seed = randomSeedText();
+    prefs.save();
+    this.dialogEl.hidden = true;
+    void this.start(next);
+  }
+
   private leave(): void {
     this.saveNow();
     this.token++;
@@ -689,6 +703,7 @@ export class PlayScreen {
         { class: 'buttons' },
         h('button', { type: 'button', onclick: () => this.viewPicture() }, 'View'),
         h('button', { type: 'button', class: 'primary', onclick: () => this.newPuzzle() }, 'New puzzle'),
+        ...(this.entry && this.deps.otherPhoto(this.entry.id) ? [h('button', { type: 'button', title: 'The same settings on another photo', onclick: () => this.otherPhotoPuzzle() }, 'Other photo')] : []),
         h('button', { type: 'button', onclick: () => this.leave() }, 'Photos'),
       ),
     );

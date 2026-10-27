@@ -20,7 +20,7 @@ async function main(): Promise<void> {
   await photos.init();
 
   const root = document.getElementById('app')!;
-  const play = new PlayScreen({ prefs, photos, saves, onExit: () => showLibrary() });
+  const play = new PlayScreen({ prefs, photos, saves, onExit: () => showLibrary(), otherPhoto: (id) => library.otherPhoto(id) });
   const library = new LibraryScreen({
     prefs,
     photos,
