@@ -121,6 +121,33 @@ export function reverseSegments(segs: Seg[]): Seg[] {
   return out;
 }
 
+/** Whether piece `i` lies on the border of the picture (the corners do too). */
+export function isEdgePiece(cols: number, rows: number, i: number): boolean {
+  const c = i % cols;
+  const r = Math.floor(i / cols);
+  return c === 0 || r === 0 || c === cols - 1 || r === rows - 1;
+}
+
+/**
+ * The pieces, besides the corners, that begin in their place: `percent` of all the pieces, picked at random. With `edgesApart` the edge pieces are left out of the
+ * pick (they start somewhere else), so there can be fewer than that when the inside is too small for them.
+ */
+export function pickPlaced(layout: JigsawLayout, rng: Rng, percent: number, edgesApart: boolean): Set<number> {
+  const { cols, rows } = layout;
+  const corners = new Set([0, cols - 1, (rows - 1) * cols, cols * rows - 1]);
+  const pool: number[] = [];
+  for (let i = 0; i < cols * rows; i++) if (!corners.has(i) && !(edgesApart && isEdgePiece(cols, rows, i))) pool.push(i);
+  const most = edgesApart ? pool.length : pool.length - 1;         // never the whole picture
+  const want = Math.max(0, Math.min(most, Math.round((cols * rows * Math.min(100, Math.max(0, percent))) / 100)));
+  const out = new Set<number>();
+  for (let k = 0; k < want; k++) {                                // the first `want` of a shuffle
+    const j = k + rng.below(pool.length - k);
+    [pool[k], pool[j]] = [pool[j], pool[k]];
+    out.add(pool[k]);
+  }
+  return out;
+}
+
 export interface Group {
   id: number;
   members: number[];
@@ -149,24 +176,53 @@ export class JigsawGame {
   readonly z: number[] = [];
   private nextId = 0;
 
-  /** `start(i)` gives the turn (none, if left out) and offset of piece i's group when the puzzle begins; the four corners ignore it and start anchored. */
-  constructor(layout: JigsawLayout, start: (piece: number) => { dx: number; dy: number; rot?: number }) {
+  /**
+   * `start(i)` gives the turn (none, if left out) and offset of piece i's group when the puzzle begins. The four corners and the pieces in `placed` ignore it and start
+   * anchored; those that touch are one group from the start.
+   */
+  constructor(layout: JigsawLayout, start: (piece: number) => { dx: number; dy: number; rot?: number }, placed: ReadonlySet<number> = new Set()) {
     this.cols = layout.cols;
     this.rows = layout.rows;
     this.size = layout.size;
     this.count = layout.cols * layout.rows;
     this.groupOf = new Int32Array(this.count);
     const corners = new Set([0, this.cols - 1, (this.rows - 1) * this.cols, this.count - 1]);
+    const home = (i: number) => corners.has(i) || placed.has(i);
+    const done = new Uint8Array(this.count);
     for (let i = 0; i < this.count; i++) {
-      const anchored = corners.has(i);
-      const o = anchored ? { dx: 0, dy: 0, rot: 0 } : start(i);
-      const g: Group = { id: this.nextId++, members: [i], rot: o.rot ?? 0, dx: o.dx, dy: o.dy, anchored };
+      if (done[i]) continue;
+      const g: Group = { id: this.nextId++, members: [], rot: 0, dx: 0, dy: 0, anchored: home(i) };
+      if (g.anchored) {
+        const open = [i];                                         // everything anchored that touches piece i
+        done[i] = 1;
+        while (open.length) {
+          const p = open.pop()!;
+          g.members.push(p);
+          this.groupOf[p] = g.id;
+          const c = p % this.cols;
+          const r = Math.floor(p / this.cols);
+          for (const [nc, nr] of [[c - 1, r], [c + 1, r], [c, r - 1], [c, r + 1]]) {
+            if (nc < 0 || nr < 0 || nc >= this.cols || nr >= this.rows) continue;
+            const q = nr * this.cols + nc;
+            if (!done[q] && home(q)) {
+              done[q] = 1;
+              open.push(q);
+            }
+          }
+        }
+        g.members.sort((a, b) => a - b);
+      } else {
+        const o = start(i);
+        g.members.push(i);
+        g.rot = o.rot ?? 0;
+        g.dx = o.dx;
+        g.dy = o.dy;
+        this.groupOf[i] = g.id;
+        this.z.push(g.id);
+        done[i] = 1;
+      }
       this.groups.set(g.id, g);
-      this.groupOf[i] = g.id;
-      if (!anchored) this.z.push(g.id);
     }
-    // corners that touch (a 2 x n picture) are one piece of the finished picture from the start
-    for (const g of [...this.groups.values()]) if (g.anchored && this.groups.has(g.id)) this.connect(g.id, 1);
   }
 
   /** Everything that changes while the puzzle is played, as plain data (the pieces and their shapes follow from the seed). */

@@ -1,4 +1,4 @@
-import { JigsawGame, layoutJigsaw, rotVec, type Group, type JigsawLayout, type JigsawState } from '../core/jigsaw';
+import { isEdgePiece, JigsawGame, layoutJigsaw, pickPlaced, rotVec, type Group, type JigsawLayout, type JigsawState } from '../core/jigsaw';
 import { Rng } from '../core/rng';
 import { haptic, type Haptic } from '../haptics';
 import { beginFrame, type View } from '../render';
@@ -107,23 +107,31 @@ export class JigsawSession implements PuzzleSession {
     this.frameY = (this.worldH - puzzleH) / 2;
     const mx = puzzleW * SCATTER_K;
     const my = puzzleH * SCATTER_K;
-    // every loose piece starts somewhere round the frame, not on it
+    const edgesInside = init.opts.edges === 1;
+    // its own generator, so that the way the other pieces are scattered does not depend on which are placed
+    const placed = pickPlaced(l, new Rng((init.seed ^ 0x2f6b9d1) >>> 0), init.opts.placed ?? 0, edgesInside);
+    // every loose piece starts somewhere round the frame, not on it (the edge pieces, if asked, in the frame's area instead, not where they belong)
     this.game = new JigsawGame(l, (i) => {
       const c = i % l.cols;
       const r = Math.floor(i / l.cols);
       let x = 0;
       let y = 0;
-      for (let tries = 0; tries < 20; tries++) {
-        x = this.frameX - mx + rng.unit() * (puzzleW + 2 * mx - l.size);
-        y = this.frameY - my + rng.unit() * (puzzleH + 2 * my - l.size);
-        const onFrame = x + l.size > this.frameX && x < this.frameX + puzzleW && y + l.size > this.frameY && y < this.frameY + puzzleH;
-        if (!onFrame) break;
+      if (edgesInside && isEdgePiece(l.cols, l.rows, i)) {
+        x = this.frameX + rng.unit() * (puzzleW - l.size);
+        y = this.frameY + rng.unit() * (puzzleH - l.size);
+      } else {
+        for (let tries = 0; tries < 20; tries++) {
+          x = this.frameX - mx + rng.unit() * (puzzleW + 2 * mx - l.size);
+          y = this.frameY - my + rng.unit() * (puzzleH + 2 * my - l.size);
+          const onFrame = x + l.size > this.frameX && x < this.frameX + puzzleW && y + l.size > this.frameY && y < this.frameY + puzzleH;
+          if (!onFrame) break;
+        }
       }
       const rot = this.turning ? rng.below(4) : 0;
       // the piece's cell centre, turned, lies at the chosen spot
       const [cx, cy] = rotVec(rot, (c + 0.5) * l.size, (r + 0.5) * l.size);
       return { rot, dx: x + l.size / 2 - this.frameX - cx, dy: y + l.size / 2 - this.frameY - cy };
-    });
+    }, placed);
     if (init.restore) {
       const saved = init.restore as { game: JigsawState; sel: number; cam: { ratio: number; cx: number; cy: number } };
       this.game.restore(saved.game);

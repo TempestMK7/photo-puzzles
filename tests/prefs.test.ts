@@ -39,6 +39,15 @@ describe('kinds', () => {
     expect(recordKey(jigsaw, 'p1', { 'jigsaw.light': 1 })).toBe(recordKey(jigsaw, 'p1', {}));
   });
 
+  it('the jigsaw start options are difficulties, but at their defaults the key is what it was before they existed', () => {
+    const jigsaw = findKind('jigsaw')!;
+    expect(optionsOf({}, jigsaw)).toMatchObject({ placed: 0, edges: 0 });
+    expect(recordKey(jigsaw, 'p1', {})).toBe('jigsaw|p1|pieces=300|snap=0|turning=0');
+    expect(recordKey(jigsaw, 'p1', { 'jigsaw.placed': 40 })).not.toBe(recordKey(jigsaw, 'p1', {}));
+    expect(recordKey(jigsaw, 'p1', { 'jigsaw.edges': 1 })).not.toBe(recordKey(jigsaw, 'p1', {}));
+    expect(optionValue({ 'jigsaw.placed': 500 }, 'jigsaw', jigsaw.options.find((o) => o.key === 'placed')!)).toBe(80);
+  });
+
   it('every photo and type gets its own puzzle from one seed', () => {
     expect(puzzleSeedText('abc', 'p1', 'focus')).toBe(puzzleSeedText(' ABC ', 'p1', 'focus'));
     expect(puzzleSeedText('abc', 'p1', 'focus')).not.toBe(puzzleSeedText('abc', 'p2', 'focus'));

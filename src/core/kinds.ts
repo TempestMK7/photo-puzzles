@@ -14,6 +14,8 @@ export interface OptionDef {
   choices?: string[];
   /** A way of showing the puzzle, not a difficulty: it does not start a new best-time record. */
   display?: boolean;
+  /** Added after puzzles were already being recorded and saved: at its default it stays out of the record key (and the difficulty in words), so what was kept before still matches. */
+  later?: boolean;
 }
 
 export type KindId = 'focus' | 'overlap' | 'strips' | 'jigsaw' | 'sliding' | 'rotascope';
@@ -83,6 +85,8 @@ export const KINDS: readonly KindDef[] = [
     available: true,
     options: [
       { key: 'pieces', label: 'Approximate pieces', min: 100, max: 5000, def: 300, step: 100 },
+      { key: 'placed', label: 'Placed at the start (%)', min: 0, max: 80, def: 0, step: 5, later: true },
+      { key: 'edges', label: 'Edge pieces start in the picture area', min: 0, max: 1, def: 0, toggle: true, later: true },
       { key: 'turning', label: 'Turned pieces', min: 0, max: 1, def: 0, toggle: true },
       { key: 'snap', label: 'Joining pieces', min: 0, max: 2, def: 0, choices: ['Snap while dragging', 'Snap when held together', 'Snap on release'] },
       { key: 'light', label: 'Light background', min: 0, max: 1, def: 0, toggle: true, display: true },
@@ -143,7 +147,7 @@ export function optionsOf(settings: Settings, kind: KindDef): Record<string, num
  */
 export function recordKey(kind: KindDef, photoId: string, settings: Settings): string {
   const opts = optionsOf(settings, kind);
-  const difficulty = kind.options.filter((o) => !o.display).map((o) => o.key).sort();
+  const difficulty = kind.options.filter((o) => !o.display && !(o.later && opts[o.key] === o.def)).map((o) => o.key).sort();
   return [kind.id, photoId, ...difficulty.map((k) => `${k}=${opts[k]}`)].join('|');
 }
 
@@ -163,8 +167,9 @@ export function settingsOfKey(kind: KindDef, key: string): Settings {
 export function describeDifficulty(kind: KindDef, settings: Settings): string {
   return kind.options
     .filter((o) => !o.display)
-    .map((o) => {
-      const v = optionValue(settings, kind.id, o);
+    .map((o) => ({ o, v: optionValue(settings, kind.id, o) }))
+    .filter(({ o, v }) => !(o.later && v === o.def))
+    .map(({ o, v }) => {
       if (o.toggle) return `${o.label}: ${v ? 'on' : 'off'}`;
       if (o.choices) return o.choices[v] ?? `${o.label}: ${v}`;
       return `${o.label}: ${v}`;
