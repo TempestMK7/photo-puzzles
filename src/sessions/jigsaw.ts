@@ -440,6 +440,10 @@ export class JigsawSession implements PuzzleSession {
     this.game.moveTo(d.gid, h.x - rx, h.y - ry);
   }
 
+  holding(): boolean {
+    return !!this.drag;
+  }
+
   pointerUp(): void {
     const d = this.drag;
     this.cancelHover();

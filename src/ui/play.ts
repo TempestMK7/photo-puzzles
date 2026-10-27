@@ -568,7 +568,8 @@ export class PlayScreen {
       this.after();
       return;
     }
-    if (e.pointerType === 'touch' && session.pinch) {          // a second finger zooms (and moves) a board with a camera
+    const turnWithSecondFinger = e.pointerType === 'touch' && this.activePointer >= 0 && e.pointerId !== this.activePointer && !!session.holding?.();
+    if (e.pointerType === 'touch' && session.pinch && !turnWithSecondFinger) {   // a second finger zooms (and moves) a board with a camera, unless a piece is in hand: then it turns it
       this.touches.set(e.pointerId, this.canvasPoint(e));
       if (this.touches.size === 2) {
         if (this.activePointer >= 0) session.pointerCancel();
