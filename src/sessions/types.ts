@@ -79,6 +79,8 @@ export interface PuzzleSession {
   wheel?(at: Pt, deltaY: number): void;
   /** Two fingers: what was under `from` (canvas pixels) is now under `to`, and the board is `factor` times bigger. */
   pinch?(from: Pt, to: Pt, factor: number): void;
+  /** A piece is in hand: a second finger then turns it (`secondary`) instead of starting a pinch. */
+  holding?(): boolean;
   /** The right button, pressed on the board / dragged / let go; used instead of `secondary` when present. */
   rightDown?(p: Pt): void;
   rightMove?(p: Pt): void;
