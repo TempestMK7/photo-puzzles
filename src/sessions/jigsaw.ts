@@ -36,7 +36,7 @@ const SNAP_HOVER = 1;
  * right against one it fits joins it: as soon as it does, once it has been held there for a moment (or when it is let go there), or only when it is let go.
  */
 export class JigsawSession implements PuzzleSession {
-  readonly toggles: ToggleDef[] = hapticToggles();
+  readonly toggles: ToggleDef[] = [{ key: 'light', label: 'Light', title: 'Light or dark background' }, ...hapticToggles()];
   readonly rotatable: boolean;
   /** The canvas the pieces are drawn on when they are drawn on the graphics card: it lies over the board's. */
   get overlay(): HTMLCanvasElement | undefined {
@@ -227,17 +227,18 @@ export class JigsawSession implements PuzzleSession {
   draw(ctx: CanvasRenderingContext2D, view: View, now: number): boolean {
     beginFrame(ctx, view);
     const l = this.layout_;
-    ctx.fillStyle = '#241711';
+    const light = this.init.flag('light');                        // pieces that are hard to see on one background show on the other
+    ctx.fillStyle = light ? '#ece2d2' : '#241711';
     ctx.fillRect(0, 0, this.worldW, this.worldH);
-    ctx.strokeStyle = '#6b4a36';
+    ctx.strokeStyle = light ? '#b59a7e' : '#6b4a36';
     ctx.lineWidth = 3 / view.scale;
     ctx.strokeRect(0, 0, this.worldW, this.worldH);
     // where the picture goes
     const pw = l.cols * l.size;
     const ph = l.rows * l.size;
-    ctx.fillStyle = '#2d1e15';
+    ctx.fillStyle = light ? '#ddd0bb' : '#2d1e15';
     ctx.fillRect(this.frameX, this.frameY, pw, ph);
-    ctx.strokeStyle = 'rgba(255,216,74,0.3)';
+    ctx.strokeStyle = light ? 'rgba(120,70,10,0.45)' : 'rgba(255,216,74,0.3)';
     ctx.lineWidth = 2 / view.scale;
     ctx.setLineDash([8 / view.scale, 6 / view.scale]);
     ctx.strokeRect(this.frameX, this.frameY, pw, ph);
@@ -336,7 +337,7 @@ export class JigsawSession implements PuzzleSession {
     for (const id of g.z) {
       const grp = g.groups.get(id)!;
       if (id === selId) {                                         // a glow round the selected group: drawn under it, and over again by the pieces themselves
-        ctx.shadowColor = '#ffd84a';
+        ctx.shadowColor = this.init.flag('light') ? '#e67300' : '#ffd84a';
         ctx.shadowBlur = 16;
         drawGroup(lit, grp);
         ctx.shadowBlur = 0;
@@ -356,7 +357,7 @@ export class JigsawSession implements PuzzleSession {
     const anchored: Group[] = [];
     for (const grp of g.groups.values()) if (grp.anchored) anchored.push(grp);
     this.gl!.render(
-      { width: this.canvasW, height: this.canvasH, scale: view.scale, ox: view.ox, oy: view.oy, frameX: this.frameX, frameY: this.frameY },
+      { width: this.canvasW, height: this.canvasH, scale: view.scale, ox: view.ox, oy: view.oy, frameX: this.frameX, frameY: this.frameY, light: this.init.flag('light') },
       anchored,
       loose,
       selId >= 0 ? g.groups.get(selId)! : null,

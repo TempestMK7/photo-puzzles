@@ -31,6 +31,8 @@ export interface GlView {
   /** Where the picture's top-left corner lies in the world. */
   frameX: number;
   frameY: number;
+  /** A light background: the selection glow is then orange (a yellow one would hardly show). */
+  light?: boolean;
 }
 
 let support: boolean | null = null;
@@ -105,6 +107,7 @@ uniform vec2 u_atlas;
 uniform float u_pitch;
 uniform float u_tile;
 uniform float u_r;
+uniform vec3 u_glow;
 in vec2 v_tile;
 in vec2 v_cell;
 in float v_plain;
@@ -122,7 +125,7 @@ void main() {
     a += at(dir * u_r * 0.5) + at(dir * u_r);
   }
   a = clamp(a / 6.0, 0.0, 1.0) * 0.9;
-  o = vec4(vec3(1.0, 0.847, 0.29) * a, a);
+  o = vec4(u_glow * a, a);
 }`;
 
 const COS = [1, 0, -1, 0];                // a quarter turn clockwise, y pointing down
@@ -230,7 +233,7 @@ export class PieceRenderer {
     this.gl = gl;
     const shared = ['u_res', 'u_xf', 'u_tile', 'u_o', 'u_cover', 'u_atlas', 'u_pitch'];
     this.piece = this.compile(FRAG_PIECE, [...shared, 'u_video', 'u_overlay', 'u_src', 'u_size', 'u_vid', 'u_outline', 'u_blur']);
-    this.glow = this.compile(FRAG_GLOW, [...shared, 'u_r']);
+    this.glow = this.compile(FRAG_GLOW, [...shared, 'u_r', 'u_glow']);
     this.flashProg = this.compile(FRAG_FLASH, [...shared, 'u_k']);
     this.vao = gl.createVertexArray()!;
     gl.bindVertexArray(this.vao);
@@ -395,6 +398,8 @@ export class PieceRenderer {
       const g = this.glow;
       shared(g);
       gl.uniform1f(g.u.u_r, Math.min(GLOW_PX / view.scale, masks.pad - 1));
+      if (view.light) gl.uniform3f(g.u.u_glow, 0.9, 0.45, 0);
+      else gl.uniform3f(g.u.u_glow, 1, 0.847, 0.29);
       draw(nBack, nSel);                                            // the glow of the whole group first ...
       gl.useProgram(p.prog);
       draw(nBack, nSel);                                            // ... then its pieces over it

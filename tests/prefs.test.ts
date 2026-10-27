@@ -32,6 +32,13 @@ describe('kinds', () => {
     expect(recordKey(focus, 'p1', { 'focus.grid': 0, 'focus.animate': 0 })).toBe(a);        // how it is shown is not a difficulty
   });
 
+  it('the jigsaw background is dark unless chosen, and is not a difficulty', () => {
+    const jigsaw = findKind('jigsaw')!;
+    expect(optionsOf({}, jigsaw).light).toBe(0);
+    expect(optionsOf({ 'jigsaw.light': 1 }, jigsaw).light).toBe(1);
+    expect(recordKey(jigsaw, 'p1', { 'jigsaw.light': 1 })).toBe(recordKey(jigsaw, 'p1', {}));
+  });
+
   it('every photo and type gets its own puzzle from one seed', () => {
     expect(puzzleSeedText('abc', 'p1', 'focus')).toBe(puzzleSeedText(' ABC ', 'p1', 'focus'));
     expect(puzzleSeedText('abc', 'p1', 'focus')).not.toBe(puzzleSeedText('abc', 'p2', 'focus'));
