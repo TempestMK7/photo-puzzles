@@ -71,6 +71,7 @@ input[type='text'] {
 .save .b { font-size: 12px; color: var(--dim); }
 .pfoot { flex: none; display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; border-top: 1px solid var(--line); background: var(--panel2); }
 .pfoot button { flex: 1 1 0; padding: 8px 6px; white-space: nowrap; }
+.pfoot input.link { flex: 1 1 100%; min-width: 0; padding: 8px; }
 .pfoot .msg { flex: 1 1 100%; font-size: 13px; color: var(--accent2); text-align: center; }
 button.danger { background: #7a1f1f; border-color: #c0443a; }
 button.danger:hover:not(:disabled) { background: #983028; }
@@ -123,7 +124,7 @@ body.dragging .library::after {
 
 /* narrow screens: the same parts, stacked */
 @media (max-width: 820px) {
-  .main { grid-template-columns: 1fr; grid-template-rows: auto minmax(160px, 1fr) auto; overflow-y: auto; }
+  .main { grid-template-columns: 1fr; grid-template-rows: max-content minmax(160px, 1fr) auto; overflow-y: auto; }      /* max-content: a long note or the link box makes the photo panel taller instead of being cut off */
   .photos { height: auto; }
   .plist { flex: none; height: 96px; display: flex; overflow-x: auto; overflow-y: hidden; }
   .item { flex-direction: column; width: 84px; flex: none; text-align: center; position: relative; }
