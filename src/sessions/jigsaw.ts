@@ -1,5 +1,5 @@
-import { isEdgePiece, JigsawGame, layoutJigsaw, pickPlaced, rotVec, type Group, type JigsawLayout, type JigsawState } from '../core/jigsaw';
-import { Rng } from '../core/rng';
+import { rotVec, type Group, type JigsawGame, type JigsawLayout, type JigsawState } from '../core/jigsaw';
+import { applyOp, buildJigsaw, SCATTER_K, TOL_MAX_K, TOL_MIN_K, type JigsawOp } from '../core/jigsawSetup';
 import { haptic, type Haptic } from '../haptics';
 import { beginFrame, type View } from '../render';
 import { buildAtlas, buildMasks, snapshot, type Atlas } from './jigsawArt';
@@ -7,8 +7,6 @@ import { glAvailable, PieceRenderer } from './jigsawGl';
 import { hapticToggles, LIFT_CSS, LIFT_MS } from './feedback';
 import type { Pt, PuzzleSession, SessionInit, ToggleDef } from './types';
 
-const WORLD_K = 4;             // the usable area is this many puzzles wide and high
-const SCATTER_K = 0.75;        // pieces start this far round the puzzle (in puzzle widths / heights), not all over the world
 const PAN_TAP = 3;
 const HOVER_MS = 500;           // how long pieces have to be held together to snap, when joining is on hover
 
@@ -74,11 +72,16 @@ export class JigsawSession implements PuzzleSession {
   private flashStart = 0;
 
   constructor(private readonly init: SessionInit) {
-    const rng = new Rng(init.seed);
     this.turning = init.opts.turning === 1;
     this.snap = init.opts.snap ?? SNAP_DRAG;
     this.rotatable = this.turning;
-    this.layout_ = layoutJigsaw(rng, init.width, init.height, init.opts.pieces);
+    const board = buildJigsaw({ seed: init.seed, width: init.width, height: init.height, opts: init.opts });
+    this.layout_ = board.layout;
+    this.game = board.game;
+    this.worldW = board.worldW;
+    this.worldH = board.worldH;
+    this.frameX = board.frameX;
+    this.frameY = board.frameY;
     const l = this.layout_;
     if (init.video && glAvailable()) {
       try {
@@ -99,39 +102,6 @@ export class JigsawSession implements PuzzleSession {
         // storage is not available: the resolution adapts by itself
       }
     }
-    const puzzleW = l.cols * l.size;
-    const puzzleH = l.rows * l.size;
-    this.worldW = puzzleW * WORLD_K;
-    this.worldH = puzzleH * WORLD_K;
-    this.frameX = (this.worldW - puzzleW) / 2;
-    this.frameY = (this.worldH - puzzleH) / 2;
-    const mx = puzzleW * SCATTER_K;
-    const my = puzzleH * SCATTER_K;
-    const edgesInside = init.opts.edges === 1;
-    // its own generator, so that the way the other pieces are scattered does not depend on which are placed
-    const placed = pickPlaced(l, new Rng((init.seed ^ 0x2f6b9d1) >>> 0), init.opts.placed ?? 0, edgesInside);
-    // every loose piece starts somewhere round the frame, not on it (the edge pieces, if asked, in the frame's area instead, not where they belong)
-    this.game = new JigsawGame(l, (i) => {
-      const c = i % l.cols;
-      const r = Math.floor(i / l.cols);
-      let x = 0;
-      let y = 0;
-      if (edgesInside && isEdgePiece(l.cols, l.rows, i)) {
-        x = this.frameX + rng.unit() * (puzzleW - l.size);
-        y = this.frameY + rng.unit() * (puzzleH - l.size);
-      } else {
-        for (let tries = 0; tries < 20; tries++) {
-          x = this.frameX - mx + rng.unit() * (puzzleW + 2 * mx - l.size);
-          y = this.frameY - my + rng.unit() * (puzzleH + 2 * my - l.size);
-          const onFrame = x + l.size > this.frameX && x < this.frameX + puzzleW && y + l.size > this.frameY && y < this.frameY + puzzleH;
-          if (!onFrame) break;
-        }
-      }
-      const rot = this.turning ? rng.below(4) : 0;
-      // the piece's cell centre, turned, lies at the chosen spot
-      const [cx, cy] = rotVec(rot, (c + 0.5) * l.size, (r + 0.5) * l.size);
-      return { rot, dx: x + l.size / 2 - this.frameX - cx, dy: y + l.size / 2 - this.frameY - cy };
-    }, placed);
     if (init.restore) {
       const saved = init.restore as { game: JigsawState; sel: number; cam: { ratio: number; cx: number; cy: number } };
       this.game.restore(saved.game);
@@ -382,7 +352,7 @@ export class JigsawSession implements PuzzleSession {
   /** How close a piece has to be to its neighbour to join it: generous on screen, in any zoom. */
   private tolerance(): number {
     const s = this.layout_.size;
-    return Math.min(0.5 * s, Math.max(0.2 * s, 10 / this.cam.zoom));
+    return Math.min(TOL_MAX_K * s, Math.max(TOL_MIN_K * s, 10 / this.cam.zoom));
   }
 
   /** The selected group, or -1 (none selected, or it has become part of the picture). */
@@ -399,7 +369,7 @@ export class JigsawSession implements PuzzleSession {
       return;
     }
     const grp = this.game.groups.get(gid)!;
-    this.game.bringToFront(gid);
+    this.commit({ t: 'grab', gid });
     this.sel = grp.members[0];
     const q = this.world(p);
     const [px, py] = this.game.toSolved(grp, q.x - this.frameX, q.y - this.frameY);
@@ -458,6 +428,7 @@ export class JigsawSession implements PuzzleSession {
     this.cancelHover();
     if (d && d.moved && this.snap !== SNAP_DRAG) this.settle(d.gid);        // let go with pieces together: they join, whatever was left of the wait
     if (d && d.moved && this.drag === d) this.buzz('drop');                 // set down without joining anything
+    if (d && this.drag === d) this.release(d.gid);
     if (this.pan?.deselect && !this.pan.moved) this.sel = -1;      // a click on bare ground
     this.drag = null;
     this.pan = null;
@@ -466,6 +437,7 @@ export class JigsawSession implements PuzzleSession {
 
   pointerCancel(): void {
     this.cancelHover();
+    if (this.drag) this.release(this.drag.gid);
     this.drag = null;
     this.pan = null;
     this.rightClick = false;
@@ -513,10 +485,8 @@ export class JigsawSession implements PuzzleSession {
     } else {
       const id = this.selectedGroup();
       if (id < 0) return;
-      const [cx, cy] = g.centre(id);
-      g.rotate(id, cx, cy);
       this.buzz('turn');
-      if (this.snap === SNAP_DRAG) this.settle(id);
+      this.apply({ t: 'rotate', gid: id, tol: this.snap === SNAP_DRAG ? this.tolerance() : null });
     }
     this.init.requestDraw();
   }
@@ -545,16 +515,42 @@ export class JigsawSession implements PuzzleSession {
     this.hover = 0;
   }
 
+  /**
+   * Every change to the board that other players would have to see goes through here, as an operation (see `JigsawOp`): picking a group up, putting it down, turning it.
+   * Moving a piece while it is in hand is not one: that only shows on this screen until it is put down.
+   */
+  private commit(op: JigsawOp): { id: number; joins: number } {
+    return applyOp(this.game, op);
+  }
+
+  /** The group is put down where it lies now, joining what it lies right against when `tol` says so. */
+  private dropOp(gid: number, tol: number | null): JigsawOp {
+    const grp = this.game.groups.get(gid)!;
+    return { t: 'drop', gid, dx: grp.dx, dy: grp.dy, rot: grp.rot, tol };
+  }
+
+  /** Lets go of a group that was in hand, where it is. */
+  private release(gid: number): void {
+    if (this.game.groups.has(gid)) this.commit(this.dropOp(gid, null));
+  }
+
   /** Joins the group to whatever it now lies right against (turned the same way); if it was being dragged, the drag ends there. */
   private settle(gid: number): void {
+    const tol = this.tolerance();
+    if (!this.game.groups.has(gid) || !this.game.canJoin(gid, tol)) return;
+    this.apply(this.dropOp(gid, tol));
+  }
+
+  /** Commits an operation that may join groups, and gives the feedback for it: the glow, the buzz, the end of the drag. */
+  private apply(op: JigsawOp): void {
     const g = this.game;
-    if (!g.groups.has(gid)) return;
-    const before = new Set(g.groups.get(gid)!.members);
+    if (!g.groups.has(op.gid)) return;
+    const before = new Set(g.groups.get(op.gid)!.members);
     const wasAnchored = g.anchoredCount;
-    const res = g.connect(gid, this.tolerance());
+    const res = this.commit(op);
     if (res.joins === 0) return;
     this.cancelHover();
-    if (this.drag?.gid === gid) this.drag = null;
+    if (this.drag?.gid === op.gid) this.drag = null;
     if (g.anchoredCount > wasAnchored) {
       this.flash = before;
       this.flashStart = performance.now();

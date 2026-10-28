@@ -306,6 +306,16 @@ export class JigsawGame {
     }
   }
 
+  /** Puts a loose group where it is said to be (turned `rot` quarter turns, offset (dx, dy)); no joining. */
+  setPose(id: number, dx: number, dy: number, rot: number): void {
+    const g = this.groups.get(id);
+    if (g && !g.anchored) {
+      g.dx = dx;
+      g.dy = dy;
+      g.rot = ((Math.round(rot) % 4) + 4) % 4;
+    }
+  }
+
   /** The solved-picture point that lies at table point (px, py) when the group is where it is. */
   toSolved(g: Group, px: number, py: number): [number, number] {
     return rotVec(4 - g.rot, px - g.dx, py - g.dy);

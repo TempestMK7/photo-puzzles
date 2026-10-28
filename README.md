@@ -104,7 +104,9 @@ picture as before. A long GIF takes a few seconds to convert, with the progress 
 ## Layout
 
 - `src/core/` - rules with no browser dependency: seeded random (`rng.ts`), picture cutting (`layout.ts`), the games (`focus.ts`, `overlap.ts`, `strips.ts`, `jigsaw.ts`, `sliding.ts`, `rotascope.ts`: generator + rules, and `snapshot` / `restore` for saving),
-  the list of puzzle types and their options (`kinds.ts`), saved preferences and best times (`prefs.ts`)
+  the list of puzzle types and their options (`kinds.ts`), saved preferences and best times (`prefs.ts`);
+  for playing together: `jigsawSetup.ts` makes a Jigsaw puzzle from its seed (the same on every screen and on a server) and applies the operations that change it, `jigsawRoom.ts` is the room that
+  lets one player hold a piece at a time. `src/online/protocol.ts` has the messages and invite links; see `docs/online-protocol.md` and `docs/online-play-plan.md`
 - `src/sessions/` - one `PuzzleSession` per type (layout, drawing, pointer input) behind the interface in `types.ts`; `index.ts` says how to start each
 - `src/store/saves.ts` - unfinished puzzles (IndexedDB)
 - `src/store/photos.ts` - the photo library (samples + the player's photos and videos in IndexedDB, thumbnails, duplicates by content hash) and what a puzzle draws from (`PlaySource`)
