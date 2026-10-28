@@ -3,6 +3,7 @@ import { pickAnother } from '../core/pick';
 import { randomSeedText } from '../core/rng';
 import { isVideoFile } from '../image';
 import { formatAgo, formatTime, type Prefs } from '../core/prefs';
+import { fetchLink, LINK_REFUSED, parseLink } from '../store/link';
 import type { SaveRecord, SaveStore } from '../store/saves';
 import type { PhotoEntry, PhotoLibrary } from '../store/photos';
 import { h, svg } from './dom';
@@ -66,6 +67,21 @@ export class LibraryScreen {
   /** Taking photos out: not at all, choosing which ones, or asking whether to go ahead with the ones chosen. */
   private removing: 'no' | 'choose' | 'sure' = 'no';
   private marked = new Set<string>();
+  /** The box for pasting a link is open; and the download that is going on, if any (it can be stopped). */
+  private linking = false;
+  private linkAbort: AbortController | null = null;
+  private linkInput = h('input', {
+    type: 'url',
+    class: 'link',
+    placeholder: 'Paste a link to a picture or video',
+    spellcheck: false,
+    autocapitalize: 'off',
+    'aria-label': 'Link to a picture or video',
+    onkeydown: (e: KeyboardEvent) => {
+      if (e.key === 'Enter') void this.addLink(this.linkInput.value);
+      else if (e.key === 'Escape') this.setLinking(false);
+    },
+  });
   private fileInput = h('input', { type: 'file', accept: 'image/*,video/*,.webm,.mp4,.m4v,.mov,.mkv', multiple: true, hidden: true, onchange: () => this.filesChosen() });
   private photoNoteEl = h('div', { class: 'note', 'aria-live': 'polite' });
   private noteTimers = new Map<HTMLElement, number>();
@@ -470,6 +486,50 @@ export class LibraryScreen {
     return this.queued(() => this.addNow(files));
   }
 
+  /** Adds the picture or video a pasted link points to. Taking turns with the other adding and removing, like the files. */
+  addLink(text: string): Promise<void> {
+    const url = parseLink(text);
+    if (!url) {
+      this.photoNote(text.trim() ? 'That is not a web address' : 'Paste a link first', false, 6000);
+      return Promise.resolve();
+    }
+    return this.queued(() => this.linkNow(url));
+  }
+
+  private async linkNow(url: URL): Promise<void> {
+    const abort = new AbortController();
+    this.linkAbort = abort;
+    this.renderFoot();
+    this.photoNote('Downloading…', true);
+    let file: File;
+    try {
+      file = await fetchLink(url, (text) => this.photoNote(text, true), abort.signal);
+    } catch (e) {
+      this.linkAbort = null;
+      this.photoNote(e instanceof Error ? e.message : LINK_REFUSED, false, 10000);
+      this.setLinking(true);                                      // the link stays in the box to be corrected
+      return;
+    }
+    this.linkAbort = null;
+    this.linkInput.value = '';
+    this.setLinking(false);
+    await this.addNow([file]);
+  }
+
+  /** Control-V on the main screen: a link, or a picture copied from somewhere, is added. */
+  pasted(data: DataTransfer): void {
+    const files = [...data.files];
+    const text = data.getData('text/plain');
+    if (files.length) void this.addFiles(files);
+    else if (parseLink(text)) void this.addLink(text);
+  }
+
+  private setLinking(on: boolean): void {
+    this.linking = on;
+    this.renderFoot();
+    if (on) this.linkInput.focus();
+  }
+
   private async addNow(files: File[]): Promise<void> {
     const pictures = files.filter((f) => f.type.startsWith('image/') || isVideoFile(f) || !f.type);       // no type at all: some pickers give none, so try it
     if (!pictures.length) {
@@ -595,9 +655,18 @@ export class LibraryScreen {
     const mine = this.entries.filter((e) => !e.sample);
     const n = this.marked.size;
     const btn = (label: string, onclick: () => void, extra: Record<string, unknown> = {}) => h('button', { type: 'button', onclick, ...extra }, label);
-    if (this.removing === 'no') {
+    if (this.linkAbort) {
+      this.footEl.replaceChildren(btn('Stop downloading', () => this.linkAbort?.abort()));
+    } else if (this.linking) {
+      this.footEl.replaceChildren(
+        this.linkInput,
+        btn('Add', () => void this.addLink(this.linkInput.value), { class: 'primary' }),
+        btn('Cancel', () => this.setLinking(false)),
+      );
+    } else if (this.removing === 'no') {
       this.footEl.replaceChildren(
         btn('Add photos…', () => this.fileInput.click()),
+        btn('From a link…', () => this.setLinking(true), { title: 'Add a picture or video from a web address' }),
         btn('Remove photos', () => this.setRemoving('choose'), { disabled: mine.length === 0, title: mine.length ? 'Choose photos and videos to remove' : 'Only the sample pictures are here' }),
       );
     } else if (this.removing === 'choose') {
@@ -637,14 +706,14 @@ export class LibraryScreen {
   }
 
   /** Shows a message; it goes away by itself, unless it says that something is still going on. */
-  private note(text: string, busy = false, el: HTMLElement = this.noteEl): void {
+  private note(text: string, busy = false, el: HTMLElement = this.noteEl, ms = 3000): void {
     el.textContent = text;
     window.clearTimeout(this.noteTimers.get(el));
-    if (!busy) this.noteTimers.set(el, window.setTimeout(() => (el.textContent = ''), 3000));
+    if (!busy) this.noteTimers.set(el, window.setTimeout(() => (el.textContent = ''), ms));
   }
 
   /** The same, in the photo panel above its buttons. */
-  private photoNote(text: string, busy = false): void {
-    this.note(text, busy, this.photoNoteEl);
+  private photoNote(text: string, busy = false, ms?: number): void {
+    this.note(text, busy, this.photoNoteEl, ms);
   }
 }

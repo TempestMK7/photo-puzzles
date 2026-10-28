@@ -36,7 +36,7 @@ npm run build      # type check + production build into dist/
   puzzles), `kinds.ts` (the puzzle types and their options), `prefs.ts`, `rng.ts`.
 - `src/sessions/` has one `PuzzleSession` per type (drawing and pointer input) behind `types.ts`; `index.ts` says how to start each. `jigsawGl.ts` and `videoGl.ts` draw video pieces on the
   graphics card, `jigsawArt.ts` makes the piece shapes.
-- `src/store/` is storage on the device only: `photos.ts` (the library, IndexedDB), `saves.ts` (unfinished puzzles). Nothing is ever sent anywhere.
+- `src/store/` is storage on the device only: `photos.ts` (the library, IndexedDB), `saves.ts` (unfinished puzzles). Nothing is ever sent anywhere (`link.ts` only downloads a picture from an address the player pasted).
 - `src/ui/` has the main screen (`library.ts`), the play screen (`play.ts`) and the window with the original picture (`refwindow.ts`).
 
 ## Conventions

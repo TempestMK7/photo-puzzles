@@ -53,7 +53,20 @@ async function main(): Promise<void> {
   window.addEventListener('drop', (e) => {
     e.preventDefault();
     document.body.classList.remove('dragging');
-    if (!library.el.hidden && e.dataTransfer?.files.length) void library.addFiles([...e.dataTransfer.files]);
+    if (library.el.hidden || !e.dataTransfer) return;
+    if (e.dataTransfer.files.length) void library.addFiles([...e.dataTransfer.files]);
+    else {
+      const link = e.dataTransfer.getData('text/uri-list').split('\n').find((l) => l && !l.startsWith('#')) ?? e.dataTransfer.getData('text/plain');        // a picture dragged from another web page
+      if (link) void library.addLink(link);
+    }
+  });
+  // a link (or a picture) pasted on the main screen, but not into a box that wants text
+  window.addEventListener('paste', (e) => {
+    const into = e.target instanceof HTMLElement && (e.target.closest('input, textarea') || e.target.isContentEditable);
+    if (!library.el.hidden && !into && e.clipboardData) {
+      e.preventDefault();
+      library.pasted(e.clipboardData);
+    }
   });
 
   if (import.meta.env.DEV) Object.assign(window, { __play: play, __library: library });        // for poking at the game from the console while developing
