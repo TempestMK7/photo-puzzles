@@ -21,13 +21,13 @@ the server both call it. Checked in Phase 0:
 
 ## The board is changed by operations
 
-Everything another player has to see is one of three operations (`JigsawOp`):
+Everything another player has to see is one of three operations (`JigsawOp`). A group is named by one of its **pieces**, not by its group number: the room is saved and loaded again between commands, which renumbers the groups, while piece numbers never change.
 
 | op | meaning |
 |---|---|
-| `grab gid` | the group is picked up (goes to the front) |
-| `drop gid dx dy rot tol` | the group is put down at that pose; with `tol` it then joins whatever it lies right against |
-| `rotate gid tol` | a loose group is turned a quarter turn about its middle (a selected piece, not one in hand); with `tol` it then joins |
+| `grab piece` | the group is picked up (goes to the front) |
+| `drop piece dx dy rot tol` | the group is put down at that pose; with `tol` it then joins whatever it lies right against |
+| `rotate piece tol` | a loose group is turned a quarter turn about its middle (a selected piece, not one in hand); with `tol` it then joins |
 
 `applyOp(game, op)` applies one. The room applies it to its own board, and the same `op` goes out in the event, so every screen that applies it ends up with the same board
 (group ids included: the bigger group keeps its id when two join). `tests/jigsawRoom.test.ts` plays whole games with three players and checks, after every event, that a copy of the
@@ -40,7 +40,7 @@ A selection (the glow on a piece) stays on the player's own screen. Only a piece
 
 ## One hand
 
-The room keeps `lock = { holder, gid, until }`.
+The room keeps `lock = { holder, piece, until }`.
 
 - `grab`: refused with `busy` (and who) while another player's lock is live (`until` is in the future). Otherwise the lock is taken for `LOCK_MS` (10 s).
 - The holder renews it every `RENEW_INTERVAL_MS` (4 s) while the piece is in hand (`renew`). It does not change the board and is not an event.
@@ -54,8 +54,9 @@ When the last piece joins, the event says `solved` and the room refuses everythi
 
 ## Events, order, catching up
 
-Every accepted command is one event `{ v, by, op?, lock, joins, solved }`, and `v` goes up by exactly one. A screen that sees `v` skip, or comes back after being away, asks for the
-whole state (`RoomState`, in the room descriptor) and starts from that. A screen applies its own commands at once (so it feels immediate) and takes the room's answer as the truth;
+Every accepted command is one event `{ v, by, op?, lock, joins, groups, solved }`, and `v` goes up by exactly one. A screen that sees `v` skip, or comes back after being away, asks for the
+whole state (`RoomState`, in the room descriptor) and starts from that. `groups` is how many groups the board has after the event: a screen that counts a different number (while none of its own
+moves are on their way) has drifted and asks for the whole state too. A screen applies its own commands at once (so it feels immediate) and takes the room's answer as the truth;
 a refusal means "ask for the state again".
 
 A lock's `until` is on the server's clock. The descriptor carries `serverTime`; a game works out its clock's offset from it (`lockHeld`).
@@ -71,13 +72,22 @@ A lock's `until` is on the server's clock. The descriptor carries `serverTime`; 
 
 Every request carries `protocol`; a server that no longer understands it answers `update-required`.
 
-- `POST /rooms` `CreateRoomRequest` -> the room id, a signed upload address for the picture, and the invite (`code`, `secret`, `link`). The request must say `consent: true`.
+- `POST /rooms` `CreateRoomRequest` -> the room id, a signed upload address for the picture, and the invite (`code`, `secret`, `link`). The request must say `consent: true`. The picture then goes by `PUT` to that address (JPEG or PNG, at most a few MB, and the size the puzzle was made for, or the room is thrown away); only then can anyone join (`not-ready` before).
 - `POST /join` `{ code, secret? }` -> `RoomDescriptor`. With the secret (the link) the player is in at once. With only the code the room publishes a `knock` and a member answers.
 - `GET /rooms` -> the player's rooms (`RoomSummary`). `GET /rooms/{id}` -> `RoomDescriptor`.
 - `POST /rooms/{id}/command` `Command` -> `{ ok, event }` or a refusal. `POST /rooms/{id}/renew`.
 - `POST /rooms/{id}/leave`, `/close` (owner), `/invite/regenerate` (owner), `/members/{id}/remove` (owner), `/knock/{id}/answer`.
 
 Failures are `{ ok: false, error }` with one of the `ApiError` values.
+
+## Trying it on this machine
+
+`npm run server` starts the same `RoomService` that the cloud will run, on memory, at http://localhost:8787 (HTTP for the requests, a WebSocket at `/ws` in place of the cloud's publish/subscribe;
+`PORT`, `WEB_BASE` and `FREE_ROOMS_PER_WEEK` change it). `npm run dev` then shows **Play with friends** on the main screen. There is no real sign-in: each browser tab is a player of its own
+(`dev:<id>:<name>`), which is what makes two tabs two players. Stopping the server forgets every room.
+
+The server is built from interfaces (`server/src/types.ts`: store, media, publish/subscribe, presence, clock, random) so that the cloud can fill them with DynamoDB, S3 and IoT Core.
+`RoomService` is every request as a method; `router.ts` turns an HTTP request into a call and has nothing of Node in it; `local.ts` is the Node part.
 
 ## Codes and links
 

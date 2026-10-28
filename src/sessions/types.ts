@@ -1,3 +1,6 @@
+import type { RoomEvent, RoomState } from '../core/jigsawRoom';
+import type { JigsawOp } from '../core/jigsawSetup';
+import type { HandMessage } from '../online/protocol';
 import type { View } from '../render';
 
 export interface Pt {
@@ -9,6 +12,22 @@ export interface ToggleDef {
   key: string;
   label: string;
   title: string;
+}
+
+/** What a puzzle played with friends needs from the room it is in (see online/room.ts). */
+export interface OnlineHooks {
+  /** The name of another player who holds a piece, if one does: nothing can be picked up meanwhile. */
+  blockedBy(): string | null;
+  /** The player did this to the board (already applied here): send it to the room. */
+  send(op: JigsawOp): void;
+  /** Where the piece in hand is; the room passes it on a few times a second. */
+  hand(pose: Omit<HandMessage, 'n'>): void;
+  /** A piece (one of its group) is in hand, or let go: the hold has to be kept alive while it lasts. */
+  holding(piece: number | null): void;
+  /** Tell the player why something did not happen. */
+  notify(text: string): void;
+  /** The colour (CSS) a player's piece in hand glows in. */
+  colorOf(id: string): string;
 }
 
 export interface SessionInit {
@@ -34,6 +53,8 @@ export interface SessionInit {
   restore?: unknown;
   /** The session changed the game by itself, not because of a pointer event (a timer): the progress text and the end of the puzzle should be looked at again. */
   progress?(): void;
+  /** Set when the puzzle is shared with other players. */
+  online?: OnlineHooks;
 }
 
 /** One puzzle being played. The play screen owns the canvas, the clock and the dialogs; a session owns the rules, the layout and the drawing. */
@@ -89,6 +110,15 @@ export interface PuzzleSession {
   zoomBy?(factor: number): void;
   zoomFit?(): void;
   zoomLabel?(): string;
+
+  // A puzzle shared with other players (Jigsaw): what they did is applied here. These are what the room (online/room.ts) calls.
+  /** Another player's operation. */
+  applyEvent?(event: RoomEvent): void;
+  /** Take the room's board instead of this one. */
+  resync?(state: RoomState): void;
+  /** Where the piece another player holds is now (`null`: it is let go). */
+  hand?(by: string, pose: HandMessage | null): void;
+  groupCount?(): number;
 }
 
 export type SessionFactory = (init: SessionInit) => PuzzleSession;

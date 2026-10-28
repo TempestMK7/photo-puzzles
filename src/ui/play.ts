@@ -1,11 +1,19 @@
 import { findKind, optionsOf, puzzleSeedText, recordKey, type KindDef } from '../core/kinds';
 import { formatTime, type Prefs } from '../core/prefs';
 import { randomSeedText, seedFromText } from '../core/rng';
+import { loadPhoto } from '../image';
+import type { OnlineApi } from '../online/api';
+import { PLAYER_COLORS } from '../online/config';
+import type { Invite } from '../online/protocol';
+import type { OnlineRoom, RoomView } from '../online/room';
 import { fitView, type View } from '../render';
 import { needsStill, startSession, type PuzzleSession } from '../sessions';
+import type { OnlineHooks } from '../sessions/types';
 import type { PhotoEntry, PhotoLibrary, PlaySource } from '../store/photos';
 import type { SaveRecord, SaveStore } from '../store/saves';
 import { h } from './dom';
+import { sayError } from './online';
+import { OnlineBar } from './onlinebar';
 import { RefWindow } from './refwindow';
 
 export interface PlayDeps {
@@ -17,6 +25,10 @@ export interface PlayDeps {
   onExit(): void;
   /** A photo to play next instead of the one with this id, or nothing if there is no other. */
   otherPhoto(id: string): PhotoEntry | undefined;
+  /** Playing with friends is possible in this build: how to reach the server. */
+  online?: { api: OnlineApi };
+  /** A photo was added to the list from here (the picture of an online puzzle, kept). */
+  photoAdded(id: string): void;
 }
 
 /** The screen where a puzzle is played: it owns the canvas, the clock, the video bar and the dialogs; the puzzle itself is a PuzzleSession. */
@@ -54,6 +66,10 @@ export class PlayScreen {
   private ref = new RefWindow(this.stage, () => this.toggleRef(false));
   private refBtn = h('button', { type: 'button', class: 'toggle', title: 'Look at the original picture', 'aria-pressed': 'false', onclick: () => this.toggleRef() }, 'Original');
   private main = h('main', {}, this.tabsEl, this.stage, this.vbar);
+  private restartBtn = h('button', { type: 'button', onclick: () => this.restart() }, 'Restart');
+  /** A puzzle played with friends: its room, the picture it was cut from, and whether the end has been shown. */
+  private online: { room: OnlineRoom; shown: boolean; blob: Blob } | null = null;
+  private bar: OnlineBar | null = null;
 
   private entry: PhotoEntry | null = null;
   private src: PlaySource | null = null;
@@ -93,10 +109,14 @@ export class PlayScreen {
         this.togglesEl,
         this.refBtn,
         this.rotateBtn,
-        h('button', { type: 'button', onclick: () => this.restart() }, 'Restart'),
+        this.restartBtn,
       ),
       this.main,
     );
+    if (deps.online) {
+      this.bar = new OnlineBar(deps.online.api, () => void this.savePicture());
+      this.stage.append(this.bar.el);
+    }
     this.canvas.addEventListener('pointerdown', (e) => this.pointerDown(e));
     this.canvas.addEventListener('pointermove', (e) => this.pointerMove(e));
     this.canvas.addEventListener('pointerup', (e) => this.pointerUp(e));
@@ -321,29 +341,158 @@ export class PlayScreen {
       this.session = make(undefined);
     }
     this.loading = false;
-    this.overlay = this.session.overlay ?? null;
+    this.mount(rec?.elapsed ?? 0, true);
+  }
+
+  /** Puts the session that was just made on the screen. `timed`: the clock runs, from `elapsed` (a puzzle played with friends has none). */
+  private mount(elapsed: number, timed: boolean): void {
+    const session = this.session!;
+    this.overlay = session.overlay ?? null;
     if (this.overlay) {
       this.overlay.className = 'board overlay';
       this.stage.insertBefore(this.overlay, this.dialogEl);
     }
     this.buildToggles();
     this.buildTabs();
-    this.rotateBtn.hidden = !this.session.rotatable;
-    this.zoomEl.hidden = !this.session.zoomBy;
+    this.rotateBtn.hidden = !session.rotatable;
+    this.zoomEl.hidden = !session.zoomBy;
     this.touches.clear();
     this.rightPointer = -1;
     this.activePointer = -1;
     this.dialogEl.hidden = true;
     this.viewBar.hidden = true;
-    this.elapsed = rec?.elapsed ?? 0;
+    this.elapsed = elapsed;
     this.startedAt = performance.now() - this.elapsed;
-    this.running = true;
+    this.running = timed;
     window.clearInterval(this.clock);
-    this.clock = window.setInterval(() => this.tick(), 250);
+    if (timed) this.clock = window.setInterval(() => this.tick(), 250);
     this.tick();
-    this.statusEl.textContent = this.session.status();
+    this.statusEl.textContent = session.status();
     this.resize();
-    if (this.session.zoomLabel) this.zoomLabel.textContent = this.session.zoomLabel();
+    if (session.zoomLabel) this.zoomLabel.textContent = session.zoomLabel();
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- playing with friends
+
+  /**
+   * Plays a puzzle with friends: the picture comes from the server, the board is the room's, and what the player does goes to the room (see online/room.ts). There is no clock,
+   * no best time and nothing saved here: the server keeps the puzzle.
+   */
+  async startOnline(room: OnlineRoom, invite: Invite | null): Promise<void> {
+    const token = ++this.token;
+    this.beginRun++;
+    this.kind = findKind('jigsaw')!;
+    this.titleEl.textContent = 'Jigsaw · with friends';
+    const d = room.descriptor;
+    let blob: Blob;
+    let canvas: HTMLCanvasElement;
+    try {
+      const res = await fetch(d.media.url);
+      if (!res.ok) throw new Error('The picture could not be loaded');
+      blob = await res.blob();
+      canvas = await loadPhoto(blob);
+      if (canvas.width !== d.settings.width || canvas.height !== d.settings.height) throw new Error('The picture does not match this puzzle');
+    } catch (e) {
+      if (token === this.token) this.showMessage(e instanceof Error ? e.message : 'The picture could not be loaded');
+      return;
+    }
+    if (token !== this.token) return;
+    this.closeSource();
+    const url = URL.createObjectURL(blob);
+    this.entry = { id: room.id, name: 'Online puzzle', sample: false, thumbUrl: url, previewUrl: url, video: false, duration: 0 };
+    this.src = { source: canvas, width: canvas.width, height: canvas.height, video: null, dispose: () => URL.revokeObjectURL(url) };
+    this.online = { room, shown: false, blob };
+    this.saveKey = '';
+    const bar = this.bar!;
+    const hooks: OnlineHooks = {
+      blockedBy: () => room.holderOther()?.name ?? null,
+      send: (op) => room.send(op),
+      hand: (pose) => room.hand(pose),
+      holding: (piece) => room.holding(piece),
+      notify: (text) => bar.say(text),
+      colorOf: (id) => PLAYER_COLORS[(room.member(id)?.color ?? 0) % PLAYER_COLORS.length],
+    };
+    this.session?.dispose?.();
+    this.overlay?.remove();
+    this.session = startSession('jigsaw', {
+      source: canvas,
+      width: canvas.width,
+      height: canvas.height,
+      seed: d.settings.seed,
+      opts: d.settings.opts,
+      restore: { game: d.state.game, sel: -1, cam: null },
+      flag: (key) => this.flag(key),
+      requestDraw: () => this.requestDraw(),
+      progress: () => this.after(),
+      online: hooks,
+    });
+    this.mount(0, false);
+    this.restartBtn.hidden = true;
+    this.timeEl.hidden = true;
+    room.onChange = () => this.onlineChanged();
+    room.onRefused = (error, holder) => {
+      if (error === 'busy') bar.say(`${room.member(holder ?? '')?.name ?? 'Someone'} is moving a piece`);
+      else if (error !== 'offline') bar.say(sayError(error));
+    };
+    room.attach(this.session as PuzzleSession & RoomView);
+    bar.show(room, invite);
+    this.onlineChanged();
+  }
+
+  /** The room says something changed: the players, the connection, who holds a piece, whether the puzzle is over. */
+  private onlineChanged(): void {
+    const o = this.online;
+    if (!o) return;
+    this.bar?.refresh();
+    if (o.room.solved || this.session?.solved) this.finishOnline();
+    else if (o.room.status === 'closed') {
+      this.showMessage(o.room.closedReason === 'owner' ? 'The puzzle was closed by the player who made it.' : 'This puzzle has ended.');
+    }
+  }
+
+  private finishOnline(): void {
+    const o = this.online;
+    if (!o || o.shown) return;
+    o.shown = true;
+    window.setTimeout(() => this.showOnlineDialog(), 700);              // after the last move has finished showing
+  }
+
+  private showOnlineDialog(): void {
+    if (!this.online) return;
+    this.dialogEl.replaceChildren(
+      h('h2', {}, 'Solved!'),
+      h('p', {}, 'You finished it together.'),
+      h(
+        'div',
+        { class: 'buttons' },
+        h('button', { type: 'button', onclick: () => this.viewPicture() }, 'View'),
+        h('button', { type: 'button', onclick: () => void this.savePicture() }, 'Save picture'),
+        h('button', { type: 'button', class: 'primary', onclick: () => this.leave() }, 'Leave'),
+      ),
+    );
+    this.dialogEl.hidden = false;
+  }
+
+  /** A message over the board with a way out. */
+  private showMessage(text: string): void {
+    this.dialogEl.replaceChildren(h('p', {}, text), h('div', { class: 'buttons' }, h('button', { type: 'button', class: 'primary', onclick: () => this.leave() }, 'Back')));
+    this.dialogEl.hidden = false;
+  }
+
+  /** Keeps the picture of the puzzle in the player's own list, unless it is there already. */
+  private async savePicture(): Promise<void> {
+    const o = this.online;
+    if (!o) return;
+    const have = o.room.descriptor.media.sourceId;
+    if (have && (await this.deps.photos.entry(have))) {
+      this.bar?.say('You already have this picture');
+      return;
+    }
+    const done = await this.deps.photos.add([new File([o.blob], 'Online puzzle.jpg', { type: 'image/jpeg' })]);
+    if (done.ids.length) {
+      this.deps.photoAdded(done.ids[0]);
+      this.bar?.say('Saved to your pictures');
+    } else this.bar?.say('The picture could not be saved');
   }
 
   /** A video that a puzzle is cut from stops at its first picture, so the same pieces come back every time. */
@@ -368,7 +517,7 @@ export class PlayScreen {
   // ---------------------------------------------------------------------------------------------------------------- saving
 
   private scheduleSave(): void {
-    if (this.loading || !this.session) return;
+    if (this.loading || !this.session || this.online) return;
     window.clearTimeout(this.saveTimer);
     this.saveTimer = window.setTimeout(() => this.saveNow(), 1500);
   }
@@ -377,7 +526,7 @@ export class PlayScreen {
   private saveNow(): void {
     window.clearTimeout(this.saveTimer);
     const { entry, session, src } = this;
-    if (!entry || !session || !src || this.loading || !this.saveKey) return;
+    if (!entry || !session || !src || this.loading || !this.saveKey || this.online) return;
     const { prefs, saves } = this.deps;
     if (session.solved) {
       void saves.remove(this.saveKey);
@@ -489,6 +638,16 @@ export class PlayScreen {
   }
 
   private leave(): void {
+    const o = this.online;
+    if (o) {
+      o.room.detach();
+      this.bar?.hide();
+      // a puzzle that is over is not kept in the list; one that is not stays, and can be opened again
+      if (o.room.solved || o.room.status === 'closed') void this.deps.online?.api.leave(o.room.id);
+      this.online = null;
+      this.restartBtn.hidden = false;
+      this.timeEl.hidden = false;
+    }
     this.saveNow();
     this.token++;
     this.beginRun++;
@@ -671,7 +830,9 @@ export class PlayScreen {
     this.statusEl.textContent = session.status();
     if (session.zoomLabel) this.zoomLabel.textContent = session.zoomLabel();
     this.refreshTabs();
-    if (session.solved && this.running) this.finish();
+    if (this.online) {
+      if (session.solved) this.finishOnline();
+    } else if (session.solved && this.running) this.finish();
     else this.scheduleSave();
     this.requestDraw();
   }

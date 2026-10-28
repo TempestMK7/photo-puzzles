@@ -15,6 +15,8 @@ export interface LibraryDeps {
   saves: SaveStore;
   /** Start the chosen puzzle type on this photo. */
   onPlay(entry: PhotoEntry): void;
+  /** Playing with friends is possible in this build: this opens its window. */
+  onOnline?: () => void;
 }
 
 /** Resolves when the screen has been drawn (or soon anyway: a page in the background does not draw). */
@@ -120,7 +122,13 @@ export class LibraryScreen {
     this.el = h(
       'section',
       { class: 'library' },
-      h('header', { class: 'bar' }, h('h1', {}, 'Photo Puzzles'), this.progressBtn),
+      h(
+        'header',
+        { class: 'bar' },
+        h('h1', {}, 'Photo Puzzles'),
+        ...(deps.onOnline ? [h('button', { type: 'button', class: 'progress-btn friends', title: 'Play a Jigsaw together over the internet', onclick: () => deps.onOnline!() }, 'Play with friends')] : []),
+        this.progressBtn,
+      ),
       this.kindsEl,
       h(
         'div',
@@ -235,6 +243,18 @@ export class LibraryScreen {
 
   private get kind(): KindDef {
     return findKind(this.deps.prefs.data.kind) ?? KINDS[0];
+  }
+
+  /** The photo that is chosen on this screen. */
+  get chosenPhoto(): PhotoEntry | undefined {
+    return this.chosen;
+  }
+
+  /** A photo was added to the list from somewhere else (the picture of an online puzzle). */
+  async photoAdded(id: string): Promise<void> {
+    const entry = await this.deps.photos.entry(id);
+    if (entry && !this.entries.some((e) => e.id === id)) this.entries.push(entry);
+    this.refresh();
   }
 
   private get chosen(): PhotoEntry | undefined {

@@ -88,10 +88,11 @@ The Lambda code uses the same `src/core` rules as the game, so the server decide
 - [x] Split `src/sessions/jigsaw.ts` so that input produces operations through one `commit()`. Still to do in Phase 1: send them to a server, and apply remote ones.
 - [x] Shared types for the messages in one place (`src/online/protocol.ts`).
 
-### 1. A local prototype (no AWS)
-- [ ] `server/` with the handlers behind interfaces for storage, pictures and publish/subscribe, with in-memory versions and a small local Node harness (HTTP and WebSocket) so that `npm run server` plays two browser tabs against each other.
-- [ ] Client online mode in the play screen: remote moves, the one-hand indicator, other players' pieces moving, connection banner, reconnect with resync.
-- [ ] Tests: the rules of the room (lock, expiry of a lock, version clashes, solved) and a scripted run with three fake clients (contention, disconnect, reconnect, solve).
+### 1. A local prototype (no AWS) - done in PR #18
+- [x] `server/` with the handlers behind interfaces for storage, pictures and publish/subscribe, with in-memory versions and a small local Node harness (HTTP and WebSocket) so that `npm run server` plays two browser tabs against each other. It also has the create / join (link, and code with a knock) / list / leave / close / new-code requests, the picture check, expiry and a quota.
+- [x] Client online mode in the play screen: remote moves, the one-hand indicator, other players' pieces moving, connection banner, reconnect with resync, players and invite, knocks, solved and save-to-library. (Sign-in is a stand-in: a name per browser tab.)
+- [x] Tests: the rules of the room, the service (limits, quota, knocks, expiry, a game played through it with a screen's copy of the board checked after every command) and the player's side of a room with fake networks (contention, a lost event, a lost connection, an expired hold).
+- Found on the way: an operation must name a *piece*, not a group number. The service loads a room again for every command, which renumbers its groups, so group numbers drift between the server and a screen that has played on; piece numbers never change.
 
 ### 2. AWS foundation (`infra/`, CDK in TypeScript)
 - [ ] Buy the domain in Route 53; certificate; hosted zone.

@@ -77,28 +77,30 @@ export function buildJigsaw(setup: JigsawSetup): JigsawBoard {
  * board. (While a piece is being dragged it only moves on the screen of the player who holds it; the operations are what is left when it is let go.)
  */
 export type JigsawOp =
-  /** A group is picked up: it goes to the front. */
-  | { t: 'grab'; gid: number }
+  /** The group `piece` belongs to is picked up: it goes to the front. (A group is named by one of its pieces: group numbers are not the same on every screen once a puzzle has been saved and loaded again, piece numbers always are.) */
+  | { t: 'grab'; piece: number }
   /** The group is put down where it is (turned `rot` quarter turns, offset (dx, dy)); with `tol` it then joins whatever it lies right against, within that many picture pixels. */
-  | { t: 'drop'; gid: number; dx: number; dy: number; rot: number; tol: number | null }
+  | { t: 'drop'; piece: number; dx: number; dy: number; rot: number; tol: number | null }
   /** A loose group is turned a quarter turn about its middle; with `tol` it then joins what it lies right against. */
-  | { t: 'rotate'; gid: number; tol: number | null };
+  | { t: 'rotate'; piece: number; tol: number | null };
 
-/** Applies an operation. A group that is not there, or is part of the picture already, is left alone. Returns the id of the group that now holds the operation's group, and how many joins happened. */
+/** Applies an operation. A piece that is not there, or lies in the picture already, is left alone. Returns the id of the group that now holds the operation's group (-1: none), and how many joins happened. */
 export function applyOp(game: JigsawGame, op: JigsawOp): { id: number; joins: number } {
-  const g = game.groups.get(op.gid);
-  if (!g || g.anchored) return { id: op.gid, joins: 0 };
+  if (!Number.isInteger(op.piece) || op.piece < 0 || op.piece >= game.count) return { id: -1, joins: 0 };
+  const gid = game.groupOf[op.piece];
+  const g = game.groups.get(gid);
+  if (!g || g.anchored) return { id: gid, joins: 0 };
   switch (op.t) {
     case 'grab':
-      game.bringToFront(op.gid);
-      return { id: op.gid, joins: 0 };
+      game.bringToFront(gid);
+      return { id: gid, joins: 0 };
     case 'drop':
-      game.setPose(op.gid, op.dx, op.dy, op.rot);
-      return op.tol === null ? { id: op.gid, joins: 0 } : game.connect(op.gid, op.tol);
+      game.setPose(gid, op.dx, op.dy, op.rot);
+      return op.tol === null ? { id: gid, joins: 0 } : game.connect(gid, op.tol);
     case 'rotate': {
-      const [cx, cy] = game.centre(op.gid);
-      game.rotate(op.gid, cx, cy);
-      return op.tol === null ? { id: op.gid, joins: 0 } : game.connect(op.gid, op.tol);
+      const [cx, cy] = game.centre(gid);
+      game.rotate(gid, cx, cy);
+      return op.tol === null ? { id: gid, joins: 0 } : game.connect(gid, op.tol);
     }
   }
 }
