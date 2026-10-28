@@ -94,7 +94,7 @@ npm run build    # type-check + production build in dist/
 ```
 
 Add photos or **videos** (webm, mp4 and mkv with H.264 / VP9 / AAC / Opus play in every mainstream browser; HEVC, AC-3 and other formats only where the browser or the device
-decodes them - a file the browser cannot play is reported when you add it; an Android WebView does not open H.264 inside mkv at all, VP9 or HEVC inside mkv are fine) with the button or by dropping them on the page; three generated sample pictures are always there. Photos and records stay on your device
+decodes them - a file the browser cannot play is reported when you add it; an Android WebView does not open H.264 inside mkv at all, VP9 or HEVC inside mkv are fine) with the button or by dropping them on the page; three generated sample pictures are always there (their thumbnails are made lazily on the processor, as data URLs: a canvas on a phone's graphics card could take many seconds to hand its pixels back at launch, which held up the whole list). Photos and records stay on your device
 (IndexedDB / localStorage): nothing is uploaded.
 
 **Animated GIFs** are turned into a WebM video when they are added (the browser's own `ImageDecoder` reads the frames and their delays, `VideoEncoder` encodes them as VP8 and
