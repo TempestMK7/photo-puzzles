@@ -125,7 +125,7 @@ export class LibraryScreen {
       h(
         'header',
         { class: 'bar' },
-        h('h1', {}, 'Photo Puzzles'),
+        h('h1', {}, 'PuzzleVidio'),
         ...(deps.onOnline ? [h('button', { type: 'button', class: 'progress-btn friends', title: 'Play a Jigsaw together over the internet', onclick: () => deps.onOnline!() }, 'Play with friends')] : []),
         this.progressBtn,
       ),
