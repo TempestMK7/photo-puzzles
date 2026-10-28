@@ -27,7 +27,8 @@ npm install
 npm run dev        # the game at http://localhost:5173/ (Vite)
 npm test           # Vitest: the rules in src/core and the save/restore of every puzzle type
 npx tsc --noEmit   # type check (strict, no unused locals)
-npm run build      # type check + production build into dist/
+npm run build      # type check (the game and server/) + production build into dist/
+npm run server     # the online server on this machine, http://localhost:8787 (memory only; for trying online play with two browser tabs)
 ```
 
 ## How the code is organised
@@ -37,6 +38,7 @@ npm run build      # type check + production build into dist/
 - `src/sessions/` has one `PuzzleSession` per type (drawing and pointer input) behind `types.ts`; `index.ts` says how to start each. `jigsawGl.ts` and `videoGl.ts` draw video pieces on the
   graphics card, `jigsawArt.ts` makes the piece shapes.
 - `src/store/` is storage on the device only: `photos.ts` (the library, IndexedDB), `saves.ts` (unfinished puzzles). Nothing is ever sent anywhere (`link.ts` only downloads a picture from an address the player pasted).
+- `src/online/` is the player's side of playing with friends and `server/` the online server (`RoomService` on interfaces; see `docs/online-play-plan.md` and `docs/online-protocol.md`). The server imports `src/core` and `src/online/protocol.ts`, so the rules are the same on both sides: keep those two free of browser and Node dependencies.
 - `src/ui/` has the main screen (`library.ts`), the play screen (`play.ts`) and the window with the original picture (`refwindow.ts`).
 
 ## Conventions

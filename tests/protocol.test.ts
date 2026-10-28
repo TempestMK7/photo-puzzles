@@ -51,7 +51,7 @@ describe('topics and locks', () => {
   });
 
   it('reads a lock on the game\'s clock, which may be off from the server\'s', () => {
-    const lock = { holder: 'a', gid: 1, until: 10_000 };
+    const lock = { holder: 'a', piece: 1, until: 10_000 };
     expect(lockHeld(null, 0, 0)).toBe(false);
     expect(lockHeld(lock, 9_000, 0)).toBe(true);
     expect(lockHeld(lock, 10_000, 0)).toBe(false);

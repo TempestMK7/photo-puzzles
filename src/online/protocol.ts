@@ -57,6 +57,8 @@ export interface RoomDescriptor {
   media: Media;
   owner: string;
   members: Member[];
+  /** The ids of the members connected right now. */
+  online: string[];
   state: RoomState;
   /** The server's clock when this was made, in ms: a lock's `until` is on that clock, and the game works out how far its own is off. */
   serverTime: number;
@@ -80,6 +82,8 @@ export type ApiError =
   /** Joining by code waits for a member to say yes. */
   | 'knock-pending'
   | 'knock-denied'
+  /** The picture has not arrived yet. */
+  | 'not-ready'
   | 'busy'
   | 'not-holder'
   | 'no-group'
@@ -157,7 +161,8 @@ export const topics = {
 
 /** Where the piece in hand is right now. It is not part of the board: it only moves the piece on the screens of the others until a `drop` says where it ended. */
 export interface HandMessage {
-  gid: number;
+  /** A piece of the group in hand. */
+  piece: number;
   dx: number;
   dy: number;
   rot: number;
@@ -169,6 +174,8 @@ export type RoomMessage =
   | ({ t: 'event' } & RoomEvent)
   | { t: 'joined'; member: Member }
   | { t: 'left'; id: string }
+  /** A member's game connected to the room or lost it. */
+  | { t: 'presence'; id: string; online: boolean }
   /** Someone asked to join with the code and a member has to say yes or no. */
   | { t: 'knock'; id: string; name: string }
   | { t: 'solved'; at: number }

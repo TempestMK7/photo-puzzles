@@ -1,0 +1,138 @@
+import type { Clock, Media, PubSub, Random, RoomRecord, Store } from './types';
+
+/** Everything in memory: for the tests and for the local server (which forgets it all when it stops). */
+export class MemoryStore implements Store {
+  private rooms = new Map<string, RoomRecord>();
+  private codes = new Map<string, string>();
+  private creations = new Map<string, number[]>();
+
+  async getRoom(id: string): Promise<RoomRecord | undefined> {
+    const r = this.rooms.get(id);
+    return r && structuredClone(r);                       // a copy, as a database gives: changing it changes nothing until it is written
+  }
+
+  async putRoom(room: RoomRecord): Promise<boolean> {
+    const had = this.rooms.get(room.id);
+    if (had ? had.rev !== room.rev - 1 : room.rev !== 0) return false;
+    this.rooms.set(room.id, structuredClone(room));
+    return true;
+  }
+
+  async deleteRoom(id: string): Promise<void> {
+    this.rooms.delete(id);
+  }
+
+  async claimCode(code: string, roomId: string): Promise<boolean> {
+    if (this.codes.has(code)) return false;
+    this.codes.set(code, roomId);
+    return true;
+  }
+
+  async roomOfCode(code: string): Promise<string | undefined> {
+    return this.codes.get(code);
+  }
+
+  async releaseCode(code: string): Promise<void> {
+    this.codes.delete(code);
+  }
+
+  async roomsOf(playerId: string): Promise<string[]> {
+    return [...this.rooms.values()].filter((r) => r.members.some((m) => m.id === playerId)).map((r) => r.id);
+  }
+
+  async allRooms(): Promise<RoomRecord[]> {
+    return [...this.rooms.values()].map((r) => structuredClone(r));
+  }
+
+  async creationsSince(playerId: string, since: number): Promise<number[]> {
+    return (this.creations.get(playerId) ?? []).filter((t) => t > since);
+  }
+
+  async addCreation(playerId: string, at: number): Promise<void> {
+    this.creations.set(playerId, [...(this.creations.get(playerId) ?? []), at]);
+  }
+}
+
+const enc = new TextEncoder();
+
+/** An HMAC of a text, as hex: how the local server signs the addresses of pictures (S3 will do this itself). */
+async function sign(key: Uint8Array, text: string): Promise<string> {
+  const k = await crypto.subtle.importKey('raw', key as BufferSource, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', k, enc.encode(text)));
+  return [...mac].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export class MemoryMedia implements Media {
+  private files = new Map<string, { bytes: Uint8Array; type: string }>();
+
+  constructor(
+    private readonly base: string,
+    private readonly key: Uint8Array,
+    private readonly clock: Clock,
+    private readonly lifeMs = 10 * 60 * 1000,
+  ) {}
+
+  private async address(roomId: string, what: 'put' | 'get'): Promise<string> {
+    const exp = this.clock.now() + this.lifeMs;
+    const sig = await sign(this.key, `${what}:${roomId}:${exp}`);
+    return `${this.base}/media/${encodeURIComponent(roomId)}?exp=${exp}&sig=${sig}`;
+  }
+
+  uploadUrl(roomId: string): Promise<string> {
+    return this.address(roomId, 'put');
+  }
+
+  signedUrl(roomId: string): Promise<string> {
+    return this.address(roomId, 'get');
+  }
+
+  /** Whether an address (what is after the `?`) is one this media made for that purpose and has not run out. */
+  async allows(roomId: string, what: 'put' | 'get', exp: string | null, sig: string | null): Promise<boolean> {
+    if (!exp || !sig || !(Number(exp) > this.clock.now())) return false;
+    return (await sign(this.key, `${what}:${roomId}:${exp}`)) === sig;
+  }
+
+  async put(roomId: string, bytes: Uint8Array, type: string): Promise<void> {
+    this.files.set(roomId, { bytes, type });
+  }
+
+  get(roomId: string): { bytes: Uint8Array; type: string } | undefined {
+    return this.files.get(roomId);
+  }
+
+  async delete(roomId: string): Promise<void> {
+    this.files.delete(roomId);
+  }
+
+  has(roomId: string): boolean {
+    return this.files.has(roomId);
+  }
+}
+
+/** Remembers what was published and hands it to whoever listens. */
+export class MemoryPubSub implements PubSub {
+  readonly published: { topic: string; message: unknown }[] = [];
+  private listeners = new Set<(topic: string, message: unknown) => void>();
+
+  async publish(topic: string, message: unknown): Promise<void> {
+    this.published.push({ topic, message });
+    for (const l of this.listeners) l(topic, message);
+  }
+
+  listen(fn: (topic: string, message: unknown) => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+}
+
+export class SystemRandom implements Random {
+  bytes(n: number): Uint8Array {
+    return crypto.getRandomValues(new Uint8Array(n));
+  }
+
+  below(n: number): number {
+    return Math.floor((crypto.getRandomValues(new Uint32Array(1))[0] / 4294967296) * n);
+  }
+}
+
+export const systemClock: Clock = { now: () => Date.now() };

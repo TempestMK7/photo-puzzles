@@ -1,6 +1,8 @@
 import { rotVec, type Group, type JigsawGame, type JigsawLayout, type JigsawState } from '../core/jigsaw';
 import { applyOp, buildJigsaw, SCATTER_K, TOL_MAX_K, TOL_MIN_K, type JigsawOp } from '../core/jigsawSetup';
+import type { RoomEvent, RoomState } from '../core/jigsawRoom';
 import { haptic, type Haptic } from '../haptics';
+import type { HandMessage } from '../online/protocol';
 import { beginFrame, type View } from '../render';
 import { buildAtlas, buildMasks, snapshot, type Atlas } from './jigsawArt';
 import { glAvailable, PieceRenderer } from './jigsawGl';
@@ -9,6 +11,12 @@ import type { Pt, PuzzleSession, SessionInit, ToggleDef } from './types';
 
 const PAN_TAP = 3;
 const HOVER_MS = 500;           // how long pieces have to be held together to snap, when joining is on hover
+
+interface Pose {
+  dx: number;
+  dy: number;
+  rot: number;
+}
 
 interface Drag {
   gid: number;
@@ -70,6 +78,9 @@ export class JigsawSession implements PuzzleSession {
   private pendingCam: { ratio: number; cx: number; cy: number } | null = null;     // the camera of a saved game, until the canvas has a size
   private flash = new Set<number>();
   private flashStart = 0;
+  /** The pieces other players hold: where each really is on the board (`truth`), where its holder's hand put it last (`target`), and where it is drawn (`cur`, which follows the target). */
+  private hands = new Map<string, { gid: number; truth: Pose; target: Pose; cur: Pose }>();
+  private lastDraw = 0;
 
   constructor(private readonly init: SessionInit) {
     this.turning = init.opts.turning === 1;
@@ -222,7 +233,7 @@ export class JigsawSession implements PuzzleSession {
     ctx.strokeRect(this.frameX, this.frameY, pw, ph);
     ctx.setLineDash([]);
     // a moment's glow where pieces have just joined the picture
-    let running = false;
+    let running = this.stepHands(now);
     const flashK = this.flashLeft(now);
     if (flashK > 0) running = true;
     const d = this.drag;
@@ -239,6 +250,7 @@ export class JigsawSession implements PuzzleSession {
         for (const m of this.flash) ctx.fillRect(this.frameX + (m % l.cols) * l.size, this.frameY + Math.floor(m / l.cols) * l.size, l.size, l.size);
       }
     }
+    this.lastDraw = now;
     return running;
   }
 
@@ -312,10 +324,12 @@ export class JigsawSession implements PuzzleSession {
     };
     for (const grp of g.groups.values()) if (grp.anchored) drawGroup(plain, grp);
     const selId = this.selectedGroup();
+    const theirs = new Map<number, string>();                     // a glow of the colour of the player who holds it
+    for (const [by, hand] of this.hands) theirs.set(hand.gid, this.init.online?.colorOf(by) ?? '#fff');
     for (const id of g.z) {
       const grp = g.groups.get(id)!;
-      if (id === selId) {                                         // a glow round the selected group: drawn under it, and over again by the pieces themselves
-        ctx.shadowColor = this.init.flag('light') ? '#e67300' : '#ffd84a';
+      if (id === selId || theirs.has(id)) {                       // a glow round the selected group: drawn under it, and over again by the pieces themselves
+        ctx.shadowColor = id === selId ? (this.init.flag('light') ? '#e67300' : '#ffd84a') : theirs.get(id)!;
         ctx.shadowBlur = 16;
         drawGroup(lit, grp);
         ctx.shadowBlur = 0;
@@ -368,8 +382,15 @@ export class JigsawSession implements PuzzleSession {
       this.pan = { anchor: p, moved: false, deselect: true };
       return;
     }
+    const blocked = this.init.online?.blockedBy();
+    if (blocked) {                                                // another player has a piece in hand: this one can be looked at, but not picked up
+      this.init.online!.notify(`${blocked} is moving a piece`);
+      this.pan = { anchor: p, moved: false, deselect: false };
+      return;
+    }
     const grp = this.game.groups.get(gid)!;
-    this.commit({ t: 'grab', gid });
+    this.commit({ t: 'grab', piece: grp.members[0] });
+    this.init.online?.holding(grp.members[0]);
     this.sel = grp.members[0];
     const q = this.world(p);
     const [px, py] = this.game.toSolved(grp, q.x - this.frameX, q.y - this.frameY);
@@ -406,6 +427,7 @@ export class JigsawSession implements PuzzleSession {
     d.qy = q.y - this.frameY;
     this.placeDragged();
     d.moved = true;
+    this.sendHand();
     this.snapCheck();
     this.init.requestDraw();
   }
@@ -481,12 +503,18 @@ export class JigsawSession implements PuzzleSession {
       [d.px, d.py] = g.toSolved(grp, h.x, h.y);
       this.buzz('turn');
       d.moved = true;
+      this.sendHand();
       this.snapCheck();
     } else {
       const id = this.selectedGroup();
       if (id < 0) return;
+      const blocked = this.init.online?.blockedBy();
+      if (blocked) {
+        this.init.online!.notify(`${blocked} is moving a piece`);
+        return;
+      }
       this.buzz('turn');
-      this.apply({ t: 'rotate', gid: id, tol: this.snap === SNAP_DRAG ? this.tolerance() : null });
+      this.apply({ t: 'rotate', piece: this.game.groups.get(id)!.members[0], tol: this.snap === SNAP_DRAG ? this.tolerance() : null });
     }
     this.init.requestDraw();
   }
@@ -520,18 +548,28 @@ export class JigsawSession implements PuzzleSession {
    * Moving a piece while it is in hand is not one: that only shows on this screen until it is put down.
    */
   private commit(op: JigsawOp): { id: number; joins: number } {
-    return applyOp(this.game, op);
+    const res = applyOp(this.game, op);
+    this.init.online?.send(op);
+    return res;
+  }
+
+  /** Where the piece in hand is, for the other players to see. */
+  private sendHand(): void {
+    const d = this.drag;
+    const g = d && this.game.groups.get(d.gid);
+    if (g) this.init.online?.hand({ piece: g.members[0], dx: g.dx, dy: g.dy, rot: g.rot });
   }
 
   /** The group is put down where it lies now, joining what it lies right against when `tol` says so. */
   private dropOp(gid: number, tol: number | null): JigsawOp {
     const grp = this.game.groups.get(gid)!;
-    return { t: 'drop', gid, dx: grp.dx, dy: grp.dy, rot: grp.rot, tol };
+    return { t: 'drop', piece: grp.members[0], dx: grp.dx, dy: grp.dy, rot: grp.rot, tol };
   }
 
   /** Lets go of a group that was in hand, where it is. */
   private release(gid: number): void {
     if (this.game.groups.has(gid)) this.commit(this.dropOp(gid, null));
+    this.init.online?.holding(null);
   }
 
   /** Joins the group to whatever it now lies right against (turned the same way); if it was being dragged, the drag ends there. */
@@ -544,19 +582,109 @@ export class JigsawSession implements PuzzleSession {
   /** Commits an operation that may join groups, and gives the feedback for it: the glow, the buzz, the end of the drag. */
   private apply(op: JigsawOp): void {
     const g = this.game;
-    if (!g.groups.has(op.gid)) return;
-    const before = new Set(g.groups.get(op.gid)!.members);
+    const gid = g.groupOf[op.piece];
+    if (!g.groups.has(gid)) return;
+    const before = new Set(g.groups.get(gid)!.members);
     const wasAnchored = g.anchoredCount;
     const res = this.commit(op);
     if (res.joins === 0) return;
     this.cancelHover();
-    if (this.drag?.gid === op.gid) this.drag = null;
+    if (this.drag?.gid === gid) {
+      this.drag = null;
+      this.init.online?.holding(null);
+    }
     if (g.anchoredCount > wasAnchored) {
       this.flash = before;
       this.flashStart = performance.now();
       if (this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
     }
     this.buzz(g.solved ? 'solved' : g.anchoredCount > wasAnchored ? 'placed' : 'join');
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- other players
+
+  /** Another player's operation (the room checked it and put it in order): applied as it is, with the glow when it finished part of the picture. */
+  applyEvent(ev: RoomEvent): void {
+    const op = ev.op;
+    if (!op) return;                                              // a piece let go without moving: nothing changed on the board
+    const g = this.game;
+    const gid = g.groupOf[op.piece];
+    if (this.drag?.gid === gid) {                                 // this player was holding it, but the room says it is another's: what they did here no longer counts
+      this.drag = null;
+      this.cancelHover();
+      this.init.online?.holding(null);
+    }
+    const before = new Set(g.groups.get(gid)?.members ?? []);
+    const wasAnchored = g.anchoredCount;
+    applyOp(g, op);
+    if (g.anchoredCount > wasAnchored) {
+      this.flash = before;
+      this.flashStart = performance.now();
+      if (this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
+    }
+    this.init.requestDraw();
+    this.init.progress?.();
+  }
+
+  /** Takes the room's board in place of this one. */
+  resync(state: RoomState): void {
+    this.hands.clear();
+    if (this.drag) {
+      this.drag = null;
+      this.cancelHover();
+      this.init.online?.holding(null);
+    }
+    try {
+      this.game.restore(state.game);
+    } catch {
+      return;                                                     // (the room's board is this puzzle's: this does not happen)
+    }
+    if (this.sel >= 0 && this.game.groups.get(this.game.groupOf[this.sel])!.anchored) this.sel = -1;
+    this.init.requestDraw();
+    this.init.progress?.();
+  }
+
+  groupCount(): number {
+    return this.game.groups.size;
+  }
+
+  /** Where another player's piece in hand is now; `null` puts it back where the board has it. */
+  hand(by: string, pose: HandMessage | null): void {
+    const had = this.hands.get(by);
+    if (had && (!pose || this.game.groupOf[pose.piece] !== had.gid)) {
+      this.game.setPose(had.gid, had.truth.dx, had.truth.dy, had.truth.rot);
+      this.hands.delete(by);
+    }
+    if (!pose) {
+      this.init.requestDraw();
+      return;
+    }
+    const gid = this.game.groupOf[pose.piece];
+    const grp = this.game.groups.get(gid);
+    if (!grp || grp.anchored) return;
+    const target = { dx: pose.dx, dy: pose.dy, rot: pose.rot };
+    const mine = this.hands.get(by);
+    if (mine) mine.target = target;
+    else {
+      const truth = { dx: grp.dx, dy: grp.dy, rot: grp.rot };
+      this.hands.set(by, { gid, truth, target, cur: { ...truth } });
+    }
+    this.init.requestDraw();
+  }
+
+  /** Moves the pieces other players hold towards where their hands put them (smoothly: the hands are heard a few times a second). True while something is still moving. */
+  private stepHands(now: number): boolean {
+    if (!this.hands.size) return false;
+    const k = 1 - Math.exp(-Math.min(100, now - (this.lastDraw || now)) / 60);
+    let moving = false;
+    for (const h of this.hands.values()) {
+      const gx = h.target.dx - h.cur.dx;
+      const gy = h.target.dy - h.cur.dy;
+      if (Math.abs(gx) + Math.abs(gy) > 0.3) moving = true;
+      h.cur = { dx: h.cur.dx + gx * k, dy: h.cur.dy + gy * k, rot: h.target.rot };
+      this.game.setPose(h.gid, h.cur.dx, h.cur.dy, h.cur.rot);
+    }
+    return moving;
   }
 
   dispose(): void {

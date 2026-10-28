@@ -15,7 +15,8 @@ export const LOCK_MS = 10_000;
 
 export interface Lock {
   holder: string;
-  gid: number;
+  /** A piece of the group in hand. */
+  piece: number;
   /** When the hold runs out (the caller's clock). */
   until: number;
 }
@@ -33,6 +34,8 @@ export interface RoomEvent {
   lock: Lock | null;
   /** How many groups the operation joined, and whether that finished the puzzle. */
   joins: number;
+  /** How many groups the board has now: a screen that counts a different number has gone wrong and asks for the whole state. */
+  groups: number;
   solved: boolean;
 }
 
@@ -107,8 +110,8 @@ export class JigsawRoom {
       this.lock = null;
       return this.accept(player, undefined, 0);
     }
-    if (!Number.isInteger(cmd.gid)) return { ok: false, reason: 'bad' };
-    const grp = g.groups.get(cmd.gid);
+    if (!Number.isInteger(cmd.piece) || cmd.piece < 0 || cmd.piece >= g.count) return { ok: false, reason: 'bad' };
+    const grp = g.groups.get(g.groupOf[cmd.piece]);
     if (!grp || grp.anchored) return { ok: false, reason: 'no-group' };
     const size = this.board.layout.size;
     const tol = (t: number | null): number | null | undefined =>
@@ -117,25 +120,25 @@ export class JigsawRoom {
     switch (cmd.t) {
       case 'grab': {
         if (others && others.holder !== player) return { ok: false, reason: 'busy', holder: others.holder };
-        this.lock = { holder: player, gid: cmd.gid, until: now + LOCK_MS };
+        this.lock = { holder: player, piece: cmd.piece, until: now + LOCK_MS };
         return this.accept(player, this.run(cmd).op, 0);
       }
       case 'drop': {
-        if (this.lock?.holder !== player || this.lock.gid !== cmd.gid) return { ok: false, reason: 'not-holder' };
+        if (this.lock?.holder !== player || g.groupOf[this.lock.piece] !== grp.id) return { ok: false, reason: 'not-holder' };
         const t = tol(cmd.tol);
         const limit = Math.max(this.board.worldW, this.board.worldH);
         const sane = [cmd.dx, cmd.dy].every((x) => typeof x === 'number' && Number.isFinite(x) && x > -limit && x < 2 * limit) && Number.isInteger(cmd.rot) && cmd.rot >= 0 && cmd.rot <= 3;
         if (t === undefined || !sane) return { ok: false, reason: 'bad' };
-        const joins = this.run({ t: 'drop', gid: cmd.gid, dx: cmd.dx, dy: cmd.dy, rot: cmd.rot, tol: t });
+        const joins = this.run({ t: 'drop', piece: cmd.piece, dx: cmd.dx, dy: cmd.dy, rot: cmd.rot, tol: t });
         this.lock = null;
         return this.accept(player, joins.op, joins.joins);
       }
       case 'rotate': {
         if (others && others.holder !== player) return { ok: false, reason: 'busy', holder: others.holder };
-        if (this.lock?.holder === player && this.lock.gid !== cmd.gid) return { ok: false, reason: 'busy', holder: player };      // it has a piece in hand: let that go first
+        if (this.lock?.holder === player && g.groupOf[this.lock.piece] !== grp.id) return { ok: false, reason: 'busy', holder: player };      // it has a piece in hand: let that go first
         const t = tol(cmd.tol);
         if (t === undefined) return { ok: false, reason: 'bad' };
-        const r = this.run({ t: 'rotate', gid: cmd.gid, tol: t });
+        const r = this.run({ t: 'rotate', piece: cmd.piece, tol: t });
         return this.accept(player, r.op, r.joins);
       }
     }
@@ -152,6 +155,6 @@ export class JigsawRoom {
       this.done = true;
       this.lock = null;
     }
-    return { ok: true, event: { v: this.v, by, op, lock: this.lock && { ...this.lock }, joins, solved: this.done } };
+    return { ok: true, event: { v: this.v, by, op, lock: this.lock && { ...this.lock }, joins, groups: this.board.game.groups.size, solved: this.done } };
   }
 }
