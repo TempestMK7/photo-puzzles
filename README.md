@@ -1,4 +1,4 @@
-# Photo Puzzles (prototype)
+# PuzzleVidio (prototype)
 
 Turn your own photos (later: videos) into puzzles, in the browser. Planned targets: itch.io (web), Android, iOS and Steam, from one TypeScript code base
 (web build + Capacitor for phones + a desktop shell for Steam).
