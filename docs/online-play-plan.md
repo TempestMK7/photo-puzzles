@@ -54,7 +54,7 @@ The Lambda code uses the same `src/core` rules as the game, so the server decide
 - **Keeping the lock:** the holder calls `POST .../lock/renew` every few seconds. The lock lasts about 10 s, and it **expires by itself**: a grab after that time just succeeds, so a player who loses connection never blocks the board and no server timer is needed. IoT's "client disconnected" event releases it sooner.
 - **Drop:** `POST .../drop` with the group's position (and turn, if turning is on). A Lambda loads the room, applies the move with the shared `JigsawGame`, saves it conditionally on `version` (retry on a clash), and publishes the result: where the group went, what joined, whether it is solved.
 - **Release without moving** (`.../release`) lets go of the piece.
-- A 1,000-piece snapshot is about 40 KB, well inside DynamoDB's 400 KB item limit. That is one reason for the cap.
+- A 1,000-piece snapshot is about 90 KB as JSON (measured), well inside DynamoDB's 400 KB item limit. That is one reason for the cap. Writing all of it on every drop is fine at this size; storing only what changed is the way out if it costs too much.
 
 ### Data (DynamoDB)
 
@@ -65,7 +65,7 @@ The Lambda code uses the same `src/core` rules as the game, so the server decide
 - `Creations`: one item per created puzzle with a 7-day TTL; the quota counts them (3 per rolling 7 days on the free tier).
 - Limits (pieces, puzzles per window, players) are read from configuration (AppConfig or SSM Parameter Store), keyed by tier and puzzle type, so they can change without a release.
 
-### Codes and links (needs a final yes, see the open question)
+### Codes and links
 
 - **Link:** `https://<domain>/#/join/<code>~<secret>`. It opens the web version, asks for sign-in if needed, joins and plays. The long secret makes a link as private as the picture itself. The part after `#` never reaches a server log. If the Android app is installed, an Android App Link opens it instead.
 - **Code:** 5 digits, for typing on any platform. Because only 100,000 codes exist, a code alone must not let a stranger into a room by guessing: joining by code **knocks**, and any member who is online approves. The link skips the knock.
@@ -81,12 +81,12 @@ The Lambda code uses the same `src/core` rules as the game, so the server decide
 
 ## Phases
 
-### 0. Groundwork (no AWS)
-- [ ] Write the protocol: commands, published messages, `version` handling, errors, a `protocol` number (an old app is told to update).
-- [ ] Check what the Jigsaw layout depends on. It should depend only on the picture's size and the settings (both are the same for everyone in a room), not on the screen; check the scatter and the camera.
-- [ ] Give `JigsawGame` the operations a server needs: apply a drop, report what joined, `snapshot()` / `restore()` (already there).
-- [ ] Split `src/sessions/jigsaw.ts` so that pointer input produces commands, and commands (local or from the server) change the game and the drawing.
-- [ ] Shared types for the messages in one place used by the client and the Lambdas.
+### 0. Groundwork (no AWS) - done in PR #17
+- [x] Write the protocol: commands, published messages, `version` handling, errors, a `protocol` number (an old app is told to update). `docs/online-protocol.md`.
+- [x] Check what the Jigsaw layout depends on. It depends only on the seed, the picture's size and the settings, not on the screen. One thing did depend on the screen (how close pieces must be to join, which follows the zoom); it is now part of the operation and the room clamps it.
+- [x] Give the game the operations a server needs: `buildJigsaw`, `applyOp` (`grab`, `drop`, `rotate`), `JigsawRoom` with the one-hand lock and `snapshot()` / `restore()`.
+- [x] Split `src/sessions/jigsaw.ts` so that input produces operations through one `commit()`. Still to do in Phase 1: send them to a server, and apply remote ones.
+- [x] Shared types for the messages in one place (`src/online/protocol.ts`).
 
 ### 1. A local prototype (no AWS)
 - [ ] `server/` with the handlers behind interfaces for storage, pictures and publish/subscribe, with in-memory versions and a small local Node harness (HTTP and WebSocket) so that `npm run server` plays two browser tabs against each other.
@@ -143,7 +143,7 @@ The Lambda code uses the same `src/core` rules as the game, so the server decide
 
 ## Risks and open questions
 
-- **Needs a yes: codes.** A code that works for 24 hours (as wanted) and has only 5 digits can be guessed. The plan above handles that with the knock, rate limits and a link that carries a long secret. If the knock is too much friction, the other option is to make the code work only for a short window after it is shown.
+- **Codes (decided):** a code that works for 24 hours and has only 5 digits can be guessed, so joining by code knocks (a member approves), failed codes are rate-limited, and the link carries a long secret and joins directly. If the knock turns out to be too much friction, the other option is a code that only works for a short window after it is shown.
 - **Cold starts:** the first request after a quiet time takes a few tenths of a second longer. Dragging is unaffected (it does not go through Lambda).
 - **Cheating:** drag positions do not pass through the server, so a rude member could fake what others see while dragging. Drops are checked by the server, so the board itself is safe.
 - **IoT sign-in** is the fiddliest part to build; the spike above decides.
