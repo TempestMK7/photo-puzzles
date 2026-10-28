@@ -109,6 +109,7 @@ picture as before. A long GIF takes a few seconds to convert, with the progress 
   lets one player hold a piece at a time. `src/online/protocol.ts` has the messages and invite links; see `docs/online-protocol.md` and `docs/online-play-plan.md`
 - `src/online/` - what playing with friends needs on a player's side: the messages (`protocol.ts`), the requests (`api.ts`), the live connection (`realtime.ts`), the room as one player sees it (`room.ts`), a stand-in sign-in (`identity.ts`).
   `server/` is the online server: `RoomService` has every request as a method on interfaces for storage and the rest, `router.ts` is the HTTP side, `local.ts` runs it on this machine (`npm run server`, in memory; see `docs/online-protocol.md`).
+- `infra/` - the AWS infrastructure (CDK): the game's hosting, the table and bucket for online puzzles, sign-in, the budget (`infra/README.md`; the plan is `docs/online-play-plan.md`, the live-message choice `docs/online-realtime.md`).
 - `src/sessions/` - one `PuzzleSession` per type (layout, drawing, pointer input) behind the interface in `types.ts`; `index.ts` says how to start each
 - `src/store/saves.ts` - unfinished puzzles (IndexedDB)
 - `src/store/photos.ts` - the photo library (samples + the player's photos and videos in IndexedDB, thumbnails, duplicates by content hash) and what a puzzle draws from (`PlaySource`)

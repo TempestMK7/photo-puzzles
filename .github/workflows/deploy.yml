@@ -1,0 +1,70 @@
+name: Deploy
+
+# Run by hand (Actions > Deploy > Run workflow), from main. It signs in to AWS through OIDC (no stored keys).
+# The repository needs these variables (Settings > Secrets and variables > Actions > Variables); see infra/README.md:
+#   AWS_DEPLOY_ROLE_ARN  the role that the Ops stack made
+#   HOSTED_ZONE_ID       the hosted zone of the domain
+# and may have: ALERT_EMAIL, GOOGLE_CLIENT_ID, GOOGLE_SECRET_NAME
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Which deployment
+        type: choice
+        options: [dev, prod]
+        default: dev
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-${{ inputs.stage }}
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      STAGE: ${{ inputs.stage }}
+      AWS_REGION: us-east-1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            infra/package-lock.json
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Deploy the stacks
+        working-directory: infra
+        env:
+          CTX_ZONE: ${{ vars.HOSTED_ZONE_ID }}
+          CTX_EMAIL: ${{ vars.ALERT_EMAIL }}
+          CTX_GOOGLE_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+          CTX_GOOGLE_SECRET: ${{ vars.GOOGLE_SECRET_NAME }}
+        run: |
+          npm ci
+          npx cdk deploy "PuzzleVidio-$STAGE-*" --require-approval never \
+            -c "hostedZoneId=$CTX_ZONE" -c "alertEmail=$CTX_EMAIL" -c "googleClientId=$CTX_GOOGLE_ID" -c "googleSecretName=$CTX_GOOGLE_SECRET"
+
+      - name: Build the game
+        run: |
+          npm ci
+          npm run build
+
+      - name: Put the game in place
+        run: |
+          out() { aws cloudformation describe-stacks --stack-name "PuzzleVidio-$STAGE-Web" --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
+          BUCKET=$(out SiteBucket)
+          DIST=$(out DistributionId)
+          # Files with a hash in their name never change; the page itself must be fetched again every time.
+          aws s3 sync dist "s3://$BUCKET" --delete --exclude index.html --cache-control "public,max-age=31536000,immutable"
+          aws s3 cp dist/index.html "s3://$BUCKET/index.html" --cache-control "no-cache"
+          aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/*"

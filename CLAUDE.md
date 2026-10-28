@@ -29,6 +29,7 @@ npm test           # Vitest: the rules in src/core and the save/restore of every
 npx tsc --noEmit   # type check (strict, no unused locals)
 npm run build      # type check (the game and server/) + production build into dist/
 npm run server     # the online server on this machine, http://localhost:8787 (memory only; for trying online play with two browser tabs)
+(cd infra && npm test)   # the AWS stacks (CDK): the templates are built and checked; `npx cdk synth -c hostedZoneId=ZEXAMPLE` builds them all
 ```
 
 ## How the code is organised
@@ -39,6 +40,7 @@ npm run server     # the online server on this machine, http://localhost:8787 (m
   graphics card, `jigsawArt.ts` makes the piece shapes.
 - `src/store/` is storage on the device only: `photos.ts` (the library, IndexedDB), `saves.ts` (unfinished puzzles). Nothing is ever sent anywhere (`link.ts` only downloads a picture from an address the player pasted).
 - `src/online/` is the player's side of playing with friends and `server/` the online server (`RoomService` on interfaces; see `docs/online-play-plan.md` and `docs/online-protocol.md`). The server imports `src/core` and `src/online/protocol.ts`, so the rules are the same on both sides: keep those two free of browser and Node dependencies.
+- `infra/` is the AWS side (CDK, TypeScript, its own `package.json`): see `infra/README.md` and `docs/online-play-plan.md`. No account ids, zone ids, keys or e-mail addresses go into it: they are CDK context at deploy time. Do not deploy from a session without the owner's say-so.
 - `src/ui/` has the main screen (`library.ts`), the play screen (`play.ts`) and the window with the original picture (`refwindow.ts`).
 
 ## Conventions

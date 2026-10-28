@@ -1,0 +1,137 @@
+import { App } from 'aws-cdk-lib';
+import { Match, Template } from 'aws-cdk-lib/assertions';
+import { describe, expect, it } from 'vitest';
+import { build } from '../lib/app';
+import { settings, siteDomain, siteOrigins } from '../lib/config';
+
+const context = { hostedZoneId: 'ZTESTZONE', alertEmail: 'alerts@example.com' };
+const app = (extra: Record<string, string> = {}) => {
+  const a = new App({ context: { ...context, ...extra } });
+  build(a);
+  return a;
+};
+const stack = (a: App, name: string) => Template.fromStack(a.node.findChild(name) as never);
+
+describe('settings', () => {
+  it('needs the hosted zone', () => {
+    expect(() => settings(new App().node)).toThrow(/hosted zone/);
+  });
+  it('wants Google as a whole or not at all', () => {
+    expect(() => new App({ context: { ...context, googleClientId: 'x' } }) && build(new App({ context: { ...context, googleClientId: 'x' } }))).toThrow(/both/);
+  });
+  it('serves the real game at the bare domain and the others below it', () => {
+    expect(siteDomain('prod', 'puzzlevid.io')).toBe('puzzlevid.io');
+    expect(siteDomain('dev', 'puzzlevid.io')).toBe('dev.puzzlevid.io');
+    expect(siteOrigins('prod', 'puzzlevid.io')).toEqual(['https://puzzlevid.io']);
+    expect(siteOrigins('dev', 'puzzlevid.io')).toContain('http://localhost:5173');
+  });
+});
+
+describe('data', () => {
+  const dev = stack(app(), 'PuzzleVidio-dev-Data');
+  const prod = stack(app(), 'PuzzleVidio-prod-Data');
+
+  it('bills per request and lets items expire', () => {
+    dev.hasResourceProperties('AWS::DynamoDB::Table', { BillingMode: 'PAY_PER_REQUEST', TimeToLiveSpecification: { AttributeName: 'ttl', Enabled: true } });
+  });
+  it('keeps the data of the real stage, and can lose that of a test stage', () => {
+    prod.hasResource('AWS::DynamoDB::Table', { DeletionPolicy: 'Retain', Properties: { DeletionProtectionEnabled: true } });
+    dev.hasResource('AWS::DynamoDB::Table', { DeletionPolicy: 'Delete' });
+  });
+  it('has a private bucket for pictures, with a backstop that deletes old ones', () => {
+    prod.hasResourceProperties('AWS::S3::Bucket', {
+      PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true },
+      LifecycleConfiguration: { Rules: Match.arrayWith([Match.objectLike({ ExpirationInDays: 35 })]) },
+      CorsConfiguration: { CorsRules: [Match.objectLike({ AllowedOrigins: ['https://puzzlevid.io'] })] },
+    });
+    prod.hasResourceProperties('AWS::S3::BucketPolicy', {
+      PolicyDocument: { Statement: Match.arrayWith([Match.objectLike({ Effect: 'Deny', Condition: { Bool: { 'aws:SecureTransport': 'false' } } })]) },
+    });
+  });
+});
+
+describe('auth', () => {
+  it('signs in with e-mail, by the code flow without a secret', () => {
+    const t = stack(app(), 'PuzzleVidio-prod-Auth');
+    t.hasResourceProperties('AWS::Cognito::UserPool', { UsernameAttributes: ['email'], AutoVerifiedAttributes: ['email'], DeletionProtection: 'ACTIVE' });
+    t.hasResourceProperties('AWS::Cognito::UserPoolClient', {
+      GenerateSecret: false,
+      AllowedOAuthFlows: ['code'],
+      CallbackURLs: ['https://puzzlevid.io/'],
+      SupportedIdentityProviders: ['COGNITO'],
+    });
+  });
+  it('lets a local game sign in to the test stage only', () => {
+    stack(app(), 'PuzzleVidio-dev-Auth').hasResourceProperties('AWS::Cognito::UserPoolClient', { CallbackURLs: ['https://dev.puzzlevid.io/', 'http://localhost:5173/'] });
+  });
+  it('adds Google when it is configured, and takes the secret from Secrets Manager', () => {
+    const t = stack(app({ googleClientId: 'client-id', googleSecretName: 'puzzlevidio/google' }), 'PuzzleVidio-prod-Auth');
+    t.hasResourceProperties('AWS::Cognito::UserPoolIdentityProvider', { ProviderType: 'Google' });
+    t.hasResourceProperties('AWS::Cognito::UserPoolClient', { SupportedIdentityProviders: ['COGNITO', 'Google'] });
+    expect(JSON.stringify(t.toJSON())).toContain('resolve:secretsmanager:puzzlevidio/google');
+  });
+});
+
+describe('web', () => {
+  const t = stack(app(), 'PuzzleVidio-prod-Web');
+  it('serves a private bucket through CloudFront, over https only, at the domain', () => {
+    t.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        Aliases: ['puzzlevid.io'],
+        DefaultRootObject: 'index.html',
+        DefaultCacheBehavior: Match.objectLike({ ViewerProtocolPolicy: 'redirect-to-https' }),
+        ViewerCertificate: Match.objectLike({ MinimumProtocolVersion: 'TLSv1.2_2021' }),
+      }),
+    });
+    t.resourceCountIs('AWS::CloudFront::OriginAccessControl', 1);
+  });
+  it('has a certificate that is checked through DNS, and records for the domain', () => {
+    t.hasResourceProperties('AWS::CertificateManager::Certificate', { DomainName: 'puzzlevid.io', ValidationMethod: 'DNS' });
+    t.hasResourceProperties('AWS::Route53::RecordSet', { Name: 'puzzlevid.io.', Type: 'A' });
+    t.hasResourceProperties('AWS::Route53::RecordSet', { Name: 'puzzlevid.io.', Type: 'AAAA' });
+  });
+  it('gives the deploy role the right to put files in the bucket and clear the cache, and nothing else', () => {
+    const policies = t.findResources('AWS::IAM::Policy');
+    const statements = Object.values(policies).flatMap((p) => (p as { Properties: { PolicyDocument: { Statement: { Action: string | string[] }[] } } }).Properties.PolicyDocument.Statement);
+    const actions = statements.flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+    expect(actions.sort()).toEqual(['cloudfront:CreateInvalidation', 's3:DeleteObject', 's3:ListBucket', 's3:PutObject']);
+  });
+});
+
+describe('ops', () => {
+  const t = stack(app(), 'PuzzleVidio-shared-Ops');
+  it('lets only the main branch of the repository take the deploy role', () => {
+    t.hasResourceProperties('AWS::IAM::Role', {
+      RoleName: 'puzzlevidio-github-deploy',
+      AssumeRolePolicyDocument: {
+        Statement: [
+          Match.objectLike({
+            Action: 'sts:AssumeRoleWithWebIdentity',
+            Condition: {
+              StringEquals: { 'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com' },
+              StringLike: { 'token.actions.githubusercontent.com:sub': 'repo:TempestMK7/photo-puzzles:ref:refs/heads/main' },
+            },
+          }),
+        ],
+      },
+    });
+  });
+  it('can only use the roles of the bootstrap (and read stacks), not change the account itself', () => {
+    const statements = Object.values(t.findResources('AWS::IAM::Policy')).flatMap(
+      (p) => (p as { Properties: { PolicyDocument: { Statement: { Action: string }[] } } }).Properties.PolicyDocument.Statement,
+    );
+    expect(statements.map((s) => s.Action).sort()).toEqual(['cloudformation:DescribeStacks', 'sts:AssumeRole']);
+  });
+  it('uses the OIDC provider that the account already has, if it is named', () => {
+    const arn = 'arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com';
+    const other = stack(app({ githubProviderArn: arn }), 'PuzzleVidio-shared-Ops');
+    other.resourceCountIs('Custom::AWSCDKOpenIdConnectProvider', 0);
+    t.resourceCountIs('Custom::AWSCDKOpenIdConnectProvider', 1);
+  });
+  it('writes when the bill grows, if there is someone to write to', () => {
+    t.hasResourceProperties('AWS::Budgets::Budget', { Budget: { BudgetLimit: { Amount: 25, Unit: 'USD' }, TimeUnit: 'MONTHLY' } });
+    const without = new App({ context: { hostedZoneId: 'Z' } });
+    build(without);
+    Template.fromStack(without.node.findChild('PuzzleVidio-shared-Ops') as never).resourceCountIs('AWS::Budgets::Budget', 0);
+  });
+});

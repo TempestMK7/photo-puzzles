@@ -62,3 +62,4 @@ samples-private/
 Thumbs.db
 *.log
 npm-debug.log*
+cdk.out/
