@@ -1,6 +1,6 @@
 # Online play with friends: plan
 
-Status: plan only, nothing built yet. This file is the TODO list; tick items off as they land, and change it when a decision changes.
+Status: Phases 0 and 1 are built (a local prototype); the AWS parts have not started. This file is the TODO list; tick items off as they land, and change it when a decision changes. The game is called PuzzleVidio, at puzzlevid.io.
 
 ## What it is
 
@@ -20,7 +20,8 @@ Local play stays exactly as it is: free, unlimited, no account, nothing leaves t
 - **Hosting:** everything online is AWS, serverless, so that it costs about nothing with no players and scales by itself when there are many.
 - **Platforms:** the web version at our own domain (Route 53), itch.io, Steam (in a desktop wrapper, later) and the Android app all use the same server. A code works from any of them.
 - **Repo:** `server/` and `infra/` in this repository, importing `src/core`. No keys, tokens or AWS account ids are committed; ids that the apps need are build-time settings.
-- **Domain:** bought in Route 53 when the infrastructure starts.
+- **Domain:** puzzlevid.io, bought by the owner (registered through Route 53; the hosted zone may still be being set up).
+- **Video puzzles (later):** the board is shared like a picture, but video playback is not synced. Each player watches the clip locally from the start, with their own pause and position bar. Only the picture of the puzzle, not the play position, is room state.
 
 ## Architecture
 
@@ -95,7 +96,7 @@ The Lambda code uses the same `src/core` rules as the game, so the server decide
 - Found on the way: an operation must name a *piece*, not a group number. The service loads a room again for every command, which renumbers its groups, so group numbers drift between the server and a screen that has played on; piece numbers never change.
 
 ### 2. AWS foundation (`infra/`, CDK in TypeScript)
-- [ ] Buy the domain in Route 53; certificate; hosted zone.
+- [ ] Domain puzzlevid.io (bought): hosted zone, certificate.
 - [ ] S3 + CloudFront for the game; private media bucket; DynamoDB tables with TTL; Cognito pool with Google and e-mail; API Gateway; Lambda functions; IoT Core with a custom authorizer that checks the sign-in token and limits each player to the topics of rooms they belong to (publish only on their own `hand` topic).
 - [ ] Separate dev and prod stacks, a budget alarm, log groups, error alarms.
 - [ ] GitHub Actions: test, build, deploy through an OIDC role (no stored AWS keys).

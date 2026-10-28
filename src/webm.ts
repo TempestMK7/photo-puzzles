@@ -96,7 +96,7 @@ export class WebmWriter {
       EBML,
       concat([uint(0x4286, 1), uint(0x42f7, 1), uint(0x42f2, 4), uint(0x42f3, 8), text(0x4282, 'webm'), uint(0x4287, 2), uint(0x4285, 2)]),
     );
-    const info = element(INFO, concat([uint(0x2ad7b1, 1000000), float64(0x4489, durationMs), text(0x4d80, 'photo-puzzles'), text(0x5741, 'photo-puzzles')]));
+    const info = element(INFO, concat([uint(0x2ad7b1, 1000000), float64(0x4489, durationMs), text(0x4d80, 'puzzlevidio'), text(0x5741, 'puzzlevidio')]));
     const tracks = element(
       TRACKS,
       element(0xae, concat([uint(0xd7, 1), uint(0x73c5, 1), uint(0x83, 1), uint(0x9c, 0), text(0x86, this.codec), element(0xe0, concat([uint(0xb0, this.width), uint(0xba, this.height)]))])),
