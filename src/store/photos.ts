@@ -1,5 +1,5 @@
 import { gifToWebm, isGifFile } from '../gif';
-import { isVideoFile, loadPhoto, makeThumb, readVideo, samplePhoto, SAMPLES } from '../image';
+import { isVideoFile, loadPhoto, makeThumb, readVideo, samplePhoto, samplePreviewUrl, sampleThumbUrl, SAMPLES } from '../image';
 
 /** One photo in the list: the built-in samples and the player's own. */
 export interface PhotoEntry {
@@ -84,6 +84,7 @@ export class PhotoLibrary {
   private db: IDBDatabase | null = null;
   private memory: StoredPhoto[] = [];
   private urls = new Map<string, { thumb?: string; preview?: string }>();
+  private sampleUrls = new Map<string, { thumb?: string; preview?: string }>();
 
   /** `onRemove` is told when a photo or video is deleted (its saved puzzles go with it). */
   constructor(private readonly onRemove?: (id: string) => Promise<void>) {}
@@ -131,15 +132,27 @@ export class PhotoLibrary {
     }
   }
 
-  private async sampleEntry(s: { id: string; name: string }): Promise<PhotoEntry> {
-    let u = this.urls.get(s.id);
-    if (!u?.thumb || !u.preview) {
-      const canvas = samplePhoto(s.id);
-      const [thumb, full] = await Promise.all([makeThumb(canvas), toBlob(canvas, 0.9)]);
-      u = { thumb: URL.createObjectURL(thumb), preview: URL.createObjectURL(full) };
-      this.urls.set(s.id, u);
-    }
-    return { id: s.id, name: s.name, sample: true, thumbUrl: u.thumb!, previewUrl: u.preview!, video: false, duration: 0 };
+  /** The pictures are made when first asked for, as data URLs on the processor (see `sampleThumbUrl`): the list does not wait for them, and the full one is only wanted for the sample that is chosen. */
+  private sampleEntry(s: { id: string; name: string }): PhotoEntry {
+    const urls = this.sampleUrls;
+    const url = (which: 'thumb' | 'preview'): string => {
+      let u = urls.get(s.id);
+      if (!u) urls.set(s.id, (u = {}));
+      return (u[which] ??= which === 'thumb' ? sampleThumbUrl(s.id) : samplePreviewUrl(s.id));
+    };
+    return {
+      id: s.id,
+      name: s.name,
+      sample: true,
+      get thumbUrl() {
+        return url('thumb');
+      },
+      get previewUrl() {
+        return url('preview');
+      },
+      video: false,
+      duration: 0,
+    };
   }
 
   /** The object URLs are made when first asked for: making one takes about a millisecond on a phone, and the full picture's is only wanted for the one that is chosen. */
@@ -180,7 +193,7 @@ export class PhotoLibrary {
   async each(onEntry: (entry: PhotoEntry, done: number, total: number) => void | Promise<void>): Promise<void> {
     const total = SAMPLES.length + (await this.count());
     let done = 0;
-    for (const s of SAMPLES) await onEntry(await this.sampleEntry(s), ++done, total);
+    for (const s of SAMPLES) await onEntry(this.sampleEntry(s), ++done, total);
     const seen = new Set<string>();
     let from: number | undefined;
     let size = FIRST_BATCH;                                        // a few first, so that the list starts to fill at once
