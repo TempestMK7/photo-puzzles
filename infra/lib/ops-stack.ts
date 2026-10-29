@@ -1,4 +1,4 @@
-import { Duration, Stack, type StackProps } from 'aws-cdk-lib';
+import { CfnOutput, Duration, Stack, type StackProps } from 'aws-cdk-lib';
 import * as budgets from 'aws-cdk-lib/aws-budgets';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as sns from 'aws-cdk-lib/aws-sns';
@@ -54,5 +54,7 @@ export class OpsStack extends Stack {
     this.deployRole.addToPolicy(new iam.PolicyStatement({ actions: ['sts:AssumeRole'], resources: [`arn:aws:iam::${this.account}:role/cdk-*`] }));
     // To read what a stack made (its outputs) and to find the bucket and distribution to put the game in.
     this.deployRole.addToPolicy(new iam.PolicyStatement({ actions: ['cloudformation:DescribeStacks'], resources: ['*'] }));
+    // What goes into the GitHub variable AWS_DEPLOY_ROLE_ARN.
+    new CfnOutput(this, 'DeployRoleArn', { value: this.deployRole.roleArn });
   }
 }
