@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { build } from '../lib/app';
 import { settings, siteDomain, siteOrigins } from '../lib/config';
 
-const context = { hostedZoneId: 'ZTESTZONE', alertEmail: 'alerts@example.com' };
+const context = { hostedZoneId: 'ZTESTZONE', alertEmail: 'alerts@example.com', 'aws:cdk:bundling-stacks': [] };
 const app = (extra: Record<string, string> = {}) => {
   const a = new App({ context: { ...context, ...extra } });
   build(a);
@@ -128,10 +128,100 @@ describe('ops', () => {
     other.resourceCountIs('Custom::AWSCDKOpenIdConnectProvider', 0);
     t.resourceCountIs('Custom::AWSCDKOpenIdConnectProvider', 1);
   });
+  it('has the topic that the alarms are sent to, under a name the other stacks know', () => {
+    t.hasResourceProperties('AWS::SNS::Topic', { TopicName: 'puzzlevidio-alarms' });
+  });
   it('writes when the bill grows, if there is someone to write to', () => {
     t.hasResourceProperties('AWS::Budgets::Budget', { Budget: { BudgetLimit: { Amount: 25, Unit: 'USD' }, TimeUnit: 'MONTHLY' } });
-    const without = new App({ context: { hostedZoneId: 'Z' } });
+    const without = new App({ context: { hostedZoneId: 'Z', 'aws:cdk:bundling-stacks': [] } });
     build(without);
     Template.fromStack(without.node.findChild('PuzzleVidio-shared-Ops') as never).resourceCountIs('AWS::Budgets::Budget', 0);
+  });
+});
+
+type Statement = { Effect: string; Action: string | string[]; Resource: unknown };
+const statementsOf = (t: Template, role?: RegExp): Statement[] =>
+  Object.entries(t.findResources('AWS::IAM::Policy'))
+    .filter(([id]) => !role || role.test(id))
+    .flatMap(([, p]) => (p as { Properties: { PolicyDocument: { Statement: Statement[] } } }).Properties.PolicyDocument.Statement);
+const actionsOf = (st: Statement[]) => st.flatMap((x) => (Array.isArray(x.Action) ? x.Action : [x.Action]));
+
+describe('api', () => {
+  const prod = stack(app(), 'PuzzleVidio-prod-Api');
+  const dev = stack(app(), 'PuzzleVidio-dev-Api');
+
+  it('is at its own address, with a certificate, and has no other', () => {
+    prod.hasResourceProperties('AWS::ApiGatewayV2::DomainName', { DomainName: 'api.puzzlevid.io' });
+    dev.hasResourceProperties('AWS::ApiGatewayV2::DomainName', { DomainName: 'api.dev.puzzlevid.io' });
+    prod.hasResourceProperties('AWS::CertificateManager::Certificate', { DomainName: 'api.puzzlevid.io', ValidationMethod: 'DNS' });
+    prod.hasResourceProperties('AWS::Route53::RecordSet', { Name: 'api.puzzlevid.io.', Type: 'A' });
+    prod.hasResourceProperties('AWS::ApiGatewayV2::Api', { DisableExecuteApiEndpoint: true });
+  });
+
+  it('checks the Cognito ID token on every route but the upload of a picture', () => {
+    prod.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', { AuthorizerType: 'JWT', JwtConfiguration: { Audience: [Match.anyValue()], Issuer: Match.anyValue() } });
+    const routes = Object.values(prod.findResources('AWS::ApiGatewayV2::Route')).map((r) => (r as { Properties: { RouteKey: string; AuthorizationType?: string } }).Properties);
+    expect(routes.map((r) => [r.RouteKey, r.AuthorizationType ?? 'NONE']).sort()).toEqual(
+      [
+        ['GET /rooms', 'JWT'],
+        ['GET /rooms/{proxy+}', 'JWT'],
+        ['POST /join', 'JWT'],
+        ['POST /rooms', 'JWT'],
+        ['POST /rooms/{proxy+}', 'JWT'],
+        ['PUT /media/{id}', 'NONE'],
+      ].sort(),
+    );
+  });
+
+  it("lets browsers call it only from the game's own addresses", () => {
+    prod.hasResourceProperties('AWS::ApiGatewayV2::Api', { CorsConfiguration: Match.objectLike({ AllowOrigins: ['https://puzzlevid.io'], AllowHeaders: ['Authorization', 'Content-Type'] }) });
+    dev.hasResourceProperties('AWS::ApiGatewayV2::Api', { CorsConfiguration: Match.objectLike({ AllowOrigins: ['https://dev.puzzlevid.io', 'http://localhost:5173'] }) });
+  });
+
+  it('has a limit on how fast it answers, a low one for the test stage', () => {
+    prod.hasResourceProperties('AWS::ApiGatewayV2::Stage', { DefaultRouteSettings: { ThrottlingRateLimit: 1000, ThrottlingBurstLimit: 2000 } });
+    dev.hasResourceProperties('AWS::ApiGatewayV2::Stage', { DefaultRouteSettings: { ThrottlingRateLimit: 20, ThrottlingBurstLimit: 40 } });
+  });
+
+  it('runs the service on Node 22 with a month of logs, and its settings in the environment but not the key', () => {
+    prod.hasResourceProperties('AWS::Lambda::Function', {
+      Runtime: 'nodejs22.x',
+      Architectures: ['arm64'],
+      Environment: { Variables: Match.objectLike({ API_BASE: 'https://api.puzzlevid.io', WEB_BASE: 'https://puzzlevid.io', TABLE_NAME: Match.anyValue(), MEDIA_BUCKET: Match.anyValue(), SIGNING_SECRET_ARN: Match.anyValue() }) },
+    });
+    prod.hasResourceProperties('AWS::Logs::LogGroup', { RetentionInDays: 30 });
+    const text = JSON.stringify(prod.toJSON());
+    expect(text).not.toContain('resolve:secretsmanager');                  // the function reads the key when it starts; it is not put in the template
+    prod.hasResourceProperties('AWS::SecretsManager::Secret', { GenerateSecretString: Match.objectLike({ PasswordLength: 48 }) });
+  });
+
+  it('can publish only to the topics of puzzles, and does no more than it must', () => {
+    const st = statementsOf(prod, /^ApiServiceRole|ApiDefaultPolicy|ApiServiceRoleDefaultPolicy/);
+    const iot = st.filter((x) => actionsOf([x]).some((a) => a.startsWith('iot:')));
+    expect(iot.map((x) => actionsOf([x]).join()).sort()).toEqual(['iot:DescribeEndpoint', 'iot:Publish']);
+    const publish = iot.find((x) => actionsOf([x]).includes('iot:Publish'))!;
+    expect(JSON.stringify(publish.Resource)).toContain('topic/puzzle/*');
+    expect(actionsOf(st)).not.toContain('*');
+    expect(actionsOf(st).filter((a) => a.startsWith('secretsmanager:')).sort()).toEqual(['secretsmanager:DescribeSecret', 'secretsmanager:GetSecretValue']);
+  });
+
+  it('deletes the picture of a room when the room is removed from the table, and can do nothing else to the bucket', () => {
+    prod.hasResourceProperties('AWS::Lambda::EventSourceMapping', {
+      BatchSize: 25,
+      BisectBatchOnFunctionError: true,
+      MaximumRetryAttempts: 5,
+      StartingPosition: 'LATEST',
+      FilterCriteria: { Filters: [{ Pattern: JSON.stringify({ eventName: ['REMOVE'] }) }] },
+    });
+    const st = statementsOf(prod, /Cleanup/);
+    const s3 = actionsOf(st).filter((a) => a.startsWith('s3:'));
+    expect(s3.every((a) => a.startsWith('s3:DeleteObject'))).toBe(true);
+    expect(s3.length).toBeGreaterThan(0);
+  });
+
+  it('tells the alarm topic when something fails', () => {
+    const alarms = Object.values(prod.findResources('AWS::CloudWatch::Alarm')).map((a) => (a as { Properties: { AlarmActions: unknown[]; MetricName: string } }).Properties);
+    expect(alarms.map((a) => a.MetricName).sort()).toEqual(['5xx', 'Errors', 'Errors', 'Throttles']);
+    for (const a of alarms) expect(JSON.stringify(a.AlarmActions)).toContain('puzzlevidio-alarms');
   });
 });

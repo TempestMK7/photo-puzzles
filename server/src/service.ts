@@ -219,7 +219,7 @@ export class RoomService {
     for (const id of await this.d.store.roomsOf(player.id)) {
       const r = await this.live(id);
       if (!r?.ready) continue;
-      rooms.push({ id, settings: { kind: 'jigsaw', opts: r.settings.opts }, owner: r.ownerId, members: r.members, online: this.d.presence.online(id).length, status: r.status, expiresAt: r.expiresAt });
+      rooms.push({ id, settings: { kind: 'jigsaw', opts: r.settings.opts }, owner: r.ownerId, members: r.members, online: (await this.d.presence.online(id)).length, status: r.status, expiresAt: r.expiresAt });
     }
     return { ok: true, rooms: rooms.sort((a, b) => b.expiresAt - a.expiresAt) };
   }
@@ -232,7 +232,7 @@ export class RoomService {
       media: { url: await this.d.media.signedUrl(room.id), type: 'image', sourceId: room.sourceId },
       owner: room.ownerId,
       members: room.members,
-      online: this.d.presence.online(room.id),
+      online: await this.d.presence.online(room.id),
       state: room.state,
       serverTime: this.d.clock.now(),
       expiresAt: room.expiresAt,

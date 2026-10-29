@@ -2,7 +2,7 @@ import { Rng } from '../../src/core/rng';
 import { PROTOCOL_VERSION, topics, type CreateRoomRequest, type RoomDescriptor, type RoomMessage } from '../../src/online/protocol';
 import { MemoryMedia, MemoryPubSub, MemoryStore } from '../../server/src/memory';
 import { RoomService } from '../../server/src/service';
-import type { Limits, Player, Presence, Random } from '../../server/src/types';
+import type { Clock, Limits, Player, Presence, Random, Store } from '../../server/src/types';
 
 /** A room service on memory with a clock the test moves, and the helpers to open rooms on it: shared by the tests of the server and of the game's side of a room. */
 export const DAY = 24 * 3600 * 1000;
@@ -32,9 +32,12 @@ class SeededRandom implements Random {
   }
 }
 
-export function world(extra: Partial<Limits> = {}) {
+/** The store a world is built on: memory unless a test says otherwise (the clock is the one the world's tests move). */
+export type MakeStore = (clock: Clock) => Store;
+
+export function world(extra: Partial<Limits> = {}, makeStore: MakeStore = () => new MemoryStore()) {
   const clock = { t: 1_000_000, now() { return this.t; } };
-  const store = new MemoryStore();
+  const store = makeStore(clock);
   const pubsub = new MemoryPubSub();
   const media = new MemoryMedia('http://media.test', new Uint8Array(32).fill(7), clock);
   const online = new Set<string>();

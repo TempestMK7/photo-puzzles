@@ -12,12 +12,17 @@ hosted zone: the account is whatever the credentials running `cdk` belong to, an
 | `PuzzleVidio-shared-Ops` | a budget that writes to an e-mail address at 50 / 80 / 100 % of the month (and when 100 % is forecast), a topic for alarms, and the role GitHub Actions deploys with |
 | `PuzzleVidio-<stage>-Data` | the DynamoDB table (rooms, codes, members, creations; on-demand, with expiry) and the private bucket for pictures |
 | `PuzzleVidio-<stage>-Auth` | the Cognito user pool: e-mail and password, and Google when configured, by the OAuth code flow without a client secret |
+| `PuzzleVidio-<stage>-Api` | the HTTP API at `api.<the game's address>` (certificate, record, throttle, CORS), the Lambda function that runs the room service, the key that signs picture-upload addresses (Secrets Manager), the function that deletes a room's picture when its item leaves the table, a month of logs and alarms to the alarm topic |
 | `PuzzleVidio-<stage>-Web` | the game's files: private bucket, CloudFront, certificate and the records in the hosted zone |
 
 `<stage>` is `dev` (served at `dev.puzzlevid.io`, may be thrown away, its sign-in also allows `http://localhost:5173`) or `prod` (`puzzlevid.io`, its data is kept when a stack is deleted).
 
-Not here yet: the API (Lambda and API Gateway), the live messages (IoT Core or AppSync Events: see `../docs/online-realtime.md`), the clean-up of ended rooms, per-function log groups and alarms,
-and the web firewall. They come with the code that needs them.
+The code of the functions is in `../server/src/aws/` and is bundled from there (with esbuild, the AWS SDK included) when the templates are built, so the root `npm install` has to have been run before `cdk synth`.
+A player sends the picture **through the API** (an address that the service signed), and the service looks at the bytes before it puts them in the bucket; Lambda takes about 6 MB in a request, so a picture is
+limited to 4 MB (the game sends at most 1600 px on a side). Members read the picture straight from S3 through a signed address.
+
+Not here yet: the live messages' side in AWS (IoT Core, chosen in `../docs/online-realtime.md`: its authorizer and policy, and the function that records who is connected), the web firewall, and reserved
+concurrency for the functions (a new account's limit may be too low to reserve any).
 
 ## Trying it without an account
 

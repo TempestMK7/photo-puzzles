@@ -50,14 +50,13 @@ jobs:
           CTX_GOOGLE_ID: ${{ vars.GOOGLE_CLIENT_ID }}
           CTX_GOOGLE_SECRET: ${{ vars.GOOGLE_SECRET_NAME }}
         run: |
+          npm ci --prefix ..
           npm ci
           npx cdk deploy "PuzzleVidio-$STAGE-*" --require-approval never \
             -c "hostedZoneId=$CTX_ZONE" -c "alertEmail=$CTX_EMAIL" -c "googleClientId=$CTX_GOOGLE_ID" -c "googleSecretName=$CTX_GOOGLE_SECRET"
 
       - name: Build the game
-        run: |
-          npm ci
-          npm run build
+        run: npm run build
 
       - name: Put the game in place
         run: |

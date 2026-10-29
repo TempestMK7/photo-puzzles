@@ -35,9 +35,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: infra/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            infra/package-lock.json
+      # the functions are bundled from the code in server/, which needs the dependencies of the game's own project
+      - run: npm ci
+        working-directory: .
       - run: npm ci
       - run: npm run check
       - run: npm test
-      # Builds every template, with a made-up hosted zone: no AWS account is needed.
+      # Builds every template and bundles the functions, with a made-up hosted zone: no AWS account is needed.
       - run: npx cdk synth --quiet -c hostedZoneId=ZEXAMPLE
