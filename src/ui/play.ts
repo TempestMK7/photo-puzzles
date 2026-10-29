@@ -488,7 +488,13 @@ export class PlayScreen {
       this.bar?.say('You already have this picture');
       return;
     }
-    const done = await this.deps.photos.add([new File([o.blob], 'Online puzzle.jpg', { type: 'image/jpeg' })]);
+    // the same picture from this puzzle (saved before, here or on another visit) is one picture, not two
+    if (await this.deps.photos.has(o.blob)) {
+      this.bar?.say('You already have this picture');
+      return;
+    }
+    const type = o.blob.type || 'image/jpeg';
+    const done = await this.deps.photos.add([new File([o.blob], `Online puzzle.${type === 'image/png' ? 'png' : 'jpg'}`, { type })]);
     if (done.ids.length) {
       this.deps.photoAdded(done.ids[0]);
       this.bar?.say('Saved to your pictures');
