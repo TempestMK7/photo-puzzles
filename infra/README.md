@@ -35,15 +35,19 @@ npx cdk synth --quiet -c hostedZoneId=ZEXAMPLE  # all the templates, into cdk.ou
 
 ## Putting it up (once)
 
-This needs credentials that may create IAM roles, certificates, and so on: your own, not those of a game's Lambda.
+This needs credentials that may create IAM roles, certificates, and so on: your own, not those of a game's Lambda. Use an AWS account of its own for the game (an account can be added to an AWS Organization for nothing):
+the budget, the quotas (Lambda runs 10 at a time in a new account, which is to be raised before launch) and what a mistake can touch then belong to this game alone.
 
-1. **Bootstrap** the account for the CDK: `npx cdk bootstrap aws://<account>/us-east-1`.
+1. **Bootstrap** the account for the CDK: `npx cdk bootstrap aws://<account>/us-east-1 -c hostedZoneId=<id>` (the CDK runs the app first, so it asks for the zone of step 2 here too).
 2. Find the **hosted zone** of the domain: `aws route53 list-hosted-zones-by-name --dns-name puzzlevid.io` (the part after `/hostedzone/`). The domain's name servers must be the zone's: registering the domain
-   in Route 53 does this by itself.
+   in Route 53 does this by itself. If the domain was registered in another account, or the zone was made later, change them at the registration (Route 53 > Registered domains > Name servers): editing the NS
+   records inside the zone changes nothing. It takes up to a day or two to reach every resolver (`nslookup -type=NS puzzlevid.io 8.8.8.8` shows what they say), and the Web stack waits for it, because its certificate is checked through DNS.
 3. An account can have only one OIDC provider for GitHub. See whether yours has one: `aws iam list-open-id-connect-providers`. If it does, add `-c githubProviderArn=<its arn>` below.
 4. Deploy the shared stack, which makes the budget and the deploy role:
    `npx cdk deploy PuzzleVidio-shared-Ops -c hostedZoneId=<id> -c alertEmail=<you@example.com>` (AWS sends a mail to confirm the subscription: click it).
-5. In the GitHub repository, add the variables `AWS_DEPLOY_ROLE_ARN` (from the stack's output) and `HOSTED_ZONE_ID`, and optionally `ALERT_EMAIL`.
+5. In the GitHub repository, add the variables `AWS_DEPLOY_ROLE_ARN` (the stack's output `DeployRoleArn`) and `HOSTED_ZONE_ID`, and optionally `ALERT_EMAIL`. They are **repository** variables
+   (Settings > Secrets and variables > Actions > Variables): the workflow does not name an environment, so it cannot see the variables of one, and a job that does name one is not the identity that the
+   deploy role trusts (the main branch).
 6. Run **Actions > Deploy** for `dev`, look at https://dev.puzzlevid.io, and again for `prod`. The workflow deploys the stacks and then puts the game in the bucket.
 
 Settings that can be given with `-c name=value` (or as `PUZZLEVIDIO_NAME` in the environment): `hostedZoneId` (required), `zoneName` (default `puzzlevid.io`), `alertEmail`, `budgetUsd` (default 25),

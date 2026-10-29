@@ -128,6 +128,9 @@ describe('ops', () => {
     other.resourceCountIs('Custom::AWSCDKOpenIdConnectProvider', 0);
     t.resourceCountIs('Custom::AWSCDKOpenIdConnectProvider', 1);
   });
+  it('says the address of the deploy role, for the GitHub variable', () => {
+    expect(Object.keys(t.findOutputs('*'))).toEqual(['DeployRoleArn']);
+  });
   it('has the topic that the alarms are sent to, under a name the other stacks know', () => {
     t.hasResourceProperties('AWS::SNS::Topic', { TopicName: 'puzzlevidio-alarms' });
   });
