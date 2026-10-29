@@ -1,6 +1,6 @@
 import type { Command, Lock, RoomEvent, RoomState } from '../core/jigsawRoom';
-import type { RoomApi } from './api';
-import { HAND_INTERVAL_MS, lockHeld, RENEW_INTERVAL_MS, type ApiError, type HandMessage, type Member, type RoomDescriptor, type RoomMessage } from './protocol';
+import type { CallError, RoomApi } from './api';
+import { HAND_INTERVAL_MS, lockHeld, RENEW_INTERVAL_MS, type HandMessage, type Member, type RoomDescriptor, type RoomMessage } from './protocol';
 import type { Connection, Realtime } from './realtime';
 
 /** What the room needs from the puzzle on the screen (the Jigsaw session): it applies what the others did, and tells how many groups it has. */
@@ -32,7 +32,7 @@ export class OnlineRoom {
   /** Called after anything the screen might show changed (the players, the connection, who holds a piece, solved). */
   onChange: () => void = () => undefined;
   /** Called when the server said no to something the player did (the reason, and who holds the piece if that is why). */
-  onRefused: (error: ApiError | 'offline', holder?: string) => void = () => undefined;
+  onRefused: (error: CallError, holder?: string) => void = () => undefined;
 
   private view: RoomView | null = null;
   private conn: Connection | null = null;

@@ -1,5 +1,18 @@
 import type { Identity } from './api';
 
+/** Who the player is, as the rest of the game needs to know it: the local build's stand-in and the cloud's Cognito account both are one. */
+export interface Account {
+  /** Who is signed in, from what is kept here (no network); nothing when nobody is. */
+  who(): { id: string; name: string } | null;
+  /** What goes in the `Authorization` header and in the broker's address: made fresh if it is about to run out. Nothing when nobody is signed in (or the sign-in has ended). */
+  token(): Promise<string | null>;
+  /** Only the local build's stand-in lets the player choose a name; with an account it is the account's. */
+  setName?(name: string): void;
+  /** Only an account that needs signing in has these. */
+  signIn?(returnHash?: string): Promise<void>;
+  signOut?(): void;
+}
+
 const ID_KEY = 'photo-puzzles/online/id';
 const NAME_KEY = 'photo-puzzles/online/name';
 
@@ -15,7 +28,7 @@ function session(): Storage | null {
  * Who this player is while there is no real sign-in: a made-up id and a name the player chooses, kept for this browser tab only (so two tabs are two players, which is what
  * trying it out needs). The local server takes whatever it is told; the real server will want a Cognito token in its place.
  */
-export class DevIdentity {
+export class DevIdentity implements Account {
   private store = session();
   private idValue: string;
   private nameValue: string;
@@ -33,6 +46,14 @@ export class DevIdentity {
     if (!clean) return;
     this.nameValue = clean;
     this.store?.setItem(NAME_KEY, clean);
+  }
+
+  who(): { id: string; name: string } {
+    return { id: this.idValue, name: this.nameValue };
+  }
+
+  async token(): Promise<string> {
+    return this.get().token;
   }
 
   get(): Identity {

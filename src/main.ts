@@ -2,10 +2,12 @@ import './style.css';
 import { Prefs } from './core/prefs';
 import { PhotoLibrary } from './store/photos';
 import { OnlineApi } from './online/api';
-import { onlineBase } from './online/config';
-import { DevIdentity } from './online/identity';
+import { CognitoAccount } from './online/cognito';
+import { cloudConfig, onlineBase } from './online/config';
+import { DevIdentity, type Account } from './online/identity';
+import { IotRealtime } from './online/iotRealtime';
 import { parseInvite } from './online/protocol';
-import { WsRealtime } from './online/realtime';
+import { WsRealtime, type Realtime } from './online/realtime';
 import { SaveStore } from './store/saves';
 import type { PhotoEntry } from './store/photos';
 import { LibraryScreen } from './ui/library';
@@ -20,6 +22,14 @@ function storage(): Storage | null {
   }
 }
 
+function session(): Storage | null {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
 async function main(): Promise<void> {
   const prefs = new Prefs(storage());
   const saves = new SaveStore();
@@ -27,11 +37,33 @@ async function main(): Promise<void> {
   await photos.init();
 
   const root = document.getElementById('app')!;
-  // playing with friends, in a build that knows where the server is
-  const base = onlineBase();
-  const identity = new DevIdentity();
-  const api = base ? new OnlineApi(base, () => identity.get()) : null;
-  const realtime = base ? new WsRealtime(base, () => identity.get().token) : null;
+  // Playing with friends, in a build that knows where the server is: the real thing (Cognito accounts, the API and the broker on AWS) when the build has all of that, otherwise the local
+  // server of `npm run server` in development, with a made-up identity.
+  const cloud = cloudConfig();
+  const base = cloud?.api ?? onlineBase();
+  const dev = new DevIdentity();
+  const account: Account | null = cloud ? new CognitoAccount({ host: cloud.cognitoHost, clientId: cloud.cognitoClientId }, storage(), session()) : base ? dev : null;
+  // the sign-in page sends the player back with a code in the address
+  let signedInHash = '';
+  let signInFailed = false;
+  if (account instanceof CognitoAccount) {
+    const back = await account.completeSignIn(window.location.href);
+    if (back.handled) {
+      history.replaceState(null, '', window.location.pathname + (back.ok ? back.hash : ''));        // the code does not stay in the address bar
+      signedInHash = back.ok ? back.hash : '';
+      signInFailed = !back.ok;
+    }
+  }
+  const api = base && account ? new OnlineApi(base, () => account.token()) : null;
+  const realtime: Realtime | null =
+    cloud && account && api
+      ? new IotRealtime({ endpoint: cloud.iotEndpoint, authorizer: cloud.iotAuthorizer }, account, async (room) => {
+          const res = await api.getRoom(room);
+          return res.ok ? 'member' : res.error === 'offline' || res.error === 'sign-in' ? 'unknown' : 'not-member';
+        })
+      : base
+        ? new WsRealtime(base, () => dev.get().token)
+        : null;
   const play = new PlayScreen({
     prefs,
     photos,
@@ -42,13 +74,13 @@ async function main(): Promise<void> {
     photoAdded: (id) => void library.photoAdded(id),
   });
   const panel: OnlinePanel | null =
-    api && realtime
+    api && realtime && account
       ? new OnlinePanel({
           prefs,
           photos,
           api,
           realtime,
-          identity,
+          identity: account,
           chosen: (): PhotoEntry | undefined => library.chosenPhoto,
           onPlay: (room, invite) => {
             library.hide();
@@ -111,10 +143,13 @@ async function main(): Promise<void> {
   if (import.meta.env.DEV) Object.assign(window, { __play: play, __library: library });        // for poking at the game from the console while developing
   await library.load();
   // a link to a puzzle (https://.../#/join/12345~secret) joins it
-  const link = window.location.hash;
+  const link = signedInHash || window.location.hash;
   if (panel && parseInvite(link)) {
     history.replaceState(null, '', window.location.pathname + window.location.search);        // the secret does not stay in the address bar
-    void panel.join(link);
+    if (account?.who()) void panel.join(link);
+    else panel.needSignIn(link);                                                              // the link comes with the player to the sign-in page and back
+  } else if (panel && signInFailed) {
+    panel.notice('Signing in did not work. Please try again.');
   }
 }
 

@@ -273,6 +273,11 @@ describe('live', () => {
     dev.hasResourceProperties('AWS::Logs::LogGroup', { RetentionInDays: 30 });
   });
 
+  it('says where the broker is, for the build of the game', () => {
+    dev.hasResourceProperties('Custom::AWS', { Create: Match.stringLikeRegexp('"service":"Iot".*"action":"describeEndpoint".*iot:Data-ATS') });
+    expect(Object.keys(dev.findOutputs('*')).sort()).toEqual(['AuthorizerFunction', 'AuthorizerName', 'IotEndpoint', 'PresenceFunction']);
+  });
+
   it('has an authorizer of its own for each stage', () => {
     stack(app(), 'PuzzleVidio-prod-Live').hasResourceProperties('AWS::IoT::Authorizer', { AuthorizerName: 'puzzlevidio-prod' });
   });

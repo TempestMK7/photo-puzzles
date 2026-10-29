@@ -55,6 +55,18 @@ jobs:
           npx cdk deploy "PuzzleVidio-$STAGE-*" --require-approval never \
             -c "hostedZoneId=$CTX_ZONE" -c "alertEmail=$CTX_EMAIL" -c "googleClientId=$CTX_GOOGLE_ID" -c "googleSecretName=$CTX_GOOGLE_SECRET"
 
+      # Where everything is, from what the stacks said, goes into the build of the game (none of it is secret: it is in the page that every visitor gets).
+      - name: Find where everything is
+        run: |
+          out() { aws cloudformation describe-stacks --stack-name "PuzzleVidio-$STAGE-$1" --query "Stacks[0].Outputs[?OutputKey=='$2'].OutputValue" --output text; }
+          {
+            echo "VITE_ONLINE_URL=$(out Api Address)"
+            echo "VITE_IOT_ENDPOINT=$(out Live IotEndpoint)"
+            echo "VITE_IOT_AUTHORIZER=$(out Live AuthorizerName)"
+            echo "VITE_COGNITO_HOST=$(out Auth SignInHost)"
+            echo "VITE_COGNITO_CLIENT_ID=$(out Auth ClientId)"
+          } >> "$GITHUB_ENV"
+
       - name: Build the game
         run: npm run build
 
