@@ -69,6 +69,9 @@ export const apiDomain = (stage: Stage, zoneName: string): string => `api.${site
 /** What the gateway lets through before it answers 429: requests per second on average, and in a burst. Raise it when there are many players. */
 export const API_THROTTLE: Record<Stage, { rate: number; burst: number }> = { dev: { rate: 20, burst: 40 }, prod: { rate: 1000, burst: 2000 } };
 
+/** The name of the broker's custom authorizer: the game puts it in the address it connects to (`x-amz-customauthorizer-name`). */
+export const liveAuthorizerName = (stage: Stage): string => `puzzlevidio-${stage}`;
+
 /** The topic that alarms are sent to (made by the Ops stack, found by name by the others). */
 export const ALARM_TOPIC_NAME = 'puzzlevidio-alarms';
 

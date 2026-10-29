@@ -13,6 +13,7 @@ hosted zone: the account is whatever the credentials running `cdk` belong to, an
 | `PuzzleVidio-<stage>-Data` | the DynamoDB table (rooms, codes, members, creations; on-demand, with expiry) and the private bucket for pictures |
 | `PuzzleVidio-<stage>-Auth` | the Cognito user pool: e-mail and password, and Google when configured, by the OAuth code flow without a client secret |
 | `PuzzleVidio-<stage>-Api` | the HTTP API at `api.<the game's address>` (certificate, record, throttle, CORS), the Lambda function that runs the room service, the key that signs picture-upload addresses (Secrets Manager), the function that deletes a room's picture when its item leaves the table, a month of logs and alarms to the alarm topic |
+| `PuzzleVidio-<stage>-Live` | the live side of a room on IoT Core: the broker's custom authorizer (checks the Cognito token and that the player is in the room; one policy per connection), the function that keeps who is online from the broker's connect / disconnect events, a month of logs and alarms |
 | `PuzzleVidio-<stage>-Web` | the game's files: private bucket, CloudFront, certificate and the records in the hosted zone |
 
 `<stage>` is `dev` (served at `dev.puzzlevid.io`, may be thrown away, its sign-in also allows `http://localhost:5173`) or `prod` (`puzzlevid.io`, its data is kept when a stack is deleted).

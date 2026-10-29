@@ -37,3 +37,38 @@ case. Connection time is 8 cents per million minutes: a thousand players for an 
 
 **To settle once something is deployed** (two hours, not half a day): a round trip from a phone on mobile data to a laptop through IoT Core, the size of our MQTT client, and whether the custom authorizer is fast enough on a
 cold start (it runs once per connection, not per message). If any of those looks bad, try AppSync Events the same way.
+
+## How it is wired (built, and checked against the real broker in dev)
+
+**The connection.** A game opens a WebSocket to the account's IoT endpoint (`wss://<endpoint>/mqtt?x-amz-customauthorizer-name=puzzlevidio-<stage>&token=<Cognito ID token>&room=<room id>`, subprotocol `mqtt`) and
+connects under the name `<room>:<player id>:<one per connection>` (`liveClientId` in `src/online/protocol.ts`). A browser cannot set headers on a WebSocket, which is why the token and the room are in the address;
+the token lasts an hour. One connection per room: the game connects when it opens a room, which matches `Realtime.connect(roomId)`.
+
+**Who may do what** (`server/src/aws/authorizer.ts`, a Lambda that IoT calls when a connection opens and again every 10 minutes while it stays). It checks the token itself (`jwt.ts`: RS256 against the pool's keys,
+issuer, app client, "ID token", not expired), reads who is in the room (one `GetItem`), and answers with a policy for that room alone:
+
+| | allowed |
+|---|---|
+| connect | the client name `<room>:<player>:*`, with the player the token says |
+| subscribe / receive | `puzzle/<room>/events` and `puzzle/<room>/hand/+` |
+| publish | `puzzle/<room>/hand/<player>`, the player's own hand, and nothing else (so nobody can speak as the server on `events`) |
+
+A player who leaves (or is removed) loses the connection at the next check, and every connection is dropped after an hour; the game connects again with a fresh token.
+
+**Who is online** (`presence.ts`). The broker publishes `$aws/events/presence/connected|disconnected/<client name>` for every connection in the account (on by default). A topic rule hands them to a function that
+keeps one item per connection (`ONLINE#<player>#<connection>`, two hours at most if a "disconnected" is lost) and publishes `{ t: 'presence', ... }` on the room's events topic: for every connect, and for a
+disconnect only when it was the player's last. The rule sees the connections of every deployment in the account (dev and the real one share a broker), so the function ignores names of rooms that its own table does not have.
+
+**What the first real run showed** (a hand-written MQTT 3.1.1 client from Node, real Cognito tokens, the dev account):
+- All of the above worked as designed: a member gets in; a player who is not in the room, a forged token and a connection under someone else's name do not; publishing as the server, publishing on another player's hand,
+  listening to another room and to `puzzle/#` are all refused (the broker drops the connection); presence is written, said to the room, and two tabs of one player count as one.
+- IoT turns an authorizer's answer down unless `refreshAfterInSeconds` and `disconnectAfterInSeconds` are more than 5 minutes, **in a "no" as well**: a first version answered a refusal with zeros and was rejected as
+  invalid. There is a test for it now.
+- A refusal looks like a WebSocket that closes (code 1005) before the CONNACK, the same as a lost network. The game cannot tell them apart from the connection alone: when it keeps failing it should ask the API for the room
+  (which says 403 or 404) before it says "you are not in this room".
+- The authorizer's warm answer takes about 50 ms (median of ten calls); the slowest was about 1 s, a cold start (about 340 ms) plus its first look at the pool's keys, and a connection pays that at most once.
+  The presence function takes about 90 ms. Both use well under 150 MB.
+- Signing is off on the authorizer (a browser cannot sign an address), so anyone can ask IoT to call it; the function gives nothing to a call without a good token, but each call costs a Lambda run, and a WAF does not
+  stand in front of the broker. Keep an eye on the invocation count of the authorizer.
+
+**Still not measured:** a round trip from a phone on mobile data to a laptop, and the size of the game's own MQTT client (not written yet). If either looks bad, AppSync Events is the second choice, as above.

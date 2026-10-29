@@ -3,6 +3,7 @@ import { ApiStack } from './api-stack';
 import { AuthStack } from './auth-stack';
 import { REGION, STAGES, apiDomain, settings, siteDomain, siteOrigins, stackName } from './config';
 import { DataStack } from './data-stack';
+import { LiveStack } from './live-stack';
 import { OpsStack } from './ops-stack';
 import { WebStack } from './web-stack';
 
@@ -36,6 +37,7 @@ export function build(app: App): void {
       pool: auth.pool,
       client: auth.client,
     });
+    new LiveStack(app, stackName(stage, 'Live'), { env, stage, table: data.table, pool: auth.pool, client: auth.client });
   }
 
   Tags.of(app).add('app', 'puzzlevidio');

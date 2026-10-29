@@ -159,6 +159,18 @@ export const topics = {
   hands: (room: string) => `puzzle/${room}/hand/+`,
 } as const;
 
+/**
+ * The name a game gives its connection to a room's broker: `<room>:<player>:<one connection>`. The cloud's policy only lets a player connect under a name that starts with their own
+ * room and id (so it is checked, not trusted), and the function that tells who is online reads the room and the player back from the name. The last part is different for every
+ * connection, so that two tabs of one player do not throw each other out.
+ */
+export const liveClientId = (room: string, player: string, connection: string): string => `${room}:${player}:${connection}`;
+
+export function parseLiveClientId(clientId: string): { room: string; player: string; connection: string } | undefined {
+  const m = /^([\w-]{1,64}):([\w-]{1,128}):([\w-]{1,32})$/.exec(clientId);
+  return m ? { room: m[1], player: m[2], connection: m[3] } : undefined;
+}
+
 /** Where the piece in hand is right now. It is not part of the board: it only moves the piece on the screens of the others until a `drop` says where it ended. */
 export interface HandMessage {
   /** A piece of the group in hand. */

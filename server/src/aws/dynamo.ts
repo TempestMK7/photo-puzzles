@@ -50,6 +50,18 @@ export class DynamoStore implements Store {
     return Item ? (JSON.parse(Item.body as string) as RoomRecord) : undefined;
   }
 
+  /**
+   * Who is in a room, for the live side to check before it lets a player listen to it (reading the whole record, which can be 100 KB, would be a waste). Nothing if there is
+   * no such room or it has run out.
+   */
+  async membersOf(roomId: string): Promise<string[] | undefined> {
+    const { Item } = await this.db.send(
+      new GetCommand({ TableName: this.table, Key: roomKey(roomId), ConsistentRead: true, ProjectionExpression: '#m, #e', ExpressionAttributeNames: { '#m': 'members', '#e': 'expiresAt' } }),
+    );
+    if (!Item || (Item.expiresAt as number) <= this.clock.now()) return undefined;
+    return Item.members as string[];
+  }
+
   async putRoom(room: RoomRecord): Promise<boolean> {
     const members = room.members.map((m) => m.id);
     let prev: Stored | undefined;
@@ -208,7 +220,10 @@ export class DynamoStore implements Store {
   }
 }
 
-/** Who is connected to a room, kept as one item per player. The live side (see the IoT presence function) writes them; the service reads. */
+/**
+ * Who is connected to a room, kept as one item per connection (`ONLINE#<player>#<connection>`: a player can have the room open in two places). The live side (the IoT presence
+ * function) writes them; the service reads. A player is online while any of their connections is.
+ */
 export class DynamoPresence implements Presence {
   /** An entry that nobody takes back (a lost "disconnected") goes after this. */
   static readonly KEEP_MS = 2 * HOUR;
@@ -219,23 +234,35 @@ export class DynamoPresence implements Presence {
     private readonly clock: Clock,
   ) {}
 
-  async online(roomId: string): Promise<string[]> {
+  private async entries(roomId: string, prefix: string): Promise<{ sk: string }[]> {
     const { Items } = await this.db.send(
       new QueryCommand({
         TableName: this.table,
+        ConsistentRead: true,
         KeyConditionExpression: 'pk = :pk AND begins_with(sk, :on)',
         FilterExpression: '#ttl > :now',
         ExpressionAttributeNames: { '#ttl': 'ttl' },
-        ExpressionAttributeValues: { ':pk': `ROOM#${roomId}`, ':on': 'ONLINE#', ':now': seconds(this.clock.now()) },
+        ExpressionAttributeValues: { ':pk': `ROOM#${roomId}`, ':on': prefix, ':now': seconds(this.clock.now()) },
       }),
     );
-    return (Items ?? []).map((it: { sk: string }) => (it.sk as string).slice('ONLINE#'.length));
+    return Items ?? [];
   }
 
-  async set(roomId: string, playerId: string, online: boolean): Promise<void> {
-    const key = { pk: `ROOM#${roomId}`, sk: `ONLINE#${playerId}` };
-    if (online) await this.db.send(new PutCommand({ TableName: this.table, Item: { ...key, ttl: seconds(this.clock.now() + DynamoPresence.KEEP_MS) } }));
-    else await this.db.send(new DeleteCommand({ TableName: this.table, Key: key }));
+  async online(roomId: string): Promise<string[]> {
+    const items = await this.entries(roomId, 'ONLINE#');
+    return [...new Set(items.map((it) => it.sk.slice('ONLINE#'.length).split('#')[0]))];
+  }
+
+  async connected(roomId: string, playerId: string, connection: string): Promise<void> {
+    const item = { pk: `ROOM#${roomId}`, sk: `ONLINE#${playerId}#${connection}`, ttl: seconds(this.clock.now() + DynamoPresence.KEEP_MS) };
+    await this.db.send(new PutCommand({ TableName: this.table, Item: item }));
+  }
+
+  /** True if that was the player's last connection to the room (so they are not online any more). */
+  async disconnected(roomId: string, playerId: string, connection: string): Promise<boolean> {
+    await this.db.send(new DeleteCommand({ TableName: this.table, Key: { pk: `ROOM#${roomId}`, sk: `ONLINE#${playerId}#${connection}` } }));
+    // read after the delete, and consistently: of two connections that end together, the one that deletes last sees none left and says so
+    return (await this.entries(roomId, `ONLINE#${playerId}#`)).length === 0;
   }
 }
 

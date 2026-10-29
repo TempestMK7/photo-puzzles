@@ -46,7 +46,8 @@ export class AuthStack extends Stack {
     const returns = props.origins.map((o) => `${o}/`);
     this.client = this.pool.addClient('Game', {
       generateSecret: false,
-      authFlows: { userSrp: true },
+      // The test stage also allows the "admin" sign-in, which only someone with AWS credentials can use (it is signed with them): it lets a script make a token for a test user.
+      authFlows: { userSrp: true, adminUserPassword: !prod },
       oAuth: {
         flows: { authorizationCodeGrant: true },
         scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
