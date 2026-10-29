@@ -1,6 +1,7 @@
 import { Tags, type App } from 'aws-cdk-lib';
+import { ApiStack } from './api-stack';
 import { AuthStack } from './auth-stack';
-import { REGION, STAGES, settings, siteDomain, siteOrigins, stackName } from './config';
+import { REGION, STAGES, apiDomain, settings, siteDomain, siteOrigins, stackName } from './config';
 import { DataStack } from './data-stack';
 import { OpsStack } from './ops-stack';
 import { WebStack } from './web-stack';
@@ -14,14 +15,27 @@ export function build(app: App): void {
 
   for (const stage of STAGES) {
     const origins = siteOrigins(stage, s.zoneName);
-    new DataStack(app, stackName(stage, 'Data'), { env, stage, origins });
-    new AuthStack(app, stackName(stage, 'Auth'), {
+    const data = new DataStack(app, stackName(stage, 'Data'), { env, stage, origins });
+    const auth = new AuthStack(app, stackName(stage, 'Auth'), {
       env,
       stage,
       origins,
       google: s.googleClientId && s.googleSecretName ? { clientId: s.googleClientId, secretName: s.googleSecretName } : undefined,
     });
     new WebStack(app, stackName(stage, 'Web'), { env, stage, zoneName: s.zoneName, hostedZoneId: s.hostedZoneId, domain: siteDomain(stage, s.zoneName) });
+    new ApiStack(app, stackName(stage, 'Api'), {
+      env,
+      stage,
+      zoneName: s.zoneName,
+      hostedZoneId: s.hostedZoneId,
+      domain: apiDomain(stage, s.zoneName),
+      webDomain: siteDomain(stage, s.zoneName),
+      origins,
+      table: data.table,
+      media: data.media,
+      pool: auth.pool,
+      client: auth.client,
+    });
   }
 
   Tags.of(app).add('app', 'puzzlevidio');

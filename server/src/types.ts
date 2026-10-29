@@ -78,7 +78,7 @@ export interface PubSub {
 
 export interface Presence {
   /** The ids of the members connected to a room right now. */
-  online(roomId: string): string[];
+  online(roomId: string): string[] | Promise<string[]>;
 }
 
 export interface Clock {

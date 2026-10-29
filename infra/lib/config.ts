@@ -63,6 +63,15 @@ export function siteOrigins(stage: Stage, zoneName: string): string[] {
   return [`https://${siteDomain(stage, zoneName)}`, ...(stage === 'dev' ? ['http://localhost:5173'] : [])];
 }
 
+/** The address of the API: `api.` in front of the game's own address. */
+export const apiDomain = (stage: Stage, zoneName: string): string => `api.${siteDomain(stage, zoneName)}`;
+
+/** What the gateway lets through before it answers 429: requests per second on average, and in a burst. Raise it when there are many players. */
+export const API_THROTTLE: Record<Stage, { rate: number; burst: number }> = { dev: { rate: 20, burst: 40 }, prod: { rate: 1000, burst: 2000 } };
+
+/** The topic that alarms are sent to (made by the Ops stack, found by name by the others). */
+export const ALARM_TOPIC_NAME = 'puzzlevidio-alarms';
+
 export const stackName = (stage: Stage | 'shared', part: string): string => `PuzzleVidio-${stage}-${part}`;
 
 /** The role that GitHub Actions takes, by name so that the stacks can attach to it without depending on each other. */

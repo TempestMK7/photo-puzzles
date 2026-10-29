@@ -1,3 +1,4 @@
+import { Signer } from './signing';
 import type { Clock, Media, PubSub, Random, RoomRecord, Store } from './types';
 
 /** Everything in memory: for the tests and for the local server (which forgets it all when it stops). */
@@ -53,43 +54,30 @@ export class MemoryStore implements Store {
   }
 }
 
-const enc = new TextEncoder();
-
-/** An HMAC of a text, as hex: how the local server signs the addresses of pictures (S3 will do this itself). */
-async function sign(key: Uint8Array, text: string): Promise<string> {
-  const k = await crypto.subtle.importKey('raw', key as BufferSource, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', k, enc.encode(text)));
-  return [...mac].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
 export class MemoryMedia implements Media {
   private files = new Map<string, { bytes: Uint8Array; type: string }>();
 
+  private readonly signer: Signer;
+
   constructor(
     private readonly base: string,
-    private readonly key: Uint8Array,
-    private readonly clock: Clock,
-    private readonly lifeMs = 10 * 60 * 1000,
-  ) {}
-
-  private async address(roomId: string, what: 'put' | 'get'): Promise<string> {
-    const exp = this.clock.now() + this.lifeMs;
-    const sig = await sign(this.key, `${what}:${roomId}:${exp}`);
-    return `${this.base}/media/${encodeURIComponent(roomId)}?exp=${exp}&sig=${sig}`;
+    key: Uint8Array,
+    clock: Clock,
+    lifeMs = 10 * 60 * 1000,
+  ) {
+    this.signer = new Signer(key, clock, lifeMs);
   }
 
   uploadUrl(roomId: string): Promise<string> {
-    return this.address(roomId, 'put');
+    return this.signer.address(this.base, roomId, 'put');
   }
 
   signedUrl(roomId: string): Promise<string> {
-    return this.address(roomId, 'get');
+    return this.signer.address(this.base, roomId, 'get');
   }
 
-  /** Whether an address (what is after the `?`) is one this media made for that purpose and has not run out. */
-  async allows(roomId: string, what: 'put' | 'get', exp: string | null, sig: string | null): Promise<boolean> {
-    if (!exp || !sig || !(Number(exp) > this.clock.now())) return false;
-    return (await sign(this.key, `${what}:${roomId}:${exp}`)) === sig;
+  allows(roomId: string, what: 'put' | 'get', exp: string | null, sig: string | null): Promise<boolean> {
+    return this.signer.allows(roomId, what, exp, sig);
   }
 
   async put(roomId: string, bytes: Uint8Array, type: string): Promise<void> {

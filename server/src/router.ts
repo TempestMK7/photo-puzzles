@@ -1,5 +1,4 @@
 import type { CommandRequest, CreateRoomRequest, JoinRequest, ApiError } from '../../src/online/protocol';
-import type { MemoryMedia } from './memory';
 import type { RoomService } from './service';
 import type { Auth, Player } from './types';
 
@@ -11,6 +10,8 @@ export interface Req {
   /** The `Authorization` header, if any. */
   authorization?: string;
   body: Uint8Array;
+  /** Already signed in (the cloud's gateway checks the token before the request gets here): no `Authorization` header is looked at then. */
+  player?: Player;
 }
 
 export interface Res {
@@ -55,7 +56,13 @@ export class DevAuth implements Auth {
   }
 }
 
-export function createRouter(d: { service: RoomService; auth: Auth; media: MemoryMedia }): (req: Req) => Promise<Res> {
+/** What the router needs to know about pictures: whether an address is one the service made. The local server also serves the pictures itself; the cloud's pictures come from S3. */
+export interface MediaGate {
+  allows(roomId: string, what: 'put' | 'get', exp: string | null, sig: string | null): Promise<boolean>;
+  get?(roomId: string): { bytes: Uint8Array; type: string } | undefined;
+}
+
+export function createRouter(d: { service: RoomService; auth: Auth; media: MediaGate }): (req: Req) => Promise<Res> {
   const { service, auth, media } = d;
   const reply = (r: { ok: boolean; error?: ApiError }): Res => ({ status: r.ok ? 200 : STATUS[r.error!] ?? 400, body: r });
   const json = <T>(req: Req): T | null => {
@@ -80,14 +87,14 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Memor
       }
       if (req.method === 'GET') {
         if (!(await media.allows(id, 'get', req.query.get('exp'), req.query.get('sig')))) return { status: 403, body: { ok: false, error: 'unauthorized' } };
-        const file = media.get(id);
+        const file = media.get?.(id);
         return file ? { status: 200, body: file.bytes, type: file.type } : { status: 404, body: { ok: false, error: 'not-found' } };
       }
       return { status: 405, body: { ok: false, error: 'bad-request' } };
     }
 
     const token = /^Bearer (.+)$/.exec(req.authorization ?? '')?.[1];
-    const player = token ? await auth.verify(token) : null;
+    const player = req.player ?? (token ? await auth.verify(token) : null);
     if (!player) return { status: 401, body: { ok: false, error: 'unauthorized' } };
 
     if (parts[0] === 'join' && req.method === 'POST') {

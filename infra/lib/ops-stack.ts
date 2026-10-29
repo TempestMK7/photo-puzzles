@@ -4,7 +4,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import type { Construct } from 'constructs';
-import { DEPLOY_ROLE_NAME } from './config';
+import { ALARM_TOPIC_NAME, DEPLOY_ROLE_NAME } from './config';
 
 export interface OpsStackProps extends StackProps {
   budgetUsd: number;
@@ -24,7 +24,7 @@ export class OpsStack extends Stack {
   constructor(scope: Construct, id: string, props: OpsStackProps) {
     super(scope, id, props);
 
-    this.alarms = new sns.Topic(this, 'Alarms', { displayName: 'PuzzleVidio alarms' });
+    this.alarms = new sns.Topic(this, 'Alarms', { topicName: ALARM_TOPIC_NAME, displayName: 'PuzzleVidio alarms' });
     if (props.alertEmail) this.alarms.addSubscription(new subscriptions.EmailSubscription(props.alertEmail));
 
     if (props.alertEmail) {
