@@ -313,6 +313,29 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       expect(w.media.has(made.roomId)).toBe(false);
     });
 
+    it('lets the owner send a player out: they lose their hold and the room, everyone is told, and they can come back with the link unless it was renewed', async () => {
+      const made = await open(w);
+      const room = await joined(w, made, bob);
+      await joined(w, made, cy);
+      const [a] = [...new JigsawRoom(room.settings, room.state).board.game.groups.values()].filter((x) => !x.anchored);
+      await w.service.command(bob, made.roomId, { protocol: PROTOCOL_VERSION, command: { t: 'grab', piece: a.members[0] } });
+      expect(await w.service.removeMember(bob, made.roomId, cy.id)).toMatchObject({ ok: false, error: 'unauthorized' });        // only the owner
+      expect(await w.service.removeMember(ann, made.roomId, ann.id)).toMatchObject({ ok: false, error: 'bad-request' });        // not themselves
+      expect(await w.service.removeMember(ann, made.roomId, 'nobody')).toMatchObject({ ok: false, error: 'not-found' });
+      expect((await w.service.removeMember(ann, made.roomId, bob.id)).ok).toBe(true);
+      const now = await w.service.getRoom(ann, made.roomId);
+      expect(now.ok && [now.room.members.map((m) => m.id), now.room.state.lock]).toEqual([['ann', 'cy'], null]);
+      expect(w.messages(made.roomId)).toContainEqual({ t: 'removed', id: 'bob' });
+      expect(await w.service.getRoom(bob, made.roomId)).toMatchObject({ ok: false, error: 'not-found' });
+      expect(await w.service.listRooms(bob)).toEqual({ ok: true, rooms: [] });
+      expect((await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret })).ok).toBe(true);
+      expect((await w.service.removeMember(ann, made.roomId, bob.id)).ok).toBe(true);
+      const fresh = await w.service.regenerateInvite(ann, made.roomId);
+      expect(fresh.ok).toBe(true);
+      expect((await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret })).ok).toBe(false);        // the old link is dead
+      if (fresh.ok) expect((await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: fresh.invite.code, secret: fresh.invite.secret })).ok).toBe(true);
+    });
+
     it('lets only the owner close a room, and tells everyone', async () => {
       const made = await open(w);
       await joined(w, made, bob);

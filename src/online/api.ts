@@ -120,6 +120,11 @@ export class OnlineApi implements RoomApi {
     return this.call('POST', `/rooms/${encodeURIComponent(id)}/invite`, {});
   }
 
+  /** The owner sends a player out of the puzzle. */
+  removeMember(id: string, who: string): Promise<{ ok: true } | ApiFailure | Offline> {
+    return this.call('POST', `/rooms/${encodeURIComponent(id)}/members/${encodeURIComponent(who)}/remove`, {});
+  }
+
   answerKnock(id: string, who: string, allow: boolean): Promise<{ ok: true } | ApiFailure | Offline> {
     return this.call('POST', `/rooms/${encodeURIComponent(id)}/knock/${encodeURIComponent(who)}`, { allow });
   }

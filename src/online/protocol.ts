@@ -216,6 +216,8 @@ export type RoomMessage =
   | ({ t: 'event' } & RoomEvent)
   | { t: 'joined'; member: Member }
   | { t: 'left'; id: string }
+  /** The owner sent a member out (the member's own game goes back to the main screen). */
+  | { t: 'removed'; id: string }
   /** A member's game connected to the room or lost it. */
   | { t: 'presence'; id: string; online: boolean }
   /** Someone asked to join with the code and a member has to say yes or no. */

@@ -193,6 +193,17 @@ describe.each(stores)('guests and names on %s', (_name, makeStore) => {
       expect(got.body.room.members[0].name).toBe('Annie');
     });
 
+    it('sends a player out of a puzzle through the router, and only for the owner', async () => {
+      const { w, call, guests } = setup();
+      const made = await open(w, { id: 'ann1', name: 'Annie' });
+      const g = await guests.issue();
+      await w.service.join({ id: g.id, name: 'Zed', guest: true }, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret });
+      expect((await call('POST', `/rooms/${made.roomId}/members/${g.id}/remove`, g.token)).status).toBe(403);
+      expect((await call('POST', `/rooms/${made.roomId}/members/${g.id}/remove`, ann)).status).toBe(200);
+      expect((await call('GET', `/rooms/${made.roomId}`, g.token)).status).toBe(404);
+      expect((await call('POST', `/rooms/${made.roomId}/members/${g.id}`, ann)).status).toBe(404);
+    });
+
     it('makes a puzzle through the router too', async () => {
       const { call } = setup();
       const r = await call('POST', '/rooms', ann, request());

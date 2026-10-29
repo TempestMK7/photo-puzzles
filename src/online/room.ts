@@ -25,7 +25,7 @@ export class OnlineRoom {
   online: Set<string>;
   status: RoomStatus = 'connecting';
   /** Why the room ended, once it has. */
-  closedReason: 'owner' | 'expired' | 'solved' | null = null;
+  closedReason: 'owner' | 'expired' | 'solved' | 'removed' | null = null;
   solved: boolean;
   /** Players who knocked and wait for someone to let them in. */
   knocks: { id: string; name: string }[] = [];
@@ -205,6 +205,16 @@ export class OnlineRoom {
       case 'left':
         this.members = this.members.filter((x) => x.id !== m.id);
         this.online.delete(m.id);
+        this.changed();
+        break;
+      case 'removed':
+        if (m.id === this.me) {
+          this.closedReason = 'removed';
+          this.status = 'closed';
+        } else {
+          this.members = this.members.filter((x) => x.id !== m.id);
+          this.online.delete(m.id);
+        }
         this.changed();
         break;
       case 'presence':

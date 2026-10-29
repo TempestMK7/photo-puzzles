@@ -233,6 +233,14 @@ button.small { padding: 4px 10px; font-size: 13px; }
 .onlinebar .invite .code { font-size: 34px; font-weight: 700; letter-spacing: 0.3em; text-align: center; color: var(--accent2); }
 .onlinebar .invite input { text-transform: none; letter-spacing: normal; font-size: 12px; }
 .onlinebar .invite .buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.onlinebar .invite .qr { align-self: center; width: min(220px, 100%); border-radius: 6px; overflow: hidden; font-size: 13px; color: var(--dim); text-align: center; }
+.onlinebar .invite .qr svg { width: 100%; height: auto; display: block; }
+.onlinebar .invite .players { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--line); padding-top: 8px; }
+.onlinebar .invite .player { display: flex; align-items: center; gap: 8px; font-size: 14px; min-height: 30px; }
+.onlinebar .invite .player i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.onlinebar .invite .player .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.onlinebar .invite .player .here { font-size: 12px; color: var(--accent2); }
+.onlinebar .invite .player .ask { display: flex; gap: 6px; }
 .online [hidden] { display: none; }
 .online .who { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--dim); }
 .online .who strong { color: var(--text); }
