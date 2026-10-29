@@ -1,5 +1,6 @@
 import type { CommandRequest, CreateRoomRequest, JoinRequest, ApiError } from '../../src/online/protocol';
 import type { RoomService } from './service';
+import { clientKey, type RateLimiter } from './ratelimit';
 import type { Auth, Player } from './types';
 
 /** One request, in the terms of any web server (a Node one now, API Gateway and Lambda later). */
@@ -10,6 +11,8 @@ export interface Req {
   /** The `Authorization` header, if any. */
   authorization?: string;
   body: Uint8Array;
+  /** The address the request came from, as the gateway saw it (for the limits on how often it may do things). */
+  ip?: string;
   /** Already signed in (the cloud's gateway checks the token before the request gets here): no `Authorization` header is looked at then. */
   player?: Player;
 }
@@ -69,8 +72,8 @@ export interface GuestGate {
   verify(token: string): Promise<string | null>;
 }
 
-export function createRouter(d: { service: RoomService; auth: Auth; media: MediaGate; guests?: GuestGate }): (req: Req) => Promise<Res> {
-  const { service, auth, media, guests } = d;
+export function createRouter(d: { service: RoomService; auth: Auth; media: MediaGate; guests?: GuestGate; limiter?: RateLimiter }): (req: Req) => Promise<Res> {
+  const { service, auth, media, guests, limiter } = d;
   const reply = (r: { ok: boolean; error?: ApiError }): Res => ({ status: r.ok ? 200 : STATUS[r.error!] ?? 400, body: r });
   const json = <T>(req: Req): T | null => {
     if (req.body.length > MAX_JSON) return null;
@@ -81,6 +84,7 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
     }
   };
   const bad: Res = { status: 400, body: { ok: false, error: 'bad-request' } };
+  const slow = (windowMs: number): Res => ({ status: 429, body: { ok: false, error: 'rate-limited', retryAt: limiter!.retryAt(windowMs) } });
 
   return async (req) => {
     const parts = req.path.split('/').filter(Boolean).map(decodeURIComponent);
@@ -105,6 +109,8 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
       if (!guests) return { status: 404, body: { ok: false, error: 'not-found' } };
       const known = json<{ token?: unknown }>(req)?.token;
       const id = typeof known === 'string' ? await guests.verify(known) : null;
+      // a new guest costs us nothing to make and nothing to the one who asks, so how many an address may make is limited (renewing one is not)
+      if (!id && limiter && !(await limiter.take(`guest#${clientKey(req.ip)}`, limiter.rates.newGuests.perIp, limiter.rates.newGuests.windowMs))) return slow(limiter.rates.newGuests.windowMs);
       return { status: 200, body: { ok: true, ...(await guests.issue(id ?? undefined)) } };
     }
 
@@ -121,13 +127,24 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
     }
     if (parts[0] === 'join' && req.method === 'POST') {
       const body = json<JoinRequest>(req);
-      return body ? reply(await service.join(player, body)) : bad;
+      if (!body) return bad;
+      if (!limiter) return reply(await service.join(player, body));
+      // a code is five digits, so a script could try them all: tries that found nothing are counted, per address and per player, and when either has used up its share the next try is turned away
+      const { perIp, perPlayer, windowMs } = limiter.rates.failedJoins;
+      const ipKey = `join#${clientKey(req.ip)}`;
+      const playerKey = `join#${player.id}`;
+      if ((await limiter.spent(ipKey, perIp, windowMs)) || (await limiter.spent(playerKey, perPlayer, windowMs))) return slow(windowMs);
+      const res = await service.join(player, body);
+      if (!res.ok && (res.error === 'not-found' || res.error === 'bad-request')) await Promise.all([limiter.strike(ipKey, windowMs), limiter.strike(playerKey, windowMs)]);
+      return reply(res);
     }
     if (parts[0] !== 'rooms') return { status: 404, body: { ok: false, error: 'not-found' } };
     if (parts.length === 1) {
       if (req.method === 'POST') {
         const body = json<CreateRoomRequest>(req);
-        return body ? reply(await service.createRoom(player, body)) : bad;
+        if (!body) return bad;
+        if (limiter && !(await limiter.take(`create#${clientKey(req.ip)}`, limiter.rates.creations.perIp, limiter.rates.creations.windowMs))) return slow(limiter.rates.creations.windowMs);
+        return reply(await service.createRoom(player, body));
       }
       if (req.method === 'GET') return reply(await service.listRooms(player));
     }

@@ -2,7 +2,7 @@ import { App } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { describe, expect, it } from 'vitest';
 import { build } from '../lib/app';
-import { settings, siteDomain, siteOrigins } from '../lib/config';
+import { BUSY_ALARMS, settings, siteDomain, siteOrigins } from '../lib/config';
 
 const context = { hostedZoneId: 'ZTESTZONE', alertEmail: 'alerts@example.com', 'aws:cdk:bundling-stacks': [] };
 const app = (extra: Record<string, string> = {}) => {
@@ -236,10 +236,11 @@ describe('api', () => {
     expect(s3.length).toBeGreaterThan(0);
   });
 
-  it('tells the alarm topic when something fails', () => {
-    const alarms = Object.values(prod.findResources('AWS::CloudWatch::Alarm')).map((a) => (a as { Properties: { AlarmActions: unknown[]; MetricName: string } }).Properties);
-    expect(alarms.map((a) => a.MetricName).sort()).toEqual(['5xx', 'Errors', 'Errors', 'Throttles']);
+  it('tells the alarm topic when something fails, or when the API is asked for far more than usual', () => {
+    const alarms = Object.values(prod.findResources('AWS::CloudWatch::Alarm')).map((a) => (a as { Properties: { AlarmActions: unknown[]; MetricName: string; Threshold: number } }).Properties);
+    expect(alarms.map((a) => a.MetricName).sort()).toEqual(['5xx', 'Count', 'Errors', 'Errors', 'Throttles']);
     for (const a of alarms) expect(JSON.stringify(a.AlarmActions)).toContain('puzzlevidio-alarms');
+    expect(alarms.find((a) => a.MetricName === 'Count')!.Threshold).toBe(BUSY_ALARMS.prod.api);
   });
 });
 
@@ -275,10 +276,11 @@ describe('live', () => {
     dev.hasResourceProperties('AWS::Lambda::Permission', { Principal: 'iot.amazonaws.com', SourceAccount: Match.anyValue(), SourceArn: Match.anyValue() });
   });
 
-  it('tells the alarm topic when either function fails, and keeps a month of logs', () => {
-    const alarms = Object.values(dev.findResources('AWS::CloudWatch::Alarm')).map((a) => (a as { Properties: { AlarmActions: unknown[]; MetricName: string } }).Properties);
-    expect(alarms.map((a) => a.MetricName)).toEqual(['Errors', 'Errors']);
+  it('tells the alarm topic when either function fails or the authorizer is called far more than usual, and keeps a month of logs', () => {
+    const alarms = Object.values(dev.findResources('AWS::CloudWatch::Alarm')).map((a) => (a as { Properties: { AlarmActions: unknown[]; MetricName: string; Threshold: number } }).Properties);
+    expect(alarms.map((a) => a.MetricName).sort()).toEqual(['Errors', 'Errors', 'Invocations']);
     for (const a of alarms) expect(JSON.stringify(a.AlarmActions)).toContain('puzzlevidio-alarms');
+    expect(alarms.find((a) => a.MetricName === 'Invocations')!.Threshold).toBe(BUSY_ALARMS.dev.authorizer);
     dev.hasResourceProperties('AWS::Logs::LogGroup', { RetentionInDays: 30 });
   });
 

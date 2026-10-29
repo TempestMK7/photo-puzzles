@@ -1,5 +1,5 @@
-import { BatchGetCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand, ScanCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
-import type { Clock, Presence, RoomRecord, Store } from '../types';
+import { BatchGetCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand, ScanCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import type { Clock, Presence, RateCounter, RoomRecord, Store } from '../types';
 
 /** The part of the document client that is used, so that a test can put a fake in its place. */
 export interface Sender {
@@ -14,6 +14,7 @@ export interface Sender {
  *   PLAYER#<id>   / ROOM#<id>       a player's membership
  *   PLAYER#<id>   / CREATION#<ms>   a puzzle that was made, for the quota
  *   PLAYER#<id>   / PROFILE         the display name the player chose (with a `ttl` for a guest, who may not come back)
+ *   RATE#<key>#<n> / COUNT          how many times something happened in one window of time (see DynamoRates)
  * `ttl` (seconds) is when DynamoDB may delete an item, up to two days late: nothing here relies on that, expiry is checked when an item is read.
  */
 const roomKey = (id: string) => ({ pk: `ROOM#${id}`, sk: 'META' });
@@ -229,6 +230,36 @@ export class DynamoStore implements Store {
 
   async setName(playerId: string, name: string, until?: number): Promise<void> {
     await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: `PLAYER#${playerId}`, sk: 'PROFILE', name, ...(until === undefined ? {} : { ttl: seconds(until) }) } }));
+  }
+}
+
+/**
+ * Counts for the limits on how often an address or a player may do something: one item per key and window of time (`RATE#<key>#<window number>`), added to with one atomic update, and
+ * left for DynamoDB to delete (`ttl`) a window and a bit later. Nothing reads an old window, so the late deletion is harmless.
+ */
+export class DynamoRates implements RateCounter {
+  constructor(
+    private readonly db: Sender,
+    private readonly table: string,
+    private readonly clock: Clock,
+  ) {}
+
+  private key(key: string, windowMs: number) {
+    const n = Math.floor(this.clock.now() / windowMs);
+    return { key: { pk: `RATE#${key}#${n}`, sk: 'COUNT' }, ttl: seconds((n + 2) * windowMs) };
+  }
+
+  async add(key: string, windowMs: number): Promise<number> {
+    const { key: Key, ttl } = this.key(key, windowMs);
+    const out = await this.db.send(
+      new UpdateCommand({ TableName: this.table, Key, UpdateExpression: 'ADD #n :one SET #ttl = :ttl', ExpressionAttributeNames: { '#n': 'n', '#ttl': 'ttl' }, ExpressionAttributeValues: { ':one': 1, ':ttl': ttl }, ReturnValues: 'UPDATED_NEW' }),
+    );
+    return out.Attributes?.n as number;
+  }
+
+  async count(key: string, windowMs: number): Promise<number> {
+    const { Item } = await this.db.send(new GetCommand({ TableName: this.table, Key: this.key(key, windowMs).key, ConsistentRead: true }));
+    return (Item?.n as number | undefined) ?? 0;
   }
 }
 
