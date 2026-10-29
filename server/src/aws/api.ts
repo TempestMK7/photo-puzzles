@@ -1,3 +1,4 @@
+import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { IoTClient, DescribeEndpointCommand } from '@aws-sdk/client-iot';
 import { IoTDataPlaneClient } from '@aws-sdk/client-iot-data-plane';
@@ -14,6 +15,7 @@ import { GuestTokens, TokenAuth } from '../guest';
 import { Signer } from '../signing';
 import type { Auth, Limits } from '../types';
 import { playerFrom } from './claims';
+import { CognitoAccounts } from './cognito';
 import { DynamoPresence, DynamoRates, DynamoStore } from './dynamo';
 import { CognitoVerifier, fetchJson } from './jwt';
 import { IotPubSub } from './iot';
@@ -90,6 +92,7 @@ async function build(): Promise<(req: Req) => Promise<Res>> {
     random: new SystemRandom(),
     limits,
     webBase: need('WEB_BASE'),
+    accounts: new CognitoAccounts(new CognitoIdentityProviderClient({}), need('USER_POOL_ID')),
   });
   const limiter = new RateLimiter(new DynamoRates(db, table, systemClock), systemClock);
   return createRouter({ service, auth: new TokenAuth(guests, accounts), media, guests, limiter });

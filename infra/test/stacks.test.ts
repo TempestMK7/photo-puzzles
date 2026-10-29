@@ -184,6 +184,7 @@ describe('api', () => {
         ['POST /join', 'NONE'],
         ['GET /me', 'NONE'],
         ['PUT /me', 'NONE'],
+        ['POST /me/delete', 'NONE'],
         ['POST /guest', 'NONE'],
         ['PUT /media/{id}', 'NONE'],             // the address is signed
       ].sort(),
@@ -218,6 +219,8 @@ describe('api', () => {
     expect(iot.map((x) => actionsOf([x]).join()).sort()).toEqual(['iot:DescribeEndpoint', 'iot:Publish']);
     const publish = iot.find((x) => actionsOf([x]).includes('iot:Publish'))!;
     expect(JSON.stringify(publish.Resource)).toContain('topic/puzzle/*');
+    const pool = st.filter((x) => actionsOf([x]).some((a) => a.startsWith('cognito-idp:')));
+    expect(pool.map((x) => actionsOf([x]).join())).toEqual(['cognito-idp:AdminDeleteUser']);                // the one thing it does to the user pool
     expect(actionsOf(st)).not.toContain('*');
     expect(actionsOf(st).filter((a) => a.startsWith('secretsmanager:')).sort()).toEqual(['secretsmanager:DescribeSecret', 'secretsmanager:GetSecretValue']);
   });

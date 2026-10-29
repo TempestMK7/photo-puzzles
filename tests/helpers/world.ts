@@ -2,7 +2,7 @@ import { Rng } from '../../src/core/rng';
 import { PROTOCOL_VERSION, topics, type CreateRoomRequest, type RoomDescriptor, type RoomMessage } from '../../src/online/protocol';
 import { MemoryMedia, MemoryPubSub, MemoryStore } from '../../server/src/memory';
 import { RoomService } from '../../server/src/service';
-import type { Clock, Limits, Player, Presence, Random, Store } from '../../server/src/types';
+import type { Accounts, Clock, Limits, Player, Presence, Random, Store } from '../../server/src/types';
 
 /** A room service on memory with a clock the test moves, and the helpers to open rooms on it: shared by the tests of the server and of the game's side of a room. */
 export const DAY = 24 * 3600 * 1000;
@@ -35,14 +35,14 @@ class SeededRandom implements Random {
 /** The store a world is built on: memory unless a test says otherwise (the clock is the one the world's tests move). */
 export type MakeStore = (clock: Clock) => Store;
 
-export function world(extra: Partial<Limits> = {}, makeStore: MakeStore = () => new MemoryStore()) {
+export function world(extra: Partial<Limits> = {}, makeStore: MakeStore = () => new MemoryStore(), accounts?: Accounts) {
   const clock = { t: 1_000_000, now() { return this.t; } };
   const store = makeStore(clock);
   const pubsub = new MemoryPubSub();
   const media = new MemoryMedia('http://media.test', new Uint8Array(32).fill(7), clock);
   const online = new Set<string>();
   const presence: Presence = { online: () => [...online] };
-  const service = new RoomService({ store, media, pubsub, presence, clock, random: new SeededRandom(), limits: { ...limits, ...extra }, webBase: 'https://play.test' });
+  const service = new RoomService({ store, media, pubsub, presence, clock, random: new SeededRandom(), limits: { ...limits, ...extra }, webBase: 'https://play.test', accounts });
   const messages = (room: string): RoomMessage[] => pubsub.published.filter((p) => p.topic === topics.events(room)).map((p) => p.message as RoomMessage);
   return { clock, store, pubsub, media, service, messages, online };
 }

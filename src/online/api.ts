@@ -74,6 +74,11 @@ export class OnlineApi implements RoomApi {
     return this.call('PUT', '/me', { name });
   }
 
+  /** Ends the puzzles the player made, takes them out of the others, and deletes their name and their account. */
+  deleteAccount(): Promise<{ ok: true } | ApiFailure | Offline> {
+    return this.call('POST', '/me/delete', {});
+  }
+
   createRoom(req: Omit<CreateRoomRequest, 'protocol'>): Promise<CreateRoomResponse | ApiFailure | Offline> {
     return this.call('POST', '/rooms', { protocol: PROTOCOL_VERSION, ...req });
   }

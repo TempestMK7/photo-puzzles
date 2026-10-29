@@ -6,6 +6,7 @@ import { JigsawRoom } from '../src/core/jigsawRoom';
 import { PROTOCOL_VERSION } from '../src/online/protocol';
 import { makeHandler, playerFrom, toReq, toResult } from '../server/src/aws/api';
 import { clearPictures } from '../server/src/aws/cleanup';
+import { CognitoAccounts } from '../server/src/aws/cognito';
 import { DynamoPresence, DynamoStore } from '../server/src/aws/dynamo';
 import { IotPubSub } from '../server/src/aws/iot';
 import { mediaKey, S3Media } from '../server/src/aws/s3media';
@@ -120,6 +121,17 @@ describe('DynamoPresence', () => {
     expect(await p.online('room')).toEqual(['bob']);
     clock.t += DynamoPresence.KEEP_MS + 2000;
     expect(await p.online('room')).toEqual([]);
+  });
+});
+
+describe('CognitoAccounts', () => {
+  it("deletes the user whose sub is the player's id, from the pool it was given, and does not mind one that is gone", async () => {
+    const send = vi.fn().mockResolvedValueOnce({}).mockRejectedValueOnce(Object.assign(new Error('gone'), { name: 'UserNotFoundException' })).mockRejectedValueOnce(Object.assign(new Error('no'), { name: 'TooManyRequestsException' }));
+    const accounts = new CognitoAccounts({ send }, 'pool-1');
+    await accounts.delete('sub-1');
+    expect(send.mock.calls[0][0].input).toEqual({ UserPoolId: 'pool-1', Username: 'sub-1' });
+    await accounts.delete('sub-1');
+    await expect(accounts.delete('sub-1')).rejects.toThrow('no');
   });
 });
 

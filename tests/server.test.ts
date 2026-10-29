@@ -336,6 +336,54 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       if (fresh.ok) expect((await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: fresh.invite.code, secret: fresh.invite.secret })).ok).toBe(true);
     });
 
+    it('forgets a player who asks to go: the puzzles they made end, they leave the others, their name and quota record go, and the account is deleted last', async () => {
+      const deleted: string[] = [];
+      const x = makeWorld({ freeRoomsPerWeek: 50 }, store, { delete: async (id) => void deleted.push(id) });
+      const mine = await open(x, ann);
+      await joined(x, mine, bob);
+      const theirs = await open(x, bob);
+      await joined(x, theirs, ann);
+      await joined(x, theirs, cy);
+      await x.service.setProfile(ann, 'Annie');
+      expect(await x.service.deleteAccount(ann)).toEqual({ ok: true });
+      expect(deleted).toEqual(['ann']);
+      expect(await x.store.getRoom(mine.roomId)).toBeUndefined();                    // the one they made is gone, with its picture and its code
+      expect(x.media.has(mine.roomId)).toBe(false);
+      expect(await x.store.roomOfCode(mine.invite.code)).toBeUndefined();
+      expect(x.messages(mine.roomId).at(-1)).toEqual({ t: 'closed', reason: 'owner' });
+      const rest = await x.service.getRoom(bob, theirs.roomId);
+      expect(rest.ok && rest.room.members.map((m) => m.id)).toEqual(['bob', 'cy']);          // the other goes on without them
+      expect(x.messages(theirs.roomId)).toContainEqual({ t: 'left', id: 'ann' });
+      expect(await x.store.roomsOf('ann')).toEqual([]);
+      expect(await x.store.getName('ann')).toBeUndefined();
+      expect(await x.store.creationsSince('ann', 0)).toEqual([]);
+      expect(await x.store.creationsSince('bob', 0)).toHaveLength(1);                     // nobody else's record is touched
+      expect(await x.service.deleteAccount(ann)).toEqual({ ok: true });                  // asking again is harmless
+    });
+
+    it('says so, and has forgotten the rest, when the account cannot be deleted (asking again finishes it)', async () => {
+      let broken = true;
+      const x = makeWorld({}, store, { delete: async () => { if (broken) throw new Error('no'); } });
+      await open(x, ann);
+      expect(await x.service.deleteAccount(ann)).toMatchObject({ ok: false, error: 'busy' });
+      expect(await x.store.roomsOf('ann')).toEqual([]);
+      broken = false;
+      expect(await x.service.deleteAccount(ann)).toEqual({ ok: true });
+    });
+
+    it('does not ask the sign-in service about a guest, who has no account', async () => {
+      const deleted: string[] = [];
+      const x = makeWorld({}, store, { delete: async (id) => void deleted.push(id) });
+      const g = { id: 'gZed', name: 'Zed', guest: true };
+      const made = await open(x, ann);
+      await joined(x, made, g);
+      await x.service.setProfile(g, 'Zed');
+      expect(await x.service.deleteAccount(g)).toEqual({ ok: true });
+      expect(deleted).toEqual([]);
+      expect(await x.store.roomsOf('gZed')).toEqual([]);
+      expect(await x.store.getName('gZed')).toBeUndefined();
+    });
+
     it('lets only the owner close a room, and tells everyone', async () => {
       const made = await open(w);
       await joined(w, made, bob);

@@ -61,6 +61,11 @@ export class MemoryStore implements Store {
   async setName(playerId: string, name: string): Promise<void> {
     this.names.set(playerId, name);
   }
+
+  async forgetPlayer(playerId: string): Promise<void> {
+    this.names.delete(playerId);
+    this.creations.delete(playerId);
+  }
 }
 
 export class MemoryMedia implements Media {

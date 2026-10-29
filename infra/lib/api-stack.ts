@@ -73,6 +73,8 @@ export class ApiStack extends Stack {
     props.table.grantReadWriteData(fn);
     props.media.grantReadWrite(fn);
     props.signing.grantRead(fn);
+    // deleting an account (the player asked for it) is the one thing the function does to the user pool
+    fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['cognito-idp:AdminDeleteUser'], resources: [props.pool.userPoolArn] }));
     // what the service publishes goes to the topics of the rooms, and the address of the broker is asked for when the function starts
     fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['iot:Publish'], resources: [this.formatArn({ service: 'iot', resource: 'topic', resourceName: 'puzzle/*' })] }));
     fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['iot:DescribeEndpoint'], resources: ['*'] }));
@@ -120,7 +122,7 @@ export class ApiStack extends Stack {
     // other routes are not checked by the gateway: the function checks the token it is shown, a Cognito one or a guest's (server/src/aws/api.ts). `/guest` gives a guest their token, to
     // whoever asks. The upload of a picture has no sign-in: its address is signed.
     this.api.addRoutes({ path: '/rooms', methods: [POST], integration, authorizer: jwt });
-    for (const [path, methods] of [['/guest', [POST]], ['/me', [GET, PUT]], ['/join', [POST]], ['/rooms', [GET]], ['/rooms/{proxy+}', [GET, POST]]] as const) {
+    for (const [path, methods] of [['/guest', [POST]], ['/me', [GET, PUT]], ['/me/delete', [POST]], ['/join', [POST]], ['/rooms', [GET]], ['/rooms/{proxy+}', [GET, POST]]] as const) {
       this.api.addRoutes({ path, methods: [...methods], integration });
     }
     this.api.addRoutes({ path: '/media/{id}', methods: [PUT], integration });

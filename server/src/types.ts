@@ -66,6 +66,13 @@ export interface Store {
   getName(playerId: string): Promise<string | undefined>;
   /** `until` (ms): when it may be forgotten, for a guest, who may not come back. */
   setName(playerId: string, name: string, until?: number): Promise<void>;
+  /** Everything kept about a player but their rooms (the name, the record of puzzles made): the rooms are left or ended first. */
+  forgetPlayer(playerId: string): Promise<void>;
+}
+
+/** The sign-in service, which can be told to forget an account (Cognito in the cloud; the local server has none). */
+export interface Accounts {
+  delete(playerId: string): Promise<void>;
 }
 
 /** Counts things per key in fixed windows of time (for the limits on how often an address or a player may do something). */

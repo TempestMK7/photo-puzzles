@@ -113,7 +113,7 @@ picture as before. A long GIF takes a few seconds to convert, with the progress 
 - `src/sessions/` - one `PuzzleSession` per type (layout, drawing, pointer input) behind the interface in `types.ts`; `index.ts` says how to start each
 - `src/store/saves.ts` - unfinished puzzles (IndexedDB)
 - `src/store/photos.ts` - the photo library (samples + the player's photos and videos in IndexedDB, thumbnails, duplicates by content hash) and what a puzzle draws from (`PlaySource`)
-- `src/ui/` - `library.ts` (main screen), `play.ts` (play screen), `onlinebar.ts` (who is in an online puzzle, the invite with its QR code, sending a player out; `qr.ts` loads the QR library only when a code is shown), small DOM helpers and the type icons (drawn in code)
+- `src/ui/` - `library.ts` (main screen), `play.ts` (play screen), `onlinebar.ts` (who is in an online puzzle, the invite with its QR code, sending a player out; `online.ts` is the panel for playing with friends, with the account's sign-out and deletion; `qr.ts` loads the QR library only when a code is shown), small DOM helpers and the type icons (drawn in code)
 - `src/render.ts` - canvas drawing and the swap animation; `src/image.ts` - loading a photo (EXIF-aware, reduced to 1600 px), thumbnails, the sample pictures; `src/gif.ts` + `src/webm.ts` - animated GIF to WebM on import
 - `src/main.ts` - starts the app and switches between the two screens
 - `tests/` - Vitest

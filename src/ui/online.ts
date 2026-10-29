@@ -23,6 +23,20 @@ export interface OnlineDeps {
   onPlay(room: OnlineRoom, invite: Invite | null): void;
 }
 
+const DELETED_KEY = 'photo-puzzles/online/account-deleted';
+const DELETED_TEXT = 'Your account was deleted. The puzzles you made have ended, and you are out of the others. Your own pictures on this device are untouched.';
+
+/** Whether the page was loaded after an account was deleted (the sign-in service's sign-out page takes the player away and brings them back, so the answer waits in the session). */
+export function takeAccountDeletedNotice(): string | null {
+  try {
+    const was = window.sessionStorage.getItem(DELETED_KEY) !== null;
+    window.sessionStorage.removeItem(DELETED_KEY);
+    return was ? DELETED_TEXT : null;
+  } catch {
+    return null;
+  }
+}
+
 /** What to tell the player when the server said no. */
 export function sayError(error: CallError, failure?: { retryAt?: number }): string {
   switch (error) {
@@ -95,6 +109,8 @@ export class OnlinePanel {
   private statusEl = h('div', { class: 'status', role: 'status' });
   private listEl = h('ul', { class: 'rooms' });
   private busy = false;
+  /** The player has pressed "Delete account" and has not yet said whether they mean it. */
+  private deleting = false;
   /** Bumped by Close and by a new try: an older try that is still waiting (for a knock to be answered) gives up. */
   private attempt = 0;
 
@@ -128,6 +144,7 @@ export class OnlinePanel {
 
   open(): void {
     this.statusEl.textContent = '';
+    this.deleting = false;
     this.el.hidden = false;
     this.refreshAccount();
     void this.prepare();
@@ -168,7 +185,29 @@ export class OnlinePanel {
     const kind = s.kind();
     const who = s.who();
     const needs = s.needsName();
-    this.whoEl.replaceChildren(...(kind === 'account' && who ? [h('span', {}, 'Signed in as ', h('strong', {}, who.name)), h('button', { type: 'button', class: 'small', onclick: () => this.signOut() }, 'Sign out')] : []));
+    const parts: Node[] = [];
+    if (kind === 'account' && who) {
+      parts.push(
+        h(
+          'div',
+          { class: 'line' },
+          h('span', {}, 'Signed in as ', h('strong', {}, who.name)),
+          h('button', { type: 'button', class: 'small', onclick: () => this.signOut() }, 'Sign out'),
+          h('button', { type: 'button', class: 'small', 'aria-expanded': String(this.deleting), onclick: () => ((this.deleting = !this.deleting), this.refreshAccount()) }, 'Delete account…'),
+        ),
+      );
+      if (this.deleting) {
+        parts.push(
+          h(
+            'div',
+            { class: 'warn', role: 'alertdialog', 'aria-label': 'Delete your account' },
+            h('p', {}, 'This deletes your account for good. The puzzles you made end (and their pictures are deleted from the server), you are taken out of the puzzles you joined, and your name is forgotten. Your own pictures on this device stay.'),
+            h('div', { class: 'row' }, h('button', { type: 'button', class: 'small danger', onclick: () => void this.deleteAccount() }, 'Delete my account'), h('button', { type: 'button', class: 'small', onclick: () => ((this.deleting = false), this.refreshAccount()) }, 'Keep it')),
+          ),
+        );
+      }
+    }
+    this.whoEl.replaceChildren(...parts);
     if (document.activeElement !== this.nameInput) this.nameInput.value = s.name();
     this.nameLabel.textContent = needs ? 'Choose a display name' : 'Your name';
     this.needAccount.hidden = needs || s.canCreate() || !s.hasAccounts;
@@ -199,6 +238,27 @@ export class OnlinePanel {
   private signOut(): void {
     this.deps.identity.signOut();
     this.open();
+  }
+
+  private async deleteAccount(): Promise<void> {
+    if (this.busy) return;
+    this.setBusy(true, 'Deleting your account…');
+    const res = await this.deps.api.deleteAccount();
+    this.setBusy(false);
+    if (!res.ok) {
+      this.say(res.error === 'busy' ? 'Part of it could not be done. Press "Delete my account" again.' : sayError(res.error));
+      return;
+    }
+    // with Cognito the sign-out takes the page away and brings it back: the message is shown then
+    if (cloudConfig()) {
+      try {
+        window.sessionStorage.setItem(DELETED_KEY, '1');
+      } catch {
+        /* the message is only lost */
+      }
+    }
+    this.signOut();
+    this.say(DELETED_TEXT);
   }
 
   close(): void {
