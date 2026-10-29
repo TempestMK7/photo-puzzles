@@ -47,6 +47,10 @@ export function sayError(error: CallError, failure?: { retryAt?: number }): stri
     case 'full':
       return 'That puzzle is full.';
     case 'rate-limited':
+      if (failure?.retryAt) {
+        const minutes = Math.max(1, Math.ceil((failure.retryAt - Date.now()) / 60_000));
+        return `Too many tries from here. Wait ${minutes} minute${minutes === 1 ? '' : 's'} and try again.`;
+      }
       return 'Too many tries. Wait a little.';
     case 'knock-denied':
       return 'They did not let you in.';

@@ -78,6 +78,7 @@ The token is an account's (a Cognito ID token) or a guest's. **A guest can join 
 - `GET /me` -> `{ id, name, guest }`; `name` is nothing until the player has chosen one. `PUT /me` `{ name }` -> the same: the name the other players see (at most 24 characters, no control characters).
 
 - `POST /rooms` `CreateRoomRequest` -> the room id, a signed upload address for the picture, and the invite (`code`, `secret`, `link`). The request must say `consent: true`. The picture then goes by `PUT` to that address (JPEG or PNG, at most a few MB, and the size the puzzle was made for, or the room is thrown away); only then can anyone join (`not-ready` before).
+- **Limits per address:** `POST /guest` (a new guest), `POST /join` (after tries at a code that found nothing, per address and per player) and `POST /rooms` answer `429` `rate-limited` with `retryAt` (when the window ends) once an address has used up its share. See `DEFAULT_RATES` in `server/src/ratelimit.ts`. The local server has no limits.
 - `POST /join` `{ code, secret? }` -> `RoomDescriptor`. With the secret (the link) the player is in at once. With only the code the room publishes a `knock` and a member answers.
 - `GET /rooms` -> the player's rooms (`RoomSummary`). `GET /rooms/{id}` -> `RoomDescriptor`.
 - `POST /rooms/{id}/command` `Command` -> `{ ok, event }` or a refusal. `POST /rooms/{id}/renew`.

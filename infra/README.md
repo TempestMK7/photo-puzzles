@@ -22,8 +22,8 @@ The code of the functions is in `../server/src/aws/` and is bundled from there (
 A player sends the picture **through the API** (an address that the service signed), and the service looks at the bytes before it puts them in the bucket; Lambda takes about 6 MB in a request, so a picture is
 limited to 4 MB (the game sends at most 1600 px on a side). Members read the picture straight from S3 through a signed address.
 
-Not here yet: the live messages' side in AWS (IoT Core, chosen in `../docs/online-realtime.md`: its authorizer and policy, and the function that records who is connected), the web firewall, and reserved
-concurrency for the functions (a new account's limit may be too low to reserve any).
+Not here yet: reserved concurrency for the functions (a new account's limit may be too low to reserve any). There is no web firewall: AWS WAF cannot be attached to an HTTP API, so the limits per address are in the
+API function (`../server/src/ratelimit.ts`, counted in the table), and two alarms (`BUSY_ALARMS` in `lib/config.ts`) say when the API or the broker's authorizer is called far more than usual.
 
 ## Trying it without an account
 

@@ -10,7 +10,7 @@ import type * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as cr from 'aws-cdk-lib/custom-resources';
 import type { Construct } from 'constructs';
-import { ALARM_TOPIC_NAME, liveAuthorizerName, type Stage } from './config';
+import { ALARM_TOPIC_NAME, BUSY_ALARMS, liveAuthorizerName, type Stage } from './config';
 import { functionDefaults, logGroup, repo } from './lambda';
 
 export interface LiveStackProps extends StackProps {
@@ -77,10 +77,10 @@ export class LiveStack extends Stack {
     });
     presence.addPermission('FromRule', { principal: new iam.ServicePrincipal('iot.amazonaws.com'), sourceArn: rule.attrArn, sourceAccount: this.account });
 
-    const alarm = (name: string, fn: nodejs.NodejsFunction, description: string) => {
+    const alarm = (name: string, metric: cloudwatch.IMetric, threshold: number, description: string) => {
       const a = new cloudwatch.Alarm(this, name, {
-        metric: fn.metricErrors({ period: Duration.minutes(5), statistic: 'Sum' }),
-        threshold: 1,
+        metric,
+        threshold,
         evaluationPeriods: 1,
         comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
         treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
@@ -88,8 +88,11 @@ export class LiveStack extends Stack {
       });
       a.addAlarmAction(new actions.SnsAction(alarms));
     };
-    alarm('AuthorizerErrors', authorizer, 'The broker authorizer threw an error: players cannot join the live side of a room');
-    alarm('PresenceErrors', presence, 'The presence function threw an error: who is online may be wrong');
+    const five = Duration.minutes(5);
+    alarm('AuthorizerErrors', authorizer.metricErrors({ period: five, statistic: 'Sum' }), 1, 'The broker authorizer threw an error: players cannot join the live side of a room');
+    alarm('PresenceErrors', presence.metricErrors({ period: five, statistic: 'Sum' }), 1, 'The presence function threw an error: who is online may be wrong');
+    // every connection to the broker costs one call, and the broker is open to the internet: a count far above what players need is worth a look
+    alarm('AuthorizerBusy', authorizer.metricInvocations({ period: five, statistic: 'Sum' }), BUSY_ALARMS[props.stage].authorizer, 'The broker authorizer is being called much more than usual (a script? a launch?)');
 
     // The broker's address is made by AWS for the account and cannot be known when the template is written: it is asked for once, and said as an output (like the other stacks' outputs),
     // so that the build of the game can be given it.

@@ -1,5 +1,5 @@
 import { Signer } from './signing';
-import type { Clock, Media, PubSub, Random, RoomRecord, Store } from './types';
+import type { Clock, Media, PubSub, RateCounter, Random, RoomRecord, Store } from './types';
 
 /** Everything in memory: for the tests and for the local server (which forgets it all when it stops). */
 export class MemoryStore implements Store {
@@ -119,6 +119,28 @@ export class MemoryPubSub implements PubSub {
   listen(fn: (topic: string, message: unknown) => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
+  }
+}
+
+/** Counts in fixed windows (the windows are those of the clock, as in DynamoDB: a new one starts at every multiple of its length). */
+export class MemoryRates implements RateCounter {
+  private counts = new Map<string, number>();
+
+  constructor(private readonly clock: Clock) {}
+
+  private slot(key: string, windowMs: number): string {
+    return `${key}#${Math.floor(this.clock.now() / windowMs)}`;
+  }
+
+  async add(key: string, windowMs: number): Promise<number> {
+    const k = this.slot(key, windowMs);
+    const n = (this.counts.get(k) ?? 0) + 1;
+    this.counts.set(k, n);
+    return n;
+  }
+
+  async count(key: string, windowMs: number): Promise<number> {
+    return this.counts.get(this.slot(key, windowMs)) ?? 0;
   }
 }
 

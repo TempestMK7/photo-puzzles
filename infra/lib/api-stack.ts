@@ -17,7 +17,7 @@ import type * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import type { Construct } from 'constructs';
-import { ALARM_TOPIC_NAME, API_THROTTLE, type Stage } from './config';
+import { ALARM_TOPIC_NAME, API_THROTTLE, BUSY_ALARMS, type Stage } from './config';
 import { functionDefaults, logGroup, repo } from './lambda';
 
 export interface ApiStackProps extends StackProps {
@@ -144,6 +144,7 @@ export class ApiStack extends Stack {
     alarm('ApiErrors', fn.metricErrors({ period: five, statistic: 'Sum' }), 1, 'The API function threw an error');
     alarm('ApiThrottles', fn.metricThrottles({ period: five, statistic: 'Sum' }), 1, 'The API function was throttled (its concurrency ran out)');
     alarm('CleanupErrors', cleanup.metricErrors({ period: five, statistic: 'Sum' }), 1, 'Deleting the pictures of ended rooms failed');
+    alarm('ApiBusy', this.api.metricCount({ period: five, statistic: 'Sum' }), BUSY_ALARMS[props.stage].api, 'The API is being asked for much more than usual (a script? a launch?)');
     alarm('Gateway5xx', this.api.metricServerError({ period: five, statistic: 'Sum' }), 5, 'The API answered with server errors');
 
     new CfnOutput(this, 'Address', { value: `https://${props.domain}` });

@@ -7,13 +7,14 @@ import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
 import { DEFAULT_LIMITS } from '../../../src/online/protocol';
 import { SystemRandom, systemClock } from '../memory';
+import { RateLimiter } from '../ratelimit';
 import { createRouter, type Req, type Res } from '../router';
 import { RoomService } from '../service';
 import { GuestTokens, TokenAuth } from '../guest';
 import { Signer } from '../signing';
 import type { Auth, Limits } from '../types';
 import { playerFrom } from './claims';
-import { DynamoPresence, DynamoStore } from './dynamo';
+import { DynamoPresence, DynamoRates, DynamoStore } from './dynamo';
 import { CognitoVerifier, fetchJson } from './jwt';
 import { IotPubSub } from './iot';
 import { S3Media } from './s3media';
@@ -33,6 +34,7 @@ export function toReq(event: APIGatewayProxyEventV2WithJWTAuthorizer): Req {
     path: event.rawPath,
     query: new URLSearchParams(event.rawQueryString),
     authorization: event.headers?.authorization,
+    ip: event.requestContext.http.sourceIp,
     body: new Uint8Array(body),
     player: playerFrom(event.requestContext.authorizer?.jwt?.claims),
   };
@@ -89,7 +91,8 @@ async function build(): Promise<(req: Req) => Promise<Res>> {
     limits,
     webBase: need('WEB_BASE'),
   });
-  return createRouter({ service, auth: new TokenAuth(guests, accounts), media, guests });
+  const limiter = new RateLimiter(new DynamoRates(db, table, systemClock), systemClock);
+  return createRouter({ service, auth: new TokenAuth(guests, accounts), media, guests, limiter });
 }
 
 let router: Promise<(req: Req) => Promise<Res>> | undefined;

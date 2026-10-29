@@ -68,6 +68,14 @@ export interface Store {
   setName(playerId: string, name: string, until?: number): Promise<void>;
 }
 
+/** Counts things per key in fixed windows of time (for the limits on how often an address or a player may do something). */
+export interface RateCounter {
+  /** Counts one more in the current window and says how many there are now. */
+  add(key: string, windowMs: number): Promise<number>;
+  /** How many there are in the current window so far. */
+  count(key: string, windowMs: number): Promise<number>;
+}
+
 export interface Media {
   /** A short-lived address the creator uploads the picture to. */
   uploadUrl(roomId: string): Promise<string>;

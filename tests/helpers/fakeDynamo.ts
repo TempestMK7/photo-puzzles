@@ -63,11 +63,20 @@ export class FakeDynamo implements Sender {
     const key = this.id(input.Key);
     const item = this.items.get(key);
     if (!this.holds(input.ConditionExpression, item, input)) throw error('ConditionalCheckFailedException');
-    const m = /^SET (#?\w+) = (:\w+)$/.exec(input.UpdateExpression);
-    if (!m) throw new Error(`update not understood: ${input.UpdateExpression}`);
     // like the real thing, an update makes the item if there is none
-    const next = { ...(item ?? input.Key), [this.name(input, m[1])]: this.value(input, m[2]) };
+    const set = /^SET (#?\w+) = (:\w+)$/.exec(input.UpdateExpression);
+    if (set) {
+      const next = { ...(item ?? input.Key), [this.name(input, set[1])]: this.value(input, set[2]) };
+      this.items.set(key, next);
+      return next;
+    }
+    // a counter: `ADD n :one SET ttl = :ttl`
+    const add = /^ADD (#?\w+) (:\w+) SET (#?\w+) = (:\w+)$/.exec(input.UpdateExpression);
+    if (!add) throw new Error(`update not understood: ${input.UpdateExpression}`);
+    const n = this.name(input, add[1]);
+    const next = { ...(item ?? input.Key), [n]: ((item?.[n] as number | undefined) ?? 0) + (this.value(input, add[2]) as number), [this.name(input, add[3])]: this.value(input, add[4]) };
     this.items.set(key, next);
+    return next;
   }
 
   private delete(input: { Key: Item }) {
@@ -110,9 +119,11 @@ export class FakeDynamo implements Sender {
       case 'PutCommand':
         this.put(input);
         return {};
-      case 'UpdateCommand':
-        this.update(input);
-        return {};
+      case 'UpdateCommand': {
+        const next = this.update(input);
+        if (input.ReturnValues && input.ReturnValues !== 'UPDATED_NEW') throw new Error(`ReturnValues not understood: ${input.ReturnValues}`);
+        return input.ReturnValues ? { Attributes: structuredClone(next) } : {};
+      }
       case 'DeleteCommand':
         this.delete(input);
         return {};

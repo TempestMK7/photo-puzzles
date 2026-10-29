@@ -179,7 +179,7 @@ describe('the API function', () => {
       headers: o.headers ?? {},
       isBase64Encoded: binary,
       body: binary ? Buffer.from(o.body as Uint8Array).toString('base64') : (o.body as string | undefined),
-      requestContext: { http: { method: o.method ?? 'GET' }, authorizer: o.claims ? { jwt: { claims: o.claims, scopes: [] } } : undefined },
+      requestContext: { http: { method: o.method ?? 'GET', sourceIp: '203.0.113.7' }, authorizer: o.claims ? { jwt: { claims: o.claims, scopes: [] } } : undefined },
     } as unknown as APIGatewayProxyEventV2WithJWTAuthorizer;
   };
   const setup = () => {
@@ -201,7 +201,7 @@ describe('the API function', () => {
 
   it('turns an event into a request, and an answer into a result', () => {
     const req = toReq(event({ method: 'PUT', path: '/media/r1', query: 'exp=5&sig=ab', body: new Uint8Array([1, 2, 3]) }));
-    expect(req).toMatchObject({ method: 'PUT', path: '/media/r1', player: undefined });
+    expect(req).toMatchObject({ method: 'PUT', path: '/media/r1', player: undefined, ip: '203.0.113.7' });        // the address the gateway saw, for the limits
     expect(req.query.get('sig')).toBe('ab');
     expect([...req.body]).toEqual([1, 2, 3]);
     expect(toResult({ status: 200, body: { ok: true } })).toEqual({ statusCode: 200, body: '{"ok":true}', headers: { 'content-type': 'application/json' } });
