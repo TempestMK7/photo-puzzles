@@ -3,6 +3,7 @@ import { layoutJigsaw } from '../../src/core/jigsaw';
 import { findKind, optionsOf } from '../../src/core/kinds';
 import { Rng } from '../../src/core/rng';
 import {
+  cleanName,
   inviteLink,
   normalizeCode,
   PROTOCOL_VERSION,
@@ -18,6 +19,7 @@ import {
   type JoinRequest,
   type JoinResponse,
   type Member,
+  type MeResponse,
   type RoomDescriptor,
   type RoomMessage,
   type RoomSettings,
@@ -40,6 +42,8 @@ export interface Deps {
 
 const WEEK = 7 * 24 * 3600 * 1000;
 const COLORS = 8;
+/** A guest's chosen name is kept this long after it was last set (a little longer than their token lasts). */
+const GUEST_NAME_KEEP_MS = 100 * 24 * 3600 * 1000;
 const fail = (error: ApiError, extra: Partial<ApiFailure> = {}): ApiFailure => ({ ok: false, error, ...extra });
 
 async function sha256(text: string): Promise<string> {
@@ -69,14 +73,37 @@ export function checkSettings(raw: RoomSettings, limits: Limits): RoomSettings |
 export class RoomService {
   constructor(private readonly d: Deps) {}
 
+  // ---------------------------------------------------------------------------------------------------------------- who the player is
+
+  /** What the server knows about the player: the name they chose, if they have. (The token only says who they are.) */
+  async profile(player: Player): Promise<MeResponse> {
+    return { ok: true, id: player.id, name: (await this.d.store.getName(player.id)) ?? null, guest: player.guest === true };
+  }
+
+  async setProfile(player: Player, name: unknown): Promise<MeResponse | ApiFailure> {
+    const clean = cleanName(name);
+    if (!clean) return fail('bad-request');
+    await this.d.store.setName(player.id, clean, player.guest ? this.d.clock.now() + GUEST_NAME_KEEP_MS : undefined);
+    return this.profile(player);
+  }
+
+  /** The player as the others see them: with the name they chose, if they chose one, and otherwise the name that came with the token. */
+  private async named(player: Player): Promise<Player> {
+    const name = await this.d.store.getName(player.id);
+    return name ? { ...player, name } : player;
+  }
+
   // ---------------------------------------------------------------------------------------------------------------- making a room
 
-  async createRoom(player: Player, req: CreateRoomRequest): Promise<CreateRoomResponse | ApiFailure> {
+  async createRoom(who: Player, req: CreateRoomRequest): Promise<CreateRoomResponse | ApiFailure> {
     const { store, clock, random, limits } = this.d;
+    // a guest may join puzzles but not make them (the cloud's gateway turns a guest's token away before it gets here; this is for any server that does not)
+    if (who.guest) return fail('account-required');
     if (req?.protocol !== PROTOCOL_VERSION) return fail('update-required', { protocol: PROTOCOL_VERSION });
     if (req.consent !== true) return fail('bad-request');
     const settings = checkSettings(req.settings, limits);
     if ('ok' in settings) return settings;
+    const player = await this.named(who);
     const now = clock.now();
     const recent = (await store.creationsSince(player.id, now - WEEK)).sort((a, b) => a - b);
     if (recent.length >= limits.freeRoomsPerWeek) return fail('quota', { retryAt: recent[recent.length - limits.freeRoomsPerWeek] + WEEK });
@@ -135,10 +162,11 @@ export class RoomService {
 
   // ---------------------------------------------------------------------------------------------------------------- joining
 
-  async join(player: Player, req: JoinRequest): Promise<JoinResponse> {
+  async join(who: Player, req: JoinRequest): Promise<JoinResponse> {
     if (req?.protocol !== PROTOCOL_VERSION) return fail('update-required', { protocol: PROTOCOL_VERSION });
     const code = normalizeCode(String(req.code ?? ''));
     if (!code) return fail('bad-request');
+    const player = await this.named(who);
     const id = await this.d.store.roomOfCode(code);
     const room = id ? await this.live(id) : undefined;
     if (!room) return fail('not-found');

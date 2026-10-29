@@ -4,10 +4,12 @@ import { PhotoLibrary } from './store/photos';
 import { OnlineApi } from './online/api';
 import { CognitoAccount } from './online/cognito';
 import { cloudConfig, onlineBase } from './online/config';
-import { DevIdentity, type Account } from './online/identity';
+import { GuestAccount } from './online/guestAccount';
+import { DevAccount, DevIdentity, type Account } from './online/identity';
 import { IotRealtime } from './online/iotRealtime';
 import { parseInvite } from './online/protocol';
 import { WsRealtime, type Realtime } from './online/realtime';
+import { OnlineSession } from './online/session';
 import { SaveStore } from './store/saves';
 import type { PhotoEntry } from './store/photos';
 import { LibraryScreen } from './ui/library';
@@ -42,27 +44,31 @@ async function main(): Promise<void> {
   const cloud = cloudConfig();
   const base = cloud?.api ?? onlineBase();
   const dev = new DevIdentity();
-  const account: Account | null = cloud ? new CognitoAccount({ host: cloud.cognitoHost, clientId: cloud.cognitoClientId }, storage(), session()) : base ? dev : null;
+  // the way to sign in: Cognito in the cloud, the made-up identity (which can be signed out, to play as a guest) on a developer's machine
+  const accountSource: Account | null = cloud ? new CognitoAccount({ host: cloud.cognitoHost, clientId: cloud.cognitoClientId }, storage(), session()) : base ? new DevAccount(dev) : null;
   // the sign-in page sends the player back with a code in the address
   let signedInHash = '';
   let signInFailed = false;
-  if (account instanceof CognitoAccount) {
-    const back = await account.completeSignIn(window.location.href);
+  if (accountSource instanceof CognitoAccount) {
+    const back = await accountSource.completeSignIn(window.location.href);
     if (back.handled) {
       history.replaceState(null, '', window.location.pathname + (back.ok ? back.hash : ''));        // the code does not stay in the address bar
       signedInHash = back.ok ? back.hash : '';
       signInFailed = !back.ok;
     }
   }
-  const api = base && account ? new OnlineApi(base, () => account.token()) : null;
+  // who is playing: the account, or else a guest (who may join puzzles but not make them), or nobody yet
+  const player = new OnlineSession(accountSource, new GuestAccount(base, storage()), storage());
+  const api = base ? new OnlineApi(base, () => player.token(), () => player.signInLost()) : null;
+  if (api) player.attach(api);
   const realtime: Realtime | null =
-    cloud && account && api
-      ? new IotRealtime({ endpoint: cloud.iotEndpoint, authorizer: cloud.iotAuthorizer }, account, async (room) => {
+    cloud && api
+      ? new IotRealtime({ endpoint: cloud.iotEndpoint, authorizer: cloud.iotAuthorizer }, player, async (room) => {
           const res = await api.getRoom(room);
           return res.ok ? 'member' : res.error === 'offline' || res.error === 'sign-in' ? 'unknown' : 'not-member';
         })
       : base
-        ? new WsRealtime(base, () => dev.get().token)
+        ? new WsRealtime(base, () => player.token())
         : null;
   const play = new PlayScreen({
     prefs,
@@ -74,13 +80,13 @@ async function main(): Promise<void> {
     photoAdded: (id) => void library.photoAdded(id),
   });
   const panel: OnlinePanel | null =
-    api && realtime && account
+    api && realtime
       ? new OnlinePanel({
           prefs,
           photos,
           api,
           realtime,
-          identity: account,
+          identity: player,
           chosen: (): PhotoEntry | undefined => library.chosenPhoto,
           onPlay: (room, invite) => {
             library.hide();
@@ -144,10 +150,12 @@ async function main(): Promise<void> {
   await library.load();
   // a link to a puzzle (https://.../#/join/12345~secret) joins it
   const link = signedInHash || window.location.hash;
+  if (panel && player.kind() === 'account' && parseInvite(link)) await player.refreshProfile();        // to know whether the account has a name before deciding to ask
   if (panel && parseInvite(link)) {
     history.replaceState(null, '', window.location.pathname + window.location.search);        // the secret does not stay in the address bar
-    if (account?.who()) void panel.join(link);
-    else panel.needSignIn(link);                                                              // the link comes with the player to the sign-in page and back
+    // someone who has not chosen a name is asked before they show up in a puzzle; anyone else (an account, or a guest who has) goes straight in
+    if (player.nameChosen()) void panel.join(link);
+    else panel.confirmJoin(link);
   } else if (panel && signInFailed) {
     panel.notice('Signing in did not work. Please try again.');
   }

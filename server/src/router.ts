@@ -38,6 +38,7 @@ const STATUS: Record<ApiError, number> = {
   'not-holder': 409,
   'no-group': 409,
   ended: 409,
+  'account-required': 403,
 };
 
 const MAX_JSON = 64 * 1024;
@@ -62,8 +63,14 @@ export interface MediaGate {
   get?(roomId: string): { bytes: Uint8Array; type: string } | undefined;
 }
 
-export function createRouter(d: { service: RoomService; auth: Auth; media: MediaGate }): (req: Req) => Promise<Res> {
-  const { service, auth, media } = d;
+/** Whoever asks for a guest token gets one: that is the whole point (a guest has no account). Asking again with a token that is still good gives a new one for the same guest. */
+export interface GuestGate {
+  issue(id?: string): Promise<{ token: string; id: string; expiresAt: number }>;
+  verify(token: string): Promise<string | null>;
+}
+
+export function createRouter(d: { service: RoomService; auth: Auth; media: MediaGate; guests?: GuestGate }): (req: Req) => Promise<Res> {
+  const { service, auth, media, guests } = d;
   const reply = (r: { ok: boolean; error?: ApiError }): Res => ({ status: r.ok ? 200 : STATUS[r.error!] ?? 400, body: r });
   const json = <T>(req: Req): T | null => {
     if (req.body.length > MAX_JSON) return null;
@@ -93,10 +100,25 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
       return { status: 405, body: { ok: false, error: 'bad-request' } };
     }
 
+    // a guest token, for someone with no account (and, with a token that is still good, a fresh one for the same guest)
+    if (parts[0] === 'guest' && parts.length === 1 && req.method === 'POST') {
+      if (!guests) return { status: 404, body: { ok: false, error: 'not-found' } };
+      const known = json<{ token?: unknown }>(req)?.token;
+      const id = typeof known === 'string' ? await guests.verify(known) : null;
+      return { status: 200, body: { ok: true, ...(await guests.issue(id ?? undefined)) } };
+    }
+
     const token = /^Bearer (.+)$/.exec(req.authorization ?? '')?.[1];
     const player = req.player ?? (token ? await auth.verify(token) : null);
     if (!player) return { status: 401, body: { ok: false, error: 'unauthorized' } };
 
+    if (parts[0] === 'me' && parts.length === 1) {
+      if (req.method === 'GET') return reply(await service.profile(player));
+      if (req.method === 'PUT' || req.method === 'POST') {
+        const body = json<{ name?: unknown }>(req);
+        return body ? reply(await service.setProfile(player, body.name)) : bad;
+      }
+    }
     if (parts[0] === 'join' && req.method === 'POST') {
       const body = json<JoinRequest>(req);
       return body ? reply(await service.join(player, body)) : bad;

@@ -7,6 +7,7 @@ import type {
   Invite,
   JoinRequest,
   JoinResponse,
+  MeResponse,
   RoomDescriptor,
   RoomSummary,
 } from './protocol';
@@ -41,6 +42,8 @@ export class OnlineApi implements RoomApi {
     private readonly base: string,
     /** What to send as the token: nothing when nobody is signed in. */
     private readonly token: () => Promise<string | null> | string | null,
+    /** Called when the server does not know the token any more (a guest's, whose key changed, say). */
+    private readonly signInLost?: () => void,
   ) {}
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T | Offline> {
@@ -52,11 +55,23 @@ export class OnlineApi implements RoomApi {
         body: body === undefined ? undefined : JSON.stringify(body),
       });
       // the gateway says 401 (with a body of its own) when the token is not good: the player has to sign in again
-      if (res.status === 401) return { ok: false, error: 'sign-in' };
+      if (res.status === 401) {
+        this.signInLost?.();
+        return { ok: false, error: 'sign-in' };
+      }
       return (await res.json()) as T;
     } catch {
       return { ok: false, error: 'offline' };
     }
+  }
+
+  /** What the server knows about the player: the name they chose, if they have. */
+  me(): Promise<MeResponse | ApiFailure | Offline> {
+    return this.call('GET', '/me');
+  }
+
+  setName(name: string): Promise<MeResponse | ApiFailure | Offline> {
+    return this.call('PUT', '/me', { name });
   }
 
   createRoom(req: Omit<CreateRoomRequest, 'protocol'>): Promise<CreateRoomResponse | ApiFailure | Offline> {

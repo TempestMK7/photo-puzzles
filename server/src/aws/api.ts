@@ -9,16 +9,19 @@ import { DEFAULT_LIMITS } from '../../../src/online/protocol';
 import { SystemRandom, systemClock } from '../memory';
 import { createRouter, type Req, type Res } from '../router';
 import { RoomService } from '../service';
+import { GuestTokens, TokenAuth } from '../guest';
 import { Signer } from '../signing';
-import type { Limits } from '../types';
+import type { Auth, Limits } from '../types';
 import { playerFrom } from './claims';
 import { DynamoPresence, DynamoStore } from './dynamo';
+import { CognitoVerifier, fetchJson } from './jwt';
 import { IotPubSub } from './iot';
 import { S3Media } from './s3media';
 
 /**
- * The API as a Lambda function behind an API Gateway HTTP API. The gateway has already checked the sign-in token (a Cognito ID token) on every route but the picture upload, so
- * the function only turns a request into the router's terms and the answer back.
+ * The API as a Lambda function behind an API Gateway HTTP API. Making a puzzle needs an account, so the gateway has already checked the Cognito ID token on that route (and the function
+ * is given who it is). Every other route (joining a puzzle, the player's name, the guest token itself) is also open to guests: the function checks the token it is shown, a Cognito one or a
+ * guest's. The picture upload has no sign-in at all (its address is signed).
  */
 
 export { playerFrom };
@@ -63,7 +66,11 @@ const need = (name: string): string => {
 async function build(): Promise<(req: Req) => Promise<Res>> {
   const secret = await new SecretsManagerClient({}).send(new GetSecretValueCommand({ SecretId: need('SIGNING_SECRET_ARN') }));
   if (!secret.SecretString) throw new Error('The signing secret is empty');
-  const signer = new Signer(new TextEncoder().encode(secret.SecretString), systemClock);
+  const key = new TextEncoder().encode(secret.SecretString);
+  const signer = new Signer(key, systemClock);
+  const guests = new GuestTokens(key, systemClock);
+  const cognito = new CognitoVerifier(`https://cognito-idp.${need('AWS_REGION')}.amazonaws.com/${need('USER_POOL_ID')}`, need('CLIENT_ID'), fetchJson, systemClock);
+  const accounts: Auth = { verify: async (token) => playerFrom(await cognito.verify(token)) ?? null };
   const endpoint = (await new IoTClient({}).send(new DescribeEndpointCommand({ endpointType: 'iot:Data-ATS' }))).endpointAddress;
   if (!endpoint) throw new Error('IoT has no endpoint');
 
@@ -82,8 +89,7 @@ async function build(): Promise<(req: Req) => Promise<Res>> {
     limits,
     webBase: need('WEB_BASE'),
   });
-  // Every route but the upload is signed in by the gateway; this auth is only asked when a request arrives without a player, which the gateway does not let through.
-  return createRouter({ service, auth: { verify: async () => null }, media });
+  return createRouter({ service, auth: new TokenAuth(guests, accounts), media, guests });
 }
 
 let router: Promise<(req: Req) => Promise<Res>> | undefined;

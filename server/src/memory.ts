@@ -6,6 +6,7 @@ export class MemoryStore implements Store {
   private rooms = new Map<string, RoomRecord>();
   private codes = new Map<string, string>();
   private creations = new Map<string, number[]>();
+  private names = new Map<string, string>();
 
   async getRoom(id: string): Promise<RoomRecord | undefined> {
     const r = this.rooms.get(id);
@@ -51,6 +52,14 @@ export class MemoryStore implements Store {
 
   async addCreation(playerId: string, at: number): Promise<void> {
     this.creations.set(playerId, [...(this.creations.get(playerId) ?? []), at]);
+  }
+
+  async getName(playerId: string): Promise<string | undefined> {
+    return this.names.get(playerId);
+  }
+
+  async setName(playerId: string, name: string): Promise<void> {
+    this.names.set(playerId, name);
   }
 }
 

@@ -44,8 +44,8 @@ cold start (it runs once per connection, not per message). If any of those looks
 connects under the name `<room>:<player id>:<one per connection>` (`liveClientId` in `src/online/protocol.ts`). A browser cannot set headers on a WebSocket, which is why the token and the room are in the address;
 the token lasts an hour. One connection per room: the game connects when it opens a room, which matches `Realtime.connect(roomId)`.
 
-**Who may do what** (`server/src/aws/authorizer.ts`, a Lambda that IoT calls when a connection opens and again every 10 minutes while it stays). It checks the token itself (`jwt.ts`: RS256 against the pool's keys,
-issuer, app client, "ID token", not expired), reads who is in the room (one `GetItem`), and answers with a policy for that room alone:
+**Who may do what** (`server/src/aws/authorizer.ts`, a Lambda that IoT calls when a connection opens and again every 10 minutes while it stays). It checks the token itself (an account's: `jwt.ts`, RS256 against the pool's keys,
+issuer, app client, "ID token", not expired; a guest's: `guest.ts`, our own signature, not expired), reads who is in the room (one `GetItem`), and answers with a policy for that room alone:
 
 | | allowed |
 |---|---|

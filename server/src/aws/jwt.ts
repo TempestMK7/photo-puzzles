@@ -6,6 +6,13 @@ export type FetchJson = (url: string) => Promise<unknown>;
 /** The keys of a user pool are looked at again no sooner than this, whatever the tokens say, so that a stream of made-up key ids cannot make the function ask Cognito all day. */
 const REFETCH_MS = 60_000;
 
+/** Fetches a JSON document from an address (the pool's keys). */
+export const fetchJson: FetchJson = async (url) => {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${url}: ${r.status}`);
+  return r.json();
+};
+
 const part = (text: string): unknown => JSON.parse(Buffer.from(text, 'base64url').toString('utf8'));
 
 /**

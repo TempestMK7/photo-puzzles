@@ -1,6 +1,7 @@
 import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import type { Construct } from 'constructs';
 import type { Stage } from './config';
 
@@ -17,6 +18,8 @@ export interface DataStackProps extends StackProps {
 export class DataStack extends Stack {
   readonly table: dynamodb.Table;
   readonly media: s3.Bucket;
+  /** The key that signs what only this deployment may make: the addresses for uploading pictures, and the tokens of guests. */
+  readonly signingKey: secretsmanager.Secret;
 
   constructor(scope: Construct, id: string, props: DataStackProps) {
     super(scope, id, props);
@@ -28,6 +31,7 @@ export class DataStack extends Stack {
     //   CODE#<digits> / CODE            a code and the room it opens
     //   PLAYER#<id>   / ROOM#<id>       a player's membership (the list "my online puzzles")
     //   PLAYER#<id>   / CREATION#<t>    a puzzle that was made, for the quota
+    //   PLAYER#<id>   / PROFILE         the display name the player chose
     // `ttl` (seconds) is when DynamoDB may delete an item. The service also checks expiry itself, because deletion can come up to two days late.
     this.table = new dynamodb.Table(this, 'Table', {
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
@@ -57,6 +61,9 @@ export class DataStack extends Stack {
       removalPolicy: removal,
       autoDeleteObjects: !prod,
     });
+
+    // made here (and not by the API) because the broker's authorizer must be able to tell a guest's token too; read by the functions when they start, never put in a template or a log
+    this.signingKey = new secretsmanager.Secret(this, 'SigningKey', { generateSecretString: { passwordLength: 48, excludePunctuation: true }, removalPolicy: removal });
 
     new CfnOutput(this, 'TableName', { value: this.table.tableName });
     new CfnOutput(this, 'MediaBucket', { value: this.media.bucketName });

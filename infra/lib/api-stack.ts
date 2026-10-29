@@ -1,4 +1,4 @@
-import { Arn, CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
+import { Arn, CfnOutput, Duration, Stack, type StackProps } from 'aws-cdk-lib';
 import * as apigw from 'aws-cdk-lib/aws-apigatewayv2';
 import * as authorizers from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
@@ -32,6 +32,8 @@ export interface ApiStackProps extends StackProps {
   origins: string[];
   table: dynamodb.ITable;
   media: s3.IBucket;
+  /** The key that signs picture addresses and guest tokens (made in the Data stack). */
+  signing: secretsmanager.ISecret;
   pool: cognito.IUserPool;
   client: cognito.IUserPoolClient;
 }
@@ -45,13 +47,8 @@ export class ApiStack extends Stack {
 
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
-    const prod = props.stage === 'prod';
-    const removal = prod ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY;
     const zone = route53.HostedZone.fromHostedZoneAttributes(this, 'Zone', { hostedZoneId: props.hostedZoneId, zoneName: props.zoneName });
     const alarms = sns.Topic.fromTopicArn(this, 'Alarms', Arn.format({ service: 'sns', resource: ALARM_TOPIC_NAME }, this));
-
-    // the key that signs the addresses for uploading pictures; made here, read by the function when it starts, and never in a template or a log
-    const signing = new secretsmanager.Secret(this, 'UploadKey', { generateSecretString: { passwordLength: 48, excludePunctuation: true }, removalPolicy: removal });
 
     const common = functionDefaults;
 
@@ -66,14 +63,16 @@ export class ApiStack extends Stack {
         ...common.environment,
         TABLE_NAME: props.table.tableName,
         MEDIA_BUCKET: props.media.bucketName,
-        SIGNING_SECRET_ARN: signing.secretArn,
+        SIGNING_SECRET_ARN: props.signing.secretArn,
+        USER_POOL_ID: props.pool.userPoolId,
+        CLIENT_ID: props.client.userPoolClientId,
         API_BASE: `https://${props.domain}`,
         WEB_BASE: `https://${props.webDomain}`,
       },
     });
     props.table.grantReadWriteData(fn);
     props.media.grantReadWrite(fn);
-    signing.grantRead(fn);
+    props.signing.grantRead(fn);
     // what the service publishes goes to the topics of the rooms, and the address of the broker is asked for when the function starts
     fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['iot:Publish'], resources: [this.formatArn({ service: 'iot', resource: 'topic', resourceName: 'puzzle/*' })] }));
     fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['iot:DescribeEndpoint'], resources: ['*'] }));
@@ -117,8 +116,12 @@ export class ApiStack extends Stack {
 
     const integration = new integrations.HttpLambdaIntegration('Service', fn);
     const { GET, POST, PUT } = apigw.HttpMethod;
-    for (const [path, methods] of [['/join', [POST]], ['/rooms', [GET, POST]], ['/rooms/{proxy+}', [GET, POST]]] as const) {
-      this.api.addRoutes({ path, methods: [...methods], integration, authorizer: jwt });
+    // Making a puzzle needs an account: the gateway turns away anything but a Cognito ID token there (and a guest's token is not one). Joining and playing are open to guests as well, so the
+    // other routes are not checked by the gateway: the function checks the token it is shown, a Cognito one or a guest's (server/src/aws/api.ts). `/guest` gives a guest their token, to
+    // whoever asks. The upload of a picture has no sign-in: its address is signed.
+    this.api.addRoutes({ path: '/rooms', methods: [POST], integration, authorizer: jwt });
+    for (const [path, methods] of [['/guest', [POST]], ['/me', [GET, PUT]], ['/join', [POST]], ['/rooms', [GET]], ['/rooms/{proxy+}', [GET, POST]]] as const) {
+      this.api.addRoutes({ path, methods: [...methods], integration });
     }
     this.api.addRoutes({ path: '/media/{id}', methods: [PUT], integration });
 

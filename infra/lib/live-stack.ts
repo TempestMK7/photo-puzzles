@@ -6,6 +6,7 @@ import type * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as iot from 'aws-cdk-lib/aws-iot';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
+import type * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as cr from 'aws-cdk-lib/custom-resources';
 import type { Construct } from 'constructs';
@@ -17,6 +18,8 @@ export interface LiveStackProps extends StackProps {
   table: dynamodb.ITable;
   pool: cognito.IUserPool;
   client: cognito.IUserPoolClient;
+  /** The key that signs guest tokens (made in the Data stack). */
+  signing: secretsmanager.ISecret;
 }
 
 /**
@@ -38,10 +41,11 @@ export class LiveStack extends Stack {
       memorySize: 256,
       timeout: Duration.seconds(10),
       logGroup: logGroup(this, 'AuthorizerLogs'),
-      environment: { ...common.environment, USER_POOL_ID: props.pool.userPoolId, CLIENT_ID: props.client.userPoolClientId, TABLE_NAME: props.table.tableName },
+      environment: { ...common.environment, USER_POOL_ID: props.pool.userPoolId, CLIENT_ID: props.client.userPoolClientId, TABLE_NAME: props.table.tableName, SIGNING_SECRET_ARN: props.signing.secretArn },
     });
-    // it reads one item (who is in the room) and nothing else
+    // it reads one item (who is in the room) and nothing else, and the key that tells a guest's token
     authorizer.addToRolePolicy(new iam.PolicyStatement({ actions: ['dynamodb:GetItem'], resources: [props.table.tableArn] }));
+    props.signing.grantRead(authorizer);
 
     // Signing is off because a browser cannot sign a WebSocket address; the function checks the Cognito token itself, so a call with no good token gets nothing.
     const registered = new iot.CfnAuthorizer(this, 'Registered', { authorizerName: liveAuthorizerName(props.stage), authorizerFunctionArn: authorizer.functionArn, signingDisabled: true, status: 'ACTIVE' });

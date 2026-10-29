@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { DEFAULT_LIMITS, topics, type RoomMessage } from '../../src/online/protocol';
+import { GuestTokens, TokenAuth } from './guest';
 import { MemoryMedia, MemoryPubSub, MemoryStore, SystemRandom, systemClock } from './memory';
 import { createRouter, DevAuth } from './router';
 import { RoomService } from './service';
@@ -78,8 +79,10 @@ const service = new RoomService({
   limits: { ...DEFAULT_LIMITS, freeRoomsPerWeek: FREE_ROOMS, pictureBytes: 8_000_000 },
   webBase: WEB_BASE,
 });
-const auth = new DevAuth();
-const route = createRouter({ service, auth, media });
+// real guests as in the cloud (signed tokens, a key made when the server starts); the accounts are the made-up ones
+const guests = new GuestTokens(new Uint8Array(randomBytes(32)), systemClock);
+const auth = new TokenAuth(guests, new DevAuth());
+const route = createRouter({ service, auth, media, guests });
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
