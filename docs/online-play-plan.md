@@ -96,11 +96,12 @@ The Lambda code uses the same `src/core` rules as the game, so the server decide
 - Found on the way: an operation must name a *piece*, not a group number. The service loads a room again for every command, which renumbers its groups, so group numbers drift between the server and a screen that has played on; piece numbers never change.
 
 ### 2. AWS foundation (`infra/`, CDK in TypeScript)
-- [ ] Domain puzzlevid.io (bought): hosted zone, certificate.
-- [ ] S3 + CloudFront for the game; private media bucket; DynamoDB tables with TTL; Cognito pool with Google and e-mail; API Gateway; Lambda functions; IoT Core with a custom authorizer that checks the sign-in token and limits each player to the topics of rooms they belong to (publish only on their own `hand` topic).
-- [ ] Separate dev and prod stacks, a budget alarm, log groups, error alarms.
-- [ ] GitHub Actions: test, build, deploy through an OIDC role (no stored AWS keys).
-- [ ] Spike, half a day: IoT Core against AppSync Events for the live updates. Choose before building on it.
+- [ ] Domain puzzlevid.io (bought): hosted zone, certificate (the certificates are in `infra/`; the hosted zone is checked once it is deployed).
+- [x] Written in `infra/` (PR #20), tested by building the templates, **not yet deployed**: S3 + CloudFront for the game (certificate, records), the private media bucket, one DynamoDB table with TTL, the Cognito pool (e-mail, and Google when configured). Deploying needs the owner's own credentials: see `infra/README.md`.
+- [x] Separate dev (`dev.puzzlevid.io`) and prod stacks, a monthly budget that writes at 50 / 80 / 100 % and when 100 % is forecast, an alarm topic.
+- [x] GitHub Actions: CI (tests, build, template check on every pull request) and a deploy workflow, run by hand, through an OIDC role that can only use the CDK's bootstrap roles (no stored AWS keys). The deploy workflow has not run yet.
+- [x] IoT Core against AppSync Events: compared from the documentation, **not measured** (`online-realtime.md`). Recommendation: IoT Core, behind the interfaces we already have. Confirm with two hours of measuring once something is deployed.
+- [ ] Still to do in this phase: the API (API Gateway and Lambda running `server/`'s `RoomService` with DynamoDB, S3 and IoT adapters), the IoT custom authorizer (a player may subscribe only to the rooms they are in and publish only their own `hand` topic), the clean-up of ended rooms (table stream), per-function log groups and error alarms, the web firewall.
 
 ### 3. The feature
 - [ ] **Consent dialog** before anything is uploaded; remember nothing but the answer for this puzzle.
