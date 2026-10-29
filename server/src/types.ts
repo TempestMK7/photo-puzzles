@@ -46,6 +46,25 @@ export interface RoomRecord {
   rev: number;
 }
 
+/** A player's report of a puzzle, with who was in it at the time (the puzzle may be gone by the time anyone looks). */
+export interface Report {
+  /** Sorts by time; unique. */
+  id: string;
+  at: number;
+  roomId: string;
+  ownerId: string;
+  reporterId: string;
+  members: string[];
+  reason: string;
+  note: string;
+}
+
+export interface Ban {
+  playerId: string;
+  at: number;
+  reason: string;
+}
+
 export interface Store {
   getRoom(id: string): Promise<RoomRecord | undefined>;
   /** Writes the room if it is new (`rev` 0) or if the stored one still has `rev - 1`; false if someone else wrote in between. */
@@ -66,6 +85,15 @@ export interface Store {
   getName(playerId: string): Promise<string | undefined>;
   /** `until` (ms): when it may be forgotten, for a guest, who may not come back. */
   setName(playerId: string, name: string, until?: number): Promise<void>;
+  /** Keeps what a player told the operator about a puzzle. */
+  addReport(report: Report): Promise<void>;
+  /** The reports since `since`, newest first. */
+  reportsSince(since: number): Promise<Report[]>;
+  /** Stops a player from playing online (it outlives their account: a ban is only an id). */
+  ban(ban: Ban): Promise<void>;
+  unban(playerId: string): Promise<void>;
+  getBan(playerId: string): Promise<Ban | undefined>;
+  bans(): Promise<Ban[]>;
   /** Everything kept about a player but their rooms (the name, the record of puzzles made): the rooms are left or ended first. */
   forgetPlayer(playerId: string): Promise<void>;
 }

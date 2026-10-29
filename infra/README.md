@@ -12,7 +12,7 @@ hosted zone: the account is whatever the credentials running `cdk` belong to, an
 | `PuzzleVidio-shared-Ops` | a budget that writes to an e-mail address at 50 / 80 / 100 % of the month (and when 100 % is forecast), a topic for alarms, and the role GitHub Actions deploys with |
 | `PuzzleVidio-<stage>-Data` | the DynamoDB table (rooms, codes, members, creations, display names; on-demand, with expiry), the private bucket for pictures, and the key (Secrets Manager) that signs picture-upload addresses and guests' tokens |
 | `PuzzleVidio-<stage>-Auth` | the Cognito user pool: e-mail and password, and Google when configured, by the OAuth code flow without a client secret |
-| `PuzzleVidio-<stage>-Api` | the HTTP API at `api.<the game's address>` (certificate, record, throttle, CORS), the Lambda function that runs the room service (the gateway wants a Cognito token only to make a puzzle; guests may do the rest, and the function checks their tokens itself; it may also delete a user from the pool, when that player asks to delete their account), the function that deletes a room's picture when its item leaves the table, a month of logs and alarms to the alarm topic |
+| `PuzzleVidio-<stage>-Api` | the HTTP API at `api.<the game's address>` (certificate, record, throttle, CORS), the Lambda function that runs the room service (the gateway wants a Cognito token only to make a puzzle; guests may do the rest, and the function checks their tokens itself; it may also delete a user from the pool, when that player asks to delete their account), the function that deletes a room's picture when its item leaves the table, a month of logs and alarms to the alarm topic; the operator's function `Admin` (below), which has no address |
 | `PuzzleVidio-<stage>-Live` | the live side of a room on IoT Core: the broker's custom authorizer (checks the Cognito token and that the player is in the room; one policy per connection), the function that keeps who is online from the broker's connect / disconnect events, a month of logs and alarms |
 | `PuzzleVidio-<stage>-Web` | the game's files: private bucket, CloudFront, certificate and the records in the hosted zone |
 
@@ -53,6 +53,24 @@ the budget, the quotas (Lambda runs 10 at a time in a new account, which is to b
 
 Settings that can be given with `-c name=value` (or as `PUZZLEVIDIO_NAME` in the environment): `hostedZoneId` (required), `zoneName` (default `puzzlevid.io`), `alertEmail`, `budgetUsd` (default 25),
 `githubRepo` (default this one), `githubProviderArn`, `googleClientId` and `googleSecretName`.
+
+## Reports, ending a puzzle, banning a player
+
+A player can report a puzzle from inside it (a reason and a note). The report is kept for 90 days with who was in the puzzle, and the alarm topic e-mails the operator ("a puzzle was reported", with the ids). The puzzle is not touched: the operator looks at it and decides, with the **Admin** function of the Api stack (its name is the stack output `AdminFunction`). It has no web address: only an IAM user of this account that may invoke it can call it, for example (in a shell that has the AWS credentials for the game's account, and the `--cli-binary-format` flag so that the payload is read as JSON):
+
+```
+aws lambda invoke --function-name <AdminFunction> --cli-binary-format raw-in-base64-out --payload '{"cmd":"reports"}' out.json && cat out.json
+```
+
+| `cmd` | what it does |
+|---|---|
+| `reports` (`days`, up to 90, default 30) | the reports, newest first |
+| `room` (`id`) | who made a puzzle, who is in it, when it ends, and a short-lived address of its picture (look at it, then decide) |
+| `remove-room` (`id`) | ends the puzzle now: its picture and codes are deleted and the players are told it was closed |
+| `ban` (`id`, `reason`) | the player (an account's id is the `sub` of its token, which a report names) leaves every puzzle, the ones they made end, and nothing but their own account can be reached until `unban` |
+| `unban` (`id`), `bans` | lifts a ban; lists them |
+
+A ban is a record of an id only: it stays when the account is deleted (a new account is a new id, so a ban stops a *player* only as far as they do not sign up again; stopping a person is a matter of the terms and of what can be done about a sign-in service account, which is not done here). The picture of a puzzle that has been reported is not kept past the puzzle's end: look quickly (a puzzle goes a day after the last move).
 
 ## Google sign-in
 

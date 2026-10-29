@@ -89,7 +89,9 @@ export type ApiError =
   | 'no-group'
   | 'ended'
   /** Making a puzzle needs an account; joining one does not. */
-  | 'account-required';
+  | 'account-required'
+  /** The operator has stopped this player from playing online. */
+  | 'banned';
 
 export interface ApiFailure {
   ok: false;
@@ -170,6 +172,30 @@ export function cleanName(text: unknown): string | null {
   const t = text.replace(/[\p{Cc}\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu, '').replace(/\s+/g, ' ').trim();
   const cut = Array.from(t).slice(0, NAME_MAX).join('').trim();
   return cut || null;
+}
+
+/** Why a player reports a puzzle (the picture is what is usually wrong with one). */
+export const REPORT_REASONS = [
+  { id: 'illegal', label: 'Something illegal' },
+  { id: 'adult', label: 'Sexual or violent pictures' },
+  { id: 'harassment', label: 'Harassment or hate' },
+  { id: 'copyright', label: 'A picture that belongs to someone else' },
+  { id: 'other', label: 'Something else' },
+] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number]['id'];
+export const NOTE_MAX = 300;
+
+export interface ReportRequest {
+  reason: ReportReason;
+  /** What the player wants the operator to know. */
+  note?: string;
+}
+
+/** A note as it is kept: no control or direction-changing characters (line breaks stay as spaces), cut to `NOTE_MAX`; empty if nothing is left. */
+export function cleanNote(text: unknown): string {
+  if (typeof text !== 'string') return '';
+  const t = text.replace(/[\p{Cc}\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return Array.from(t).slice(0, NOTE_MAX).join('').trim();
 }
 
 /** What the server says about the player who asks: `name` is nothing until they have chosen one. */

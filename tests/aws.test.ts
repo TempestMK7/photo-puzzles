@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { JigsawRoom } from '../src/core/jigsawRoom';
 import { PROTOCOL_VERSION } from '../src/online/protocol';
 import { makeHandler, playerFrom, toReq, toResult } from '../server/src/aws/api';
+import { makeAdmin } from '../server/src/aws/admin';
 import { clearPictures } from '../server/src/aws/cleanup';
 import { CognitoAccounts } from '../server/src/aws/cognito';
 import { DynamoPresence, DynamoStore } from '../server/src/aws/dynamo';
@@ -132,6 +133,30 @@ describe('CognitoAccounts', () => {
     expect(send.mock.calls[0][0].input).toEqual({ UserPoolId: 'pool-1', Username: 'sub-1' });
     await accounts.delete('sub-1');
     await expect(accounts.delete('sub-1')).rejects.toThrow('no');
+  });
+});
+
+describe("the operator's function", () => {
+  it('reads reports, shows and ends a puzzle, bans and lifts a ban, and refuses what it does not know', async () => {
+    const { w } = dynamoWorld({ freeRoomsPerWeek: 50 });
+    const admin = makeAdmin(w.service);
+    const made = await open(w);
+    await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret });
+    await w.service.report(bob, made.roomId, { reason: 'illegal', note: 'look at it' });
+    expect(await admin({ cmd: 'reports' })).toMatchObject({ ok: true, reports: [{ roomId: made.roomId, reporterId: 'bob', reason: 'illegal', note: 'look at it' }] });
+    expect(await admin({ cmd: 'room', id: made.roomId })).toMatchObject({ ok: true, room: { id: made.roomId, ownerId: 'ann', picture: expect.stringContaining(made.roomId) } });
+    expect(await admin({ cmd: 'ban', id: 'ann', reason: 'a picture that is not hers' })).toEqual({ ok: true });
+    expect(await admin({ cmd: 'bans' })).toMatchObject({ ok: true, bans: [{ playerId: 'ann', reason: 'a picture that is not hers' }] });
+    expect(await admin({ cmd: 'room', id: made.roomId })).toMatchObject({ ok: false });                // banning her ended the puzzle she made
+    expect(await admin({ cmd: 'remove-room', id: made.roomId })).toMatchObject({ ok: false });
+    expect(await admin({ cmd: 'unban', id: 'ann' })).toEqual({ ok: true });
+    expect(await admin({ cmd: 'bans' })).toEqual({ ok: true, bans: [] });
+    const second = await open(w, bob);
+    expect(await admin({ cmd: 'remove-room', id: second.roomId })).toEqual({ ok: true });
+    expect(w.media.has(second.roomId)).toBe(false);
+    for (const bad of [{ cmd: 'ban', id: '../x' }, { cmd: 'room', id: '' }, { cmd: 'reports', days: 500 }, { cmd: 'nothing' }, undefined, { cmd: 'ban' }]) {
+      expect(await admin(bad as never), JSON.stringify(bad)).toMatchObject({ ok: false });
+    }
   });
 });
 

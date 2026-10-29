@@ -35,14 +35,14 @@ class SeededRandom implements Random {
 /** The store a world is built on: memory unless a test says otherwise (the clock is the one the world's tests move). */
 export type MakeStore = (clock: Clock) => Store;
 
-export function world(extra: Partial<Limits> = {}, makeStore: MakeStore = () => new MemoryStore(), accounts?: Accounts) {
+export function world(extra: Partial<Limits> = {}, makeStore: MakeStore = () => new MemoryStore(), accounts?: Accounts, notify?: (text: string) => Promise<void>) {
   const clock = { t: 1_000_000, now() { return this.t; } };
   const store = makeStore(clock);
   const pubsub = new MemoryPubSub();
   const media = new MemoryMedia('http://media.test', new Uint8Array(32).fill(7), clock);
   const online = new Set<string>();
   const presence: Presence = { online: () => [...online] };
-  const service = new RoomService({ store, media, pubsub, presence, clock, random: new SeededRandom(), limits: { ...limits, ...extra }, webBase: 'https://play.test', accounts });
+  const service = new RoomService({ store, media, pubsub, presence, clock, random: new SeededRandom(), limits: { ...limits, ...extra }, webBase: 'https://play.test', accounts, notify });
   const messages = (room: string): RoomMessage[] => pubsub.published.filter((p) => p.topic === topics.events(room)).map((p) => p.message as RoomMessage);
   return { clock, store, pubsub, media, service, messages, online };
 }

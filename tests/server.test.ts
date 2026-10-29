@@ -266,6 +266,83 @@ describe.each(stores)('the room service on %s', (_name, store) => {
     });
   });
 
+  describe('reports, and what the operator does about them', () => {
+    const told: string[] = [];
+    const worldOf = (extra = {}) => makeWorld(extra, store, undefined, async (text) => void told.push(text));
+    beforeEach(() => void (told.length = 0));
+
+    it('keeps a report from a member with who was in the puzzle, tells the operator, and refuses anyone else or a reason it does not know', async () => {
+      const w = worldOf();
+      const made = await open(w);
+      await joined(w, made, bob);
+      expect(await w.service.report(cy, made.roomId, { reason: 'illegal' })).toMatchObject({ ok: false, error: 'not-found' });        // only a member can report
+      expect(await w.service.report(bob, made.roomId, { reason: 'nonsense' as never })).toMatchObject({ ok: false, error: 'bad-request' });
+      expect(await w.service.report(bob, made.roomId, { reason: 'copyright', note: '  not\u0000 theirs\n to  share ' })).toEqual({ ok: true });
+      const reports = await w.service.adminReports();
+      expect(reports).toEqual([expect.objectContaining({ roomId: made.roomId, ownerId: 'ann', reporterId: 'bob', members: ['ann', 'bob'], reason: 'copyright', note: 'not theirs to share' })]);
+      expect(told).toHaveLength(1);
+      expect(told[0]).toContain(made.roomId);
+      expect(told[0]).not.toContain('not theirs');                                      // what a player wrote is for the operator to read, not for a message
+    });
+
+    it('lists the newest reports first and only those of the last days asked for', async () => {
+      const w = worldOf();
+      const made = await open(w);
+      await joined(w, made, bob);
+      await w.service.report(bob, made.roomId, { reason: 'other', note: 'one' });
+      w.clock.t += 10 * 3600 * 1000;
+      await w.service.report(bob, made.roomId, { reason: 'adult', note: 'two' });
+      expect((await w.service.adminReports(30)).map((r) => r.note)).toEqual(['two', 'one']);
+      expect((await w.service.adminReports(0.25)).map((r) => r.note)).toEqual(['two']);        // the last six hours
+    });
+
+    it('still tells nothing wrong when the operator cannot be told: the report is kept', async () => {
+      const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const w = makeWorld({}, store, undefined, async () => { throw new Error('no topic'); });
+      const made = await open(w);
+      await joined(w, made, bob);
+      expect(await w.service.report(bob, made.roomId, { reason: 'other' })).toEqual({ ok: true });
+      expect(await w.service.adminReports()).toHaveLength(1);
+      log.mockRestore();
+    });
+
+    it('shows a puzzle with its picture, and ends one at the operator\'s word with a message to the players', async () => {
+      const w = worldOf();
+      const made = await open(w);
+      await joined(w, made, bob);
+      const shown = await w.service.adminRoom(made.roomId);
+      expect(shown).toMatchObject({ id: made.roomId, ownerId: 'ann', members: [{ id: 'ann', name: 'Ann' }, { id: 'bob', name: 'Bob' }], status: 'open', ready: true });
+      expect(shown?.picture).toContain(made.roomId);
+      expect(await w.service.adminRoom('nothing')).toBeUndefined();
+      expect(await w.service.adminRemoveRoom(made.roomId)).toBe(true);
+      expect(await w.service.adminRemoveRoom(made.roomId)).toBe(false);
+      expect(w.messages(made.roomId).at(-1)).toEqual({ t: 'closed', reason: 'owner' });
+      expect(w.media.has(made.roomId)).toBe(false);
+      expect(await w.store.roomOfCode(made.invite.code)).toBeUndefined();
+      expect(await w.service.getRoom(bob, made.roomId)).toMatchObject({ ok: false, error: 'not-found' });
+    });
+
+    it('bans a player: they leave every puzzle, the ones they made end, and it holds until it is lifted (an account that is deleted stays banned)', async () => {
+      const w = worldOf({ freeRoomsPerWeek: 50 });
+      const mine = await open(w, bob);
+      await joined(w, mine, ann);
+      const theirs = await open(w, ann);
+      await joined(w, theirs, cy);
+      await w.service.adminBan('ann', '  harassing\nplayers ');
+      expect(await w.service.isBanned('ann')).toBe(true);
+      expect(await w.service.isBanned('bob')).toBe(false);
+      expect(await w.service.adminBans()).toEqual([{ playerId: 'ann', at: w.clock.t, reason: 'harassing players' }]);
+      expect(await w.store.getRoom(theirs.roomId)).toBeUndefined();
+      const rest = await w.service.getRoom(bob, mine.roomId);
+      expect(rest.ok && rest.room.members.map((m) => m.id)).toEqual(['bob']);
+      await w.service.deleteAccount(ann);
+      expect(await w.service.isBanned('ann')).toBe(true);
+      await w.service.adminUnban('ann');
+      expect(await w.service.isBanned('ann')).toBe(false);
+      expect(await w.service.adminBans()).toEqual([]);
+    });
+  });
+
   describe('leaving and expiring', () => {
     let w: World;
     beforeEach(() => (w = world()));

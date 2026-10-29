@@ -1,5 +1,5 @@
 import { BatchGetCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand, ScanCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import type { Clock, Presence, RateCounter, RoomRecord, Store } from '../types';
+import type { Ban, Clock, Presence, RateCounter, Report, RoomRecord, Store } from '../types';
 
 /** The part of the document client that is used, so that a test can put a fake in its place. */
 export interface Sender {
@@ -14,6 +14,8 @@ export interface Sender {
  *   PLAYER#<id>   / ROOM#<id>       a player's membership
  *   PLAYER#<id>   / CREATION#<ms>   a puzzle that was made, for the quota
  *   PLAYER#<id>   / PROFILE         the display name the player chose (with a `ttl` for a guest, who may not come back)
+ *   REPORTS       / <ms>#<tag>      a report of a puzzle (with a `ttl`)
+ *   BANS          / <player>        a player who may not play online (no `ttl`)
  *   RATE#<key>#<n> / COUNT          how many times something happened in one window of time (see DynamoRates)
  * `ttl` (seconds) is when DynamoDB may delete an item, up to two days late: nothing here relies on that, expiry is checked when an item is read.
  */
@@ -30,6 +32,8 @@ const SLACK = 6 * HOUR;
 const CLAIM_MS = HOUR;
 /** The quota looks back a week; the records stay a day longer. */
 const CREATION_KEEP_MS = 8 * 24 * HOUR;
+/** A report is kept this long: long enough to be looked at, and to be found again if the same puzzle or player is reported later. */
+const REPORT_KEEP_MS = 90 * 24 * HOUR;
 
 const named = (e: unknown, name: string): boolean => (e as { name?: string })?.name === name;
 
@@ -230,6 +234,55 @@ export class DynamoStore implements Store {
 
   async setName(playerId: string, name: string, until?: number): Promise<void> {
     await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: `PLAYER#${playerId}`, sk: 'PROFILE', name, ...(until === undefined ? {} : { ttl: seconds(until) }) } }));
+  }
+
+  async addReport(report: Report): Promise<void> {
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: 'REPORTS', sk: report.id, ...report, ttl: seconds(report.at + REPORT_KEEP_MS) } }));
+  }
+
+  async reportsSince(since: number): Promise<Report[]> {
+    const found: Report[] = [];
+    let start: Record<string, unknown> | undefined;
+    do {
+      const page = await this.db.send(
+        new QueryCommand({
+          TableName: this.table,
+          KeyConditionExpression: 'pk = :pk AND sk BETWEEN :from AND :to',
+          ExpressionAttributeValues: { ':pk': 'REPORTS', ':from': pad(since), ':to': `${pad(Number.MAX_SAFE_INTEGER)}~` },
+          ExclusiveStartKey: start,
+        }),
+      );
+      for (const it of page.Items ?? []) found.push({ id: it.sk, at: it.at, roomId: it.roomId, ownerId: it.ownerId, reporterId: it.reporterId, members: it.members, reason: it.reason, note: it.note });
+      start = page.LastEvaluatedKey;
+    } while (start);
+    return found.sort((a, b) => b.at - a.at);
+  }
+
+  async ban(ban: Ban): Promise<void> {
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: 'BANS', sk: ban.playerId, at: ban.at, reason: ban.reason } }));
+  }
+
+  async unban(playerId: string): Promise<void> {
+    await this.db.send(new DeleteCommand({ TableName: this.table, Key: { pk: 'BANS', sk: playerId } }));
+  }
+
+  async getBan(playerId: string): Promise<Ban | undefined> {
+    const { Item } = await this.db.send(new GetCommand({ TableName: this.table, Key: { pk: 'BANS', sk: playerId } }));
+    return Item ? { playerId, at: Item.at as number, reason: Item.reason as string } : undefined;
+  }
+
+  async bans(): Promise<Ban[]> {
+    const found: Ban[] = [];
+    let start: Record<string, unknown> | undefined;
+    do {
+      // the ids are letters, digits, dashes and underscores: all between "-" and "~"
+      const page = await this.db.send(
+        new QueryCommand({ TableName: this.table, KeyConditionExpression: 'pk = :pk AND sk BETWEEN :from AND :to', ExpressionAttributeValues: { ':pk': 'BANS', ':from': '-', ':to': '~' }, ExclusiveStartKey: start }),
+      );
+      for (const it of page.Items ?? []) found.push({ playerId: it.sk as string, at: it.at as number, reason: it.reason as string });
+      start = page.LastEvaluatedKey;
+    } while (start);
+    return found;
   }
 
   async forgetPlayer(playerId: string): Promise<void> {
