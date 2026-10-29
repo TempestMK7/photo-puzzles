@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { JigsawRoom } from '../src/core/jigsawRoom';
 import { applyOp } from '../src/core/jigsawSetup';
 import { PROTOCOL_VERSION } from '../src/online/protocol';
@@ -362,10 +362,13 @@ describe.each(stores)('the room service on %s', (_name, store) => {
     });
 
     it('says so, and has forgotten the rest, when the account cannot be deleted (asking again finishes it)', async () => {
+      const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);          // the service logs what went wrong
       let broken = true;
       const x = makeWorld({}, store, { delete: async () => { if (broken) throw new Error('no'); } });
       await open(x, ann);
       expect(await x.service.deleteAccount(ann)).toMatchObject({ ok: false, error: 'busy' });
+      expect(log).toHaveBeenCalledOnce();
+      log.mockRestore();
       expect(await x.store.roomsOf('ann')).toEqual([]);
       broken = false;
       expect(await x.service.deleteAccount(ann)).toEqual({ ok: true });

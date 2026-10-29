@@ -178,6 +178,11 @@ export class PhotoLibrary {
     };
   }
 
+  /** Whether this file is in the list already (the id comes from the file's bytes, so the same file added again is not a second photo). */
+  async has(file: Blob): Promise<boolean> {
+    return !!(await this.record(await hashOf(file)));
+  }
+
   /** One photo of the list, or null if it is gone. */
   async entry(id: string): Promise<PhotoEntry | null> {
     const sample = SAMPLES.find((s) => s.id === id);

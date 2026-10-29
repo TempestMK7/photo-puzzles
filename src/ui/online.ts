@@ -37,6 +37,15 @@ export function takeAccountDeletedNotice(): string | null {
   }
 }
 
+/** How long until a time, as a short phrase for a list ("about 5 h"). The server's clock and this one may differ by a little: nothing here needs to be exact. */
+export function timeLeft(at: number, now = Date.now()): string {
+  const minutes = Math.ceil((at - now) / 60_000);
+  if (minutes <= 1) return 'under a minute';
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `about ${hours} h` : `about ${Math.round(hours / 24)} days`;
+}
+
 /** What to tell the player when the server said no. */
 export function sayError(error: CallError, failure?: { retryAt?: number }): string {
   switch (error) {
@@ -318,7 +327,11 @@ export class OnlinePanel {
                 'span',
                 { class: 'what' },
                 `Jigsaw · ${r.settings.opts.pieces} pieces · ${r.members.map((m) => m.name).join(', ')}`,
-                h('small', {}, r.status === 'solved' ? ' · solved' : r.online ? ` · ${r.online} here now` : ''),
+                h(
+                  'small',
+                  { title: 'A puzzle that nobody touches for a day ends; a solved one stays for a while so that the others can still look at it' },
+                  r.status === 'solved' ? ` · solved, ${timeLeft(r.expiresAt)} to look at it` : `${r.online ? ` · ${r.online} here now` : ''} · ends in ${timeLeft(r.expiresAt)} unless someone plays`,
+                ),
               ),
               h('button', { type: 'button', class: 'small primary', onclick: () => void this.openRoom(r.id) }, r.status === 'solved' ? 'Watch' : 'Open'),
               h('button', { type: 'button', class: 'small', title: 'Leave this puzzle for good', onclick: () => void this.forget(r.id) }, 'Leave'),
