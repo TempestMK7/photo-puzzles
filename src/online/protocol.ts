@@ -21,6 +21,8 @@ export const DEFAULT_LIMITS = {
   idleMs: 24 * 3600 * 1000,
   /** After a puzzle is solved, how long it stays for those who are still watching. */
   solvedKeepMs: 3600 * 1000,
+  /** The longest a puzzle lives, however much it is played: a puzzle that is moved every day would otherwise never go (and its picture would stay on the server for ever). */
+  maxAgeMs: 30 * 24 * 3600 * 1000,
 } as const;
 
 /** How often the player who holds a piece says where it is, and how often a hold is renewed. */

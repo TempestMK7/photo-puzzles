@@ -23,6 +23,8 @@ export interface OnlineDeps {
   onPlay(room: OnlineRoom, invite: Invite | null): void;
 }
 
+/** The address of the page where an account is deleted without the app (a store wants one): the game's own address with this after it. */
+export const DELETE_HASH = '#/delete-account';
 const DELETED_KEY = 'photo-puzzles/online/account-deleted';
 const DELETED_TEXT = 'Your account was deleted. The puzzles you made have ended, and you are out of the others. Your own pictures on this device are untouched.';
 
@@ -168,7 +170,7 @@ export class OnlinePanel {
       this.refreshAccount();
     }
     if (s.needsName()) {
-      this.say('Choose the name the other players will see, and press Save.');
+      if (!this.deleting) this.say('Choose the name the other players will see, and press Save.');          // (someone who came to delete their account is not asked for one)
       return;
     }
     this.refresh();
@@ -180,6 +182,22 @@ export class OnlinePanel {
     this.open();
     this.codeInput.value = text;
     this.statusEl.textContent = 'Choose your name (or keep this one), then press Join.';
+  }
+
+  /**
+   * Opens the panel for someone who came to delete their account (from the address that a store lists, or the game's own link): signed in, the question is asked at once; otherwise they
+   * are asked to sign in, and brought back here.
+   */
+  openDeletion(): void {
+    this.pendingHash = DELETE_HASH;
+    this.open();
+    const s = this.deps.identity;
+    if (s.kind() === 'account') {
+      this.deleting = true;
+      this.refreshAccount();
+    } else {
+      this.say(s.hasAccounts ? 'To delete your account, sign in with it first.' : 'There is no account to delete in this version of the game: nothing is kept about you.');
+    }
   }
 
   /** Opens the panel with something to tell the player. */
@@ -241,7 +259,9 @@ export class OnlinePanel {
 
   private async signIn(): Promise<void> {
     await this.deps.identity.signIn(this.pendingHash);
-    this.open();                                                                  // a sign-in page takes the player away and brings them back; a stand-in only needs the panel to be drawn again
+    // a sign-in page takes the player away and brings them back; a stand-in only needs the panel to be drawn again
+    if (this.pendingHash === DELETE_HASH) this.openDeletion();
+    else this.open();
   }
 
   private signOut(): void {

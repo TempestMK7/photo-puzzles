@@ -13,7 +13,7 @@ import { OnlineSession } from './online/session';
 import { SaveStore } from './store/saves';
 import type { PhotoEntry } from './store/photos';
 import { LibraryScreen } from './ui/library';
-import { OnlinePanel, takeAccountDeletedNotice } from './ui/online';
+import { DELETE_HASH, OnlinePanel, takeAccountDeletedNotice } from './ui/online';
 import { PlayScreen } from './ui/play';
 
 function storage(): Storage | null {
@@ -156,6 +156,9 @@ async function main(): Promise<void> {
     // someone who has not chosen a name is asked before they show up in a puzzle; anyone else (an account, or a guest who has) goes straight in
     if (player.nameChosen()) void panel.join(link);
     else panel.confirmJoin(link);
+  } else if (panel && link === DELETE_HASH && !signInFailed) {
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+    panel.openDeletion();
   } else if (panel && signInFailed) {
     panel.notice('Signing in did not work. Please try again.');
   } else {

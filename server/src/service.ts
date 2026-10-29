@@ -151,7 +151,7 @@ export class RoomService {
       ready: false,
       status: 'open',
       createdAt: now,
-      expiresAt: now + limits.idleMs,
+      expiresAt: Math.min(now + limits.idleMs, now + limits.maxAgeMs),
       state: new JigsawRoom(settings).state(),
       rev: 0,
     };
@@ -317,7 +317,7 @@ export class RoomService {
       event = res.event;
       r.state = room.state();
       r.status = room.solved ? 'solved' : 'open';
-      r.expiresAt = now + (room.solved ? limits.solvedKeepMs : limits.idleMs);
+      r.expiresAt = this.expiry(r, now + (room.solved ? limits.solvedKeepMs : limits.idleMs));
       return r;
     });
     if ('error' in done) return done;
@@ -343,7 +343,7 @@ export class RoomService {
       }
       until = res.until;
       r.state = room.state();
-      r.expiresAt = Math.max(r.expiresAt, this.d.clock.now() + this.d.limits.idleMs);
+      r.expiresAt = Math.max(r.expiresAt, this.expiry(r, this.d.clock.now() + this.d.limits.idleMs));
       return r;
     });
     if ('error' in done) return done;
@@ -443,6 +443,11 @@ export class RoomService {
   }
 
   // ---------------------------------------------------------------------------------------------------------------- the inside
+
+  /** When a room goes if that is what it would be without the cap on its age: never later than the longest a room may live. */
+  private expiry(room: RoomRecord, wanted: number): number {
+    return Math.min(wanted, room.createdAt + this.d.limits.maxAgeMs);
+  }
 
   /** The room, unless it has expired (then it is cleared away now: nothing waits for a sweep to make a code stop working). */
   private async live(id: string): Promise<RoomRecord | undefined> {
