@@ -446,7 +446,7 @@ export class PlayScreen {
     this.bar?.refresh();
     if (o.room.solved || this.session?.solved) this.finishOnline();
     else if (o.room.status === 'closed') {
-      this.showMessage(o.room.closedReason === 'owner' ? 'The puzzle was closed by the player who made it.' : 'This puzzle has ended.');
+      this.showMessage(o.room.closedReason === 'owner' ? 'The puzzle was closed by the player who made it.' : o.room.closedReason === 'removed' ? 'The player who made this puzzle sent you out of it.' : 'This puzzle has ended.');
     }
   }
 

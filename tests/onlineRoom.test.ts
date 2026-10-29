@@ -229,6 +229,14 @@ describe('OnlineRoom', () => {
     expect([a.room.status, b.room.status, b.room.closedReason]).toEqual(['closed', 'closed', 'owner']);
   });
 
+  it('drops a player who was sent out from the others, and takes the one who was sent out back to the main screen', async () => {
+    const { a, b } = await sides(w, net);
+    await w.service.removeMember(ann, a.room.id, 'bob');
+    expect(a.room.members.map((m) => m.id)).toEqual(['ann']);
+    expect([a.room.status, a.room.closedReason]).not.toEqual(['closed', 'removed']);        // the owner's game goes on
+    expect([b.room.status, b.room.closedReason]).toEqual(['closed', 'removed']);
+  });
+
   it('says how long it has had to wait, with its own clock, for a lock that the server stamped', async () => {
     const { a, b, loose } = await sides(w, net);
     a.do({ t: 'grab', piece: loose[0].members[0] });

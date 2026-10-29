@@ -164,6 +164,8 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
           return reply(await service.close(player, id));
         case 'invite':
           return reply(await service.regenerateInvite(player, id));
+        case 'members':
+          return parts[3] && parts[4] === 'remove' ? reply(await service.removeMember(player, id, parts[3])) : { status: 404, body: { ok: false, error: 'not-found' } };
         case 'knock': {
           const body = json<{ allow: boolean }>(req);
           return body && parts[3] ? reply(await service.answerKnock(player, id, parts[3], body.allow === true)) : bad;

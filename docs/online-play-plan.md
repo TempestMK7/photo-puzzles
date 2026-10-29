@@ -1,6 +1,6 @@
 # Online play with friends: plan
 
-Status: Phases 0 and 1 are built (a local prototype); the AWS parts have not started. This file is the TODO list; tick items off as they land, and change it when a decision changes. The game is called PuzzleVidio, at puzzlevid.io.
+Status: Phases 0 and 1 are built (a local prototype), and most of Phase 2 is deployed in dev (everything but the website, which waits for AWS to verify the account for CloudFront); Phase 3 is under way. This file is the TODO list; tick items off as they land, and change it when a decision changes. The game is called PuzzleVidio, at puzzlevid.io.
 
 ## What it is
 
@@ -111,8 +111,8 @@ The Lambda code uses the same `src/core` rules as the game, so the server decide
 
 ### 3. The feature
 - [ ] **Consent dialog** before anything is uploaded; remember nothing but the answer for this puzzle.
-- [ ] Create: pick photo and Jigsaw settings (online cap 1,000 pieces), upload, get code and link.
-- [ ] Invite dialog: show code, copy link, share (Web Share), QR code, regenerate, player list, remove a player.
+- [x] Create: pick photo and Jigsaw settings (online cap 1,000 pieces), upload, get code and link. (Built with the prototype; seen working again on the local server in the PR that finished the invite dialog.)
+- [x] Invite dialog (PR #27): the code, copy code and link, **Share…** (the phone's or browser's share sheet, where there is one), a **QR code** of the link (made in the page, by a small library that is loaded only when the code is first shown; black on white whatever the theme; checked to decode back to the link), a **new code**, and the **list of players** with who is here and, for the owner, **Remove** (asks once more; the server's `removeMember`, `POST /rooms/{id}/members/{who}/remove`, tells the room with a `removed` message and the removed player's game goes back to the main screen). A removed player can come back with the old link or code: the owner is told to make a new one.
 - [ ] Join: "Join with a code" box, the link route, the knock and approval, a name and colour.
 - [ ] "Online puzzles" list (like "In progress"): puzzles I am in, who is online, time left before expiry, leave and rejoin.
 - [ ] Play: the 24-hour idle expiry, the solved flow (watch, leave, removed from the list), time shown for fun but not counted in best times.

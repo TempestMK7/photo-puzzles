@@ -333,17 +333,42 @@ export class RoomService {
     const done = await this.update(roomId, (r) => {
       r.members = r.members.filter((m) => m.id !== player.id);
       if (r.ownerId === player.id && r.members.length) r.ownerId = r.members[0].id;
-      const room = new JigsawRoom(r.settings, r.state);
-      const held = room.holder(this.d.clock.now());
-      if (held?.holder === player.id) {
-        room.submit(player.id, { t: 'release' }, this.d.clock.now());
-        r.state = room.state();
-      }
+      this.letGo(r, player.id);
       return r;
     });
     if ('error' in done) return done;
     if (!done.room.members.length) await this.cleanup(done.room, 'solved');
     else await this.publish(roomId, { t: 'left', id: player.id });
+    return { ok: true };
+  }
+
+  /** A player who goes (or is sent) out of the room does not keep a piece in their hand. */
+  private letGo(r: RoomRecord, id: string): void {
+    const room = new JigsawRoom(r.settings, r.state);
+    if (room.holder(this.d.clock.now())?.holder === id) {
+      room.submit(id, { t: 'release' }, this.d.clock.now());
+      r.state = room.state();
+    }
+  }
+
+  /**
+   * The owner sends a player out. They can come back with the code or link, unless the owner makes new ones (the game says so). Their live connection ends within minutes, when the
+   * broker asks again whether they are a member; the message below tells their game at once.
+   */
+  async removeMember(player: Player, roomId: string, who: string): Promise<{ ok: true } | ApiFailure> {
+    const before = await this.memberRoom(player, roomId);
+    if ('error' in before) return before;
+    if (before.room.ownerId !== player.id) return fail('unauthorized');
+    if (who === player.id) return fail('bad-request');                      // the owner leaves with `leave`, or ends the puzzle with `close`
+    if (!before.room.members.some((m) => m.id === who)) return fail('not-found');
+    const done = await this.update(roomId, (r) => {
+      r.members = r.members.filter((m) => m.id !== who);
+      r.knocks = r.knocks.filter((k) => k.id !== who);
+      this.letGo(r, who);
+      return r;
+    });
+    if ('error' in done) return done;
+    await this.publish(roomId, { t: 'removed', id: who });
     return { ok: true };
   }
 
