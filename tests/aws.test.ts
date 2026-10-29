@@ -110,11 +110,13 @@ describe('DynamoPresence', () => {
   it('lists who is connected, and forgets those who left or whose entry ran out', async () => {
     const clock = { t: 5_000_000, now() { return this.t; } };
     const p = new DynamoPresence(new FakeDynamo(), 'table', clock);
-    await p.set('room', 'ann', true);
-    await p.set('room', 'bob', true);
-    await p.set('other', 'cy', true);
+    await p.connected('room', 'ann', 'a1');
+    await p.connected('room', 'ann', 'a2');                          // the same player in two places is one player
+    await p.connected('room', 'bob', 'b1');
+    await p.connected('other', 'cy', 'c1');
     expect((await p.online('room')).sort()).toEqual(['ann', 'bob']);
-    await p.set('room', 'ann', false);
+    expect(await p.disconnected('room', 'ann', 'a1')).toBe(false);
+    expect(await p.disconnected('room', 'ann', 'a2')).toBe(true);
     expect(await p.online('room')).toEqual(['bob']);
     clock.t += DynamoPresence.KEEP_MS + 2000;
     expect(await p.online('room')).toEqual([]);

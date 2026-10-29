@@ -64,6 +64,11 @@ describe('auth', () => {
   it('lets a local game sign in to the test stage only', () => {
     stack(app(), 'PuzzleVidio-dev-Auth').hasResourceProperties('AWS::Cognito::UserPoolClient', { CallbackURLs: ['https://dev.puzzlevid.io/', 'http://localhost:5173/'] });
   });
+  it('allows the credentialed "admin" sign-in (for test tokens) on the test stage only', () => {
+    stack(app(), 'PuzzleVidio-dev-Auth').hasResourceProperties('AWS::Cognito::UserPoolClient', { ExplicitAuthFlows: Match.arrayWith(['ALLOW_ADMIN_USER_PASSWORD_AUTH']) });
+    const prod = stack(app(), 'PuzzleVidio-prod-Auth').findResources('AWS::Cognito::UserPoolClient');
+    expect(JSON.stringify(prod)).not.toContain('ALLOW_ADMIN_USER_PASSWORD_AUTH');
+  });
   it('adds Google when it is configured, and takes the secret from Secrets Manager', () => {
     const t = stack(app({ googleClientId: 'client-id', googleSecretName: 'puzzlevidio/google' }), 'PuzzleVidio-prod-Auth');
     t.hasResourceProperties('AWS::Cognito::UserPoolIdentityProvider', { ProviderType: 'Google' });
@@ -226,5 +231,49 @@ describe('api', () => {
     const alarms = Object.values(prod.findResources('AWS::CloudWatch::Alarm')).map((a) => (a as { Properties: { AlarmActions: unknown[]; MetricName: string } }).Properties);
     expect(alarms.map((a) => a.MetricName).sort()).toEqual(['5xx', 'Errors', 'Errors', 'Throttles']);
     for (const a of alarms) expect(JSON.stringify(a.AlarmActions)).toContain('puzzlevidio-alarms');
+  });
+});
+
+describe('live', () => {
+  const dev = stack(app(), 'PuzzleVidio-dev-Live');
+
+  it('has a broker authorizer that is only our function, which checks the token itself', () => {
+    dev.hasResourceProperties('AWS::IoT::Authorizer', { AuthorizerName: 'puzzlevidio-dev', SigningDisabled: true, Status: 'ACTIVE' });
+    dev.hasResourceProperties('AWS::Lambda::Permission', { Principal: 'iot.amazonaws.com', Action: 'lambda:InvokeFunction', SourceArn: Match.anyValue() });
+    dev.hasResourceProperties('AWS::Lambda::Function', {
+      Runtime: 'nodejs22.x',
+      Environment: { Variables: Match.objectLike({ USER_POOL_ID: Match.anyValue(), CLIENT_ID: Match.anyValue(), TABLE_NAME: Match.anyValue() }) },
+    });
+  });
+
+  it('lets the authorizer read one item and nothing else', () => {
+    const st = statementsOf(dev, /Authorizer/);
+    expect(actionsOf(st).filter((a) => !a.startsWith('logs:') && !a.startsWith('xray:'))).toEqual(['dynamodb:GetItem']);
+  });
+
+  it('lets the presence function write who is online, and say it on the rooms\' topics only', () => {
+    const st = statementsOf(dev, /Presence/);
+    expect(actionsOf(st).sort()).toEqual(['dynamodb:DeleteItem', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:Query', 'iot:DescribeEndpoint', 'iot:Publish']);
+    const publish = st.find((s) => actionsOf([s]).includes('iot:Publish'))!;
+    expect(JSON.stringify(publish.Resource)).toContain(':topic/puzzle/*');
+  });
+
+  it('hands the broker\'s connect and disconnect events to the presence function', () => {
+    dev.hasResourceProperties('AWS::IoT::TopicRule', {
+      RuleName: 'puzzlevidio_dev_presence',
+      TopicRulePayload: Match.objectLike({ Sql: "SELECT clientId, eventType FROM '$aws/events/presence/+/+'", Actions: [{ Lambda: { FunctionArn: Match.anyValue() } }] }),
+    });
+    dev.hasResourceProperties('AWS::Lambda::Permission', { Principal: 'iot.amazonaws.com', SourceAccount: Match.anyValue(), SourceArn: Match.anyValue() });
+  });
+
+  it('tells the alarm topic when either function fails, and keeps a month of logs', () => {
+    const alarms = Object.values(dev.findResources('AWS::CloudWatch::Alarm')).map((a) => (a as { Properties: { AlarmActions: unknown[]; MetricName: string } }).Properties);
+    expect(alarms.map((a) => a.MetricName)).toEqual(['Errors', 'Errors']);
+    for (const a of alarms) expect(JSON.stringify(a.AlarmActions)).toContain('puzzlevidio-alarms');
+    dev.hasResourceProperties('AWS::Logs::LogGroup', { RetentionInDays: 30 });
+  });
+
+  it('has an authorizer of its own for each stage', () => {
+    stack(app(), 'PuzzleVidio-prod-Live').hasResourceProperties('AWS::IoT::Authorizer', { AuthorizerName: 'puzzlevidio-prod' });
   });
 });

@@ -1,4 +1,3 @@
-import { fileURLToPath } from 'node:url';
 import { Arn, CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
 import * as apigw from 'aws-cdk-lib/aws-apigatewayv2';
 import * as authorizers from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
@@ -12,7 +11,6 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as sources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
-import * as logs from 'aws-cdk-lib/aws-logs';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as targets from 'aws-cdk-lib/aws-route53-targets';
 import type * as s3 from 'aws-cdk-lib/aws-s3';
@@ -20,6 +18,7 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import type { Construct } from 'constructs';
 import { ALARM_TOPIC_NAME, API_THROTTLE, type Stage } from './config';
+import { functionDefaults, logGroup, repo } from './lambda';
 
 export interface ApiStackProps extends StackProps {
   stage: Stage;
@@ -36,8 +35,6 @@ export interface ApiStackProps extends StackProps {
   pool: cognito.IUserPool;
   client: cognito.IUserPoolClient;
 }
-
-const repo = (path: string) => fileURLToPath(new URL(`../../${path}`, import.meta.url));
 
 /**
  * The API: an HTTP API on its own address in front of one Lambda function that runs the room service (server/src/aws/api.ts). API Gateway checks the Cognito ID token on every
@@ -56,16 +53,7 @@ export class ApiStack extends Stack {
     // the key that signs the addresses for uploading pictures; made here, read by the function when it starts, and never in a template or a log
     const signing = new secretsmanager.Secret(this, 'UploadKey', { generateSecretString: { passwordLength: 48, excludePunctuation: true }, removalPolicy: removal });
 
-    const common = {
-      runtime: lambda.Runtime.NODEJS_22_X,
-      architecture: lambda.Architecture.ARM_64,
-      projectRoot: repo(''),
-      depsLockFilePath: repo('package-lock.json'),
-      // the AWS SDK is bundled with the code, so that what runs is what was tested and not whatever version the runtime has
-      bundling: { minify: true, sourceMap: true, target: 'node22', externalModules: [] as string[] },
-      environment: { NODE_OPTIONS: '--enable-source-maps' },
-    };
-    const logGroup = (name: string) => new logs.LogGroup(this, name, { retention: logs.RetentionDays.ONE_MONTH, removalPolicy: RemovalPolicy.DESTROY });
+    const common = functionDefaults;
 
     const fn = new nodejs.NodejsFunction(this, 'Api', {
       ...common,
@@ -73,7 +61,7 @@ export class ApiStack extends Stack {
       handler: 'handler',
       memorySize: 512,
       timeout: Duration.seconds(20),
-      logGroup: logGroup('ApiLogs'),
+      logGroup: logGroup(this, 'ApiLogs'),
       environment: {
         ...common.environment,
         TABLE_NAME: props.table.tableName,
@@ -96,7 +84,7 @@ export class ApiStack extends Stack {
       handler: 'handler',
       memorySize: 256,
       timeout: Duration.seconds(30),
-      logGroup: logGroup('CleanupLogs'),
+      logGroup: logGroup(this, 'CleanupLogs'),
       environment: { ...common.environment, MEDIA_BUCKET: props.media.bucketName },
     });
     props.media.grantDelete(cleanup);
