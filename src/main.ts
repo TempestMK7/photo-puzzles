@@ -13,7 +13,7 @@ import { OnlineSession } from './online/session';
 import { SaveStore } from './store/saves';
 import type { PhotoEntry } from './store/photos';
 import { LibraryScreen } from './ui/library';
-import { OnlinePanel } from './ui/online';
+import { OnlinePanel, takeAccountDeletedNotice } from './ui/online';
 import { PlayScreen } from './ui/play';
 
 function storage(): Storage | null {
@@ -158,6 +158,9 @@ async function main(): Promise<void> {
     else panel.confirmJoin(link);
   } else if (panel && signInFailed) {
     panel.notice('Signing in did not work. Please try again.');
+  } else {
+    const deleted = takeAccountDeletedNotice();
+    if (panel && deleted) panel.notice(deleted);
   }
 }
 

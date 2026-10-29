@@ -231,6 +231,23 @@ export class DynamoStore implements Store {
   async setName(playerId: string, name: string, until?: number): Promise<void> {
     await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: `PLAYER#${playerId}`, sk: 'PROFILE', name, ...(until === undefined ? {} : { ttl: seconds(until) }) } }));
   }
+
+  async forgetPlayer(playerId: string): Promise<void> {
+    await this.db.send(new DeleteCommand({ TableName: this.table, Key: { pk: `PLAYER#${playerId}`, sk: 'PROFILE' } }));
+    let start: Record<string, unknown> | undefined;
+    do {
+      const page = await this.db.send(
+        new QueryCommand({
+          TableName: this.table,
+          KeyConditionExpression: 'pk = :pk AND begins_with(sk, :creation)',
+          ExpressionAttributeValues: { ':pk': `PLAYER#${playerId}`, ':creation': 'CREATION#' },
+          ExclusiveStartKey: start,
+        }),
+      );
+      for (const it of page.Items ?? []) await this.db.send(new DeleteCommand({ TableName: this.table, Key: { pk: it.pk, sk: it.sk } }));
+      start = page.LastEvaluatedKey;
+    } while (start);
+  }
 }
 
 /**

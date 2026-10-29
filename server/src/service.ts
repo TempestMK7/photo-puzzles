@@ -26,7 +26,7 @@ import {
   type RoomSummary,
 } from '../../src/online/protocol';
 import { sniffImage } from './image';
-import type { Clock, Limits, Media, Player, Presence, PubSub, Random, RoomRecord, Store } from './types';
+import type { Accounts, Clock, Limits, Media, Player, Presence, PubSub, Random, RoomRecord, Store } from './types';
 
 export interface Deps {
   store: Store;
@@ -38,6 +38,8 @@ export interface Deps {
   limits: Limits;
   /** The web address the game is served from, for the links to send to friends. */
   webBase: string;
+  /** Where an account is deleted for good (nothing for a server that has no accounts). */
+  accounts?: Accounts;
 }
 
 const WEEK = 7 * 24 * 3600 * 1000;
@@ -85,6 +87,30 @@ export class RoomService {
     if (!clean) return fail('bad-request');
     await this.d.store.setName(player.id, clean, player.guest ? this.d.clock.now() + GUEST_NAME_KEEP_MS : undefined);
     return this.profile(player);
+  }
+
+  /**
+   * The player asks to be forgotten. The puzzles they made end (their picture is theirs to take away), they leave the others (which go on, with a new owner), the name and the record of
+   * puzzles made are deleted, and then the account itself. Asking again after a failure finishes the job.
+   */
+  async deleteAccount(player: Player): Promise<{ ok: true } | ApiFailure> {
+    const { store, accounts } = this.d;
+    for (const id of await store.roomsOf(player.id)) {
+      const room = await store.getRoom(id);
+      if (!room) continue;
+      if (room.ownerId === player.id) await this.cleanup(room, 'owner');
+      else await this.leave(player, id);
+    }
+    await store.forgetPlayer(player.id);
+    if (accounts && !player.guest) {
+      try {
+        await accounts.delete(player.id);
+      } catch (e) {
+        console.error(e);
+        return fail('busy');
+      }
+    }
+    return { ok: true };
   }
 
   /** The player as the others see them: with the name they chose, if they chose one, and otherwise the name that came with the token. */

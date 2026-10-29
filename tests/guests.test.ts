@@ -193,6 +193,17 @@ describe.each(stores)('guests and names on %s', (_name, makeStore) => {
       expect(got.body.room.members[0].name).toBe('Annie');
     });
 
+    it('deletes the account through the router, for whoever is signed in and nobody else', async () => {
+      const { w, call } = setup();
+      const made = await open(w, { id: 'ann1', name: 'Annie' });
+      await call('PUT', '/me', ann, { name: 'Annie' });
+      expect((await call('POST', '/me/delete')).status).toBe(401);
+      expect((await call('GET', '/me/delete', ann)).status).toBe(404);
+      expect((await call('POST', '/me/delete', ann)).status).toBe(200);
+      expect(await w.store.getRoom(made.roomId)).toBeUndefined();
+      expect((await call('GET', '/me', ann)).body.name).toBeNull();
+    });
+
     it('sends a player out of a puzzle through the router, and only for the owner', async () => {
       const { w, call, guests } = setup();
       const made = await open(w, { id: 'ann1', name: 'Annie' });
