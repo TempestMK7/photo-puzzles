@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { liveClientId, parseLiveClientId, topics, type RoomMessage } from '../src/online/protocol';
 import { DISCONNECT_S, makeAuthorizer, policyFor, REFRESH_S } from '../server/src/aws/authorizer';
 import { DynamoPresence, DynamoStore } from '../server/src/aws/dynamo';
+import { GuestTokens } from '../server/src/guest';
 import { CognitoVerifier } from '../server/src/aws/jwt';
 import { makePresenceHandler } from '../server/src/aws/presence';
 import { FakeDynamo } from './helpers/fakeDynamo';
@@ -114,8 +115,9 @@ describe('the authorizer', () => {
     const db = new FakeDynamo();
     const w = world({}, (clock) => new DynamoStore(db, 'table', clock));
     const verifier = { verify: async (token: string) => (token.startsWith('good-') ? claims(token.slice(5)) : undefined) };
-    const authorize = makeAuthorizer({ verifier, rooms: w.store as DynamoStore, arn: arn as never });
-    return { w, authorize };
+    const guests = new GuestTokens(new Uint8Array(32).fill(3), w.clock);
+    const authorize = makeAuthorizer({ verifier, guests, rooms: w.store as DynamoStore, arn: arn as never });
+    return { w, authorize, guests };
   };
   const ask = (token: string, room: string) => ({ protocolData: { http: { queryString: `token=${encodeURIComponent(token)}&room=${encodeURIComponent(room)}` } } });
 
@@ -138,6 +140,30 @@ describe('the authorizer', () => {
     expect((await authorize(ask('forged', made.roomId))).isAuthenticated).toBe(false);
     expect((await authorize(ask('', made.roomId))).isAuthenticated).toBe(false);
     expect((await authorize({})).isAuthenticated).toBe(false);
+  });
+
+  it('lets a guest in too, once they are in the room, with the same kind of policy under their own id', async () => {
+    const { w, authorize, guests } = setup();
+    const made = await open(w, ann);
+    const g = await guests.issue();
+    expect((await authorize(ask(g.token, made.roomId))).isAuthenticated).toBe(false);                 // not in the room yet
+    const joined = await w.service.join({ id: g.id, name: 'Guest', guest: true }, { protocol: 1, code: made.invite.code, secret: made.invite.secret } as never);
+    expect(joined.ok).toBe(true);
+    const r = await authorize(ask(g.token, made.roomId));
+    expect(r.isAuthenticated).toBe(true);
+    expect(r.policyDocuments).toEqual([policyFor(arn as never, made.roomId, g.id)]);
+    expect(r.principalId).toMatch(/^[A-Za-z0-9]+$/);
+  });
+
+  it('turns away a guest token that was changed or has run out', async () => {
+    const { w, authorize, guests } = setup();
+    const made = await open(w, ann);
+    const g = await guests.issue();
+    await w.service.join({ id: g.id, name: 'Guest', guest: true }, { protocol: 1, code: made.invite.code, secret: made.invite.secret } as never);
+    expect((await authorize(ask(`${g.token}x`, made.roomId))).isAuthenticated).toBe(false);
+    expect((await authorize(ask('g1.forged.token', made.roomId))).isAuthenticated).toBe(false);
+    w.clock.t += 100 * DAY;
+    expect((await authorize(ask(g.token, made.roomId))).isAuthenticated).toBe(false);
   });
 
   it('gives times IoT accepts in every answer, a "no" as well (more than 5 minutes, less than a day)', async () => {

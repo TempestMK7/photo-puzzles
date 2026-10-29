@@ -26,7 +26,7 @@ export interface Realtime {
 export class WsRealtime implements Realtime {
   constructor(
     private readonly base: string,
-    private readonly token: () => string,
+    private readonly token: () => Promise<string | null> | string | null,
   ) {}
 
   connect(roomId: string, handlers: RealtimeHandlers): Connection {
@@ -34,8 +34,15 @@ export class WsRealtime implements Realtime {
     let closed = false;
     let wait = 500;
     let timer = 0;
-    const open = (): void => {
-      const socket = new WebSocket(`${this.base.replace(/^http/, 'ws')}/ws?token=${encodeURIComponent(this.token())}`);
+    const open = async (): Promise<void> => {
+      const token = await this.token();
+      if (closed) return;
+      if (!token) {
+        closed = true;
+        handlers.onRefused();
+        return;
+      }
+      const socket = new WebSocket(`${this.base.replace(/^http/, 'ws')}/ws?token=${encodeURIComponent(token)}`);
       ws = socket;
       socket.onopen = () => socket.send(JSON.stringify({ t: 'sub', room: roomId }));
       socket.onmessage = (e) => {
@@ -58,12 +65,12 @@ export class WsRealtime implements Realtime {
         if (ws === socket) ws = null;
         if (closed) return;
         handlers.onClose();
-        timer = window.setTimeout(open, wait);                       // back off, but never for long: a friend is waiting
+        timer = window.setTimeout(() => void open(), wait);          // back off, but never for long: a friend is waiting
         wait = Math.min(8000, wait * 2);
       };
       socket.onerror = () => socket.close();
     };
-    open();
+    void open();
     return {
       publishHand: (message) => {
         if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: 'hand', room: roomId, msg: message }));

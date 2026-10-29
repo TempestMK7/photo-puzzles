@@ -1,14 +1,16 @@
 import type { Context } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { GuestTokens, isGuestToken } from '../guest';
 import { systemClock } from '../memory';
 import { playerFrom } from './claims';
 import { DynamoStore } from './dynamo';
-import { CognitoVerifier } from './jwt';
+import { CognitoVerifier, fetchJson } from './jwt';
 
 /**
- * The broker's custom authorizer (IoT Core calls it when a game connects, and again every few minutes while it stays). The game says who it is with its Cognito ID token and which
- * room it wants in the address it connects to (`?token=...&room=...`). This checks the token, checks that the player is a member of the room, and answers with a policy that lets
+ * The broker's custom authorizer (IoT Core calls it when a game connects, and again every few minutes while it stays). The game says who it is with its Cognito ID token (or, with no
+ * account, a guest's token) and which room it wants in the address it connects to (`?token=...&room=...`). This checks the token, checks that the player is a member of the room, and answers with a policy that lets
  * the connection do exactly this: connect under its own name (see `liveClientId`), hear that one room, and say where the piece in *its own* hand is. Nothing else, in no other room.
  */
 
@@ -49,6 +51,7 @@ export function policyFor(arn: (kind: 'client' | 'topic' | 'topicfilter', name: 
 
 export interface AuthorizerDeps {
   verifier: { verify(token: string): Promise<Record<string, unknown> | undefined> };
+  guests: { verify(token: string): Promise<string | null> };
   rooms: { membersOf(roomId: string): Promise<string[] | undefined> };
   arn: (kind: 'client' | 'topic' | 'topicfilter', name: string) => string;
 }
@@ -59,7 +62,8 @@ export function makeAuthorizer(d: AuthorizerDeps) {
     const token = query.get('token') ?? event.token ?? '';
     const room = query.get('room') ?? '';
     if (!token || !/^[\w-]{1,64}$/.test(room)) return DENIED;
-    const player = playerFrom(await d.verifier.verify(token));
+    const guest = isGuestToken(token) ? await d.guests.verify(token) : null;
+    const player = guest ? { id: guest } : playerFrom(await d.verifier.verify(token));
     if (!player) return DENIED;
     if (!(await d.rooms.membersOf(room))?.includes(player.id)) return DENIED;
     return {
@@ -79,24 +83,26 @@ const need = (name: string): string => {
   return v;
 };
 
-const fetchJson = async (url: string): Promise<unknown> => {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`${url}: ${r.status}`);
-  return r.json();
-};
+let ready: Promise<ReturnType<typeof makeAuthorizer>> | undefined;
 
-let authorize: ReturnType<typeof makeAuthorizer> | undefined;
+async function build(context: Context): Promise<ReturnType<typeof makeAuthorizer>> {
+  const region = need('AWS_REGION');
+  const account = context.invokedFunctionArn.split(':')[4];
+  const secret = await new SecretsManagerClient({}).send(new GetSecretValueCommand({ SecretId: need('SIGNING_SECRET_ARN') }));
+  if (!secret.SecretString) throw new Error('The signing secret is empty');
+  return makeAuthorizer({
+    verifier: new CognitoVerifier(`https://cognito-idp.${region}.amazonaws.com/${need('USER_POOL_ID')}`, need('CLIENT_ID'), fetchJson, systemClock),
+    guests: new GuestTokens(new TextEncoder().encode(secret.SecretString), systemClock),
+    rooms: new DynamoStore(DynamoDBDocumentClient.from(new DynamoDBClient({})), need('TABLE_NAME'), systemClock),
+    arn: (kind, name) => `arn:aws:iot:${region}:${account}:${kind}/${name}`,
+  });
+}
 
 export const handler = async (event: AuthorizerEvent, context: Context): Promise<AuthorizerResult> => {
-  if (!authorize) {
-    const region = need('AWS_REGION');
-    const account = context.invokedFunctionArn.split(':')[4];
-    authorize = makeAuthorizer({
-      verifier: new CognitoVerifier(`https://cognito-idp.${region}.amazonaws.com/${need('USER_POOL_ID')}`, need('CLIENT_ID'), fetchJson, systemClock),
-      rooms: new DynamoStore(DynamoDBDocumentClient.from(new DynamoDBClient({})), need('TABLE_NAME'), systemClock),
-      arn: (kind, name) => `arn:aws:iot:${region}:${account}:${kind}/${name}`,
-    });
-  }
+  ready ??= build(context).catch((e) => {
+    ready = undefined;                     // try again at the next connection
+    throw e;
+  });
   // an error (the table cannot be read, say) is not caught: IoT turns the connection away, the game tries again by itself, and the alarm on the function's errors is told
-  return authorize(event);
+  return (await ready)(event);
 };

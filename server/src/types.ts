@@ -9,6 +9,8 @@ import type { Member, RoomSettings } from '../../src/online/protocol';
 export interface Player {
   id: string;
   name: string;
+  /** Someone who joins with no account: they may join puzzles, not make them. */
+  guest?: boolean;
 }
 
 /** Turns what a request carries into a player; `null`: not signed in. */
@@ -60,6 +62,10 @@ export interface Store {
   /** The times (ms) at which a player created puzzles since `since`, for the quota. */
   creationsSince(playerId: string, since: number): Promise<number[]>;
   addCreation(playerId: string, at: number): Promise<void>;
+  /** The display name a player chose (nothing if they have not). */
+  getName(playerId: string): Promise<string | undefined>;
+  /** `until` (ms): when it may be forgotten, for a guest, who may not come back. */
+  setName(playerId: string, name: string, until?: number): Promise<void>;
 }
 
 export interface Media {

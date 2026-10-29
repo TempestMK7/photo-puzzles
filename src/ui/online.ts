@@ -2,11 +2,12 @@ import { findKind, optionsOf, puzzleSeedText } from '../core/kinds';
 import type { Prefs } from '../core/prefs';
 import { seedFromText } from '../core/rng';
 import type { CallError, OnlineApi } from '../online/api';
-import type { Account } from '../online/identity';
+import { cloudConfig } from '../online/config';
 import { pictureForUpload } from '../online/picture';
-import { DEFAULT_LIMITS, parseInvite, type Invite, type RoomDescriptor, type RoomSettings, type RoomSummary } from '../online/protocol';
+import { DEFAULT_LIMITS, NAME_MAX, cleanName, parseInvite, type Invite, type RoomDescriptor, type RoomSettings, type RoomSummary } from '../online/protocol';
 import type { Realtime } from '../online/realtime';
 import { OnlineRoom } from '../online/room';
+import type { OnlineSession } from '../online/session';
 import type { PhotoEntry, PhotoLibrary } from '../store/photos';
 import { h } from './dom';
 
@@ -15,7 +16,7 @@ export interface OnlineDeps {
   photos: PhotoLibrary;
   api: OnlineApi;
   realtime: Realtime;
-  identity: Account;
+  identity: OnlineSession;
   /** The photo chosen on the main screen. */
   chosen(): PhotoEntry | undefined;
   /** A room is ready to be played (`invite` only for the one who has just made it). */
@@ -29,6 +30,8 @@ export function sayError(error: CallError, failure?: { retryAt?: number }): stri
       return 'Could not reach the online server.';
     case 'sign-in':
       return 'Please sign in again.';
+    case 'account-required':
+      return 'Making a puzzle needs an account.';
     case 'update-required':
       return 'This version of the game is too old to play online. Please update it.';
     case 'unauthorized':
@@ -61,19 +64,23 @@ export function sayError(error: CallError, failure?: { retryAt?: number }): stri
 /** The pop-up for playing with friends: make a puzzle, join one with a code or a link, and the puzzles the player is in. */
 export class OnlinePanel {
   readonly el: HTMLElement;
-  private nameInput = h('input', { type: 'text', class: 'plain', maxLength: 24, 'aria-label': 'Your name', onchange: () => this.deps.identity.setName?.(this.nameInput.value) });
-  private nameField = h('label', { class: 'field' }, h('span', {}, 'Your name'), this.nameInput);
-  /** Who is signed in, and the way out (with an account; the local build has only a name). */
+  private nameInput = h('input', { type: 'text', class: 'plain', maxLength: NAME_MAX, 'aria-label': 'Your name', onkeydown: (e: KeyboardEvent) => e.key === 'Enter' && void this.saveName() });
+  private nameLabel = h('span', {}, 'Your name');
+  private nameSave = h('button', { type: 'button', onclick: () => void this.saveName() }, 'Save');
+  private nameField = h('label', { class: 'field' }, this.nameLabel, h('div', { class: 'row' }, this.nameInput, this.nameSave));
+  /** Who is signed in, and the way out (a player with an account). */
   private whoEl = h('div', { class: 'who' });
-  private signInBox = h(
+  /** What stands where "Start a Jigsaw" is for a player who has no account: joining needs only a name, making a puzzle needs an account. */
+  private needAccount = h(
     'section',
     { hidden: true },
-    h('h3', {}, 'Sign in'),
-    h('p', { class: 'chosen' }, 'Sign in to play with friends. Your account is only used to know who is in a puzzle.'),
-    h('button', { type: 'button', class: 'primary', onclick: () => void this.deps.identity.signIn?.(this.pendingHash) }, 'Sign in or create an account'),
+    h('h3', {}, 'Start a Jigsaw'),
+    h('p', { class: 'chosen' }, 'Making a puzzle needs an account. Joining one only needs a name.'),
+    h('button', { type: 'button', class: 'primary', onclick: () => void this.signIn() }, 'Sign in or create an account'),
   );
-  /** What there is to do once signed in; hidden before. */
-  private signedInOnly: HTMLElement[] = [];
+  private startSection: HTMLElement;
+  private joinSection: HTMLElement;
+  private listSection: HTMLElement;
   /** An invite link that the player came with, to go back to after signing in. */
   private pendingHash = '';
   private chosenEl = h('div', { class: 'chosen' });
@@ -88,24 +95,21 @@ export class OnlinePanel {
   private attempt = 0;
 
   constructor(private readonly deps: OnlineDeps) {
-    this.signedInOnly = [
+    this.startSection = h(
+      'section',
+      {},
+      h('h3', {}, 'Start a Jigsaw'),
+      this.chosenEl,
       h(
-        'section',
-        {},
-        h('h3', {}, 'Start a Jigsaw'),
-        this.chosenEl,
-        h(
-          'label',
-          { class: 'consent', for: 'online-consent' },
-          this.consent,
-          h('span', {}, 'I agree that this picture is sent to the online server, where the players of this puzzle can see it. It is deleted when the puzzle is solved or when nobody has touched it for a day.'),
-        ),
-        this.startBtn,
+        'label',
+        { class: 'consent', for: 'online-consent' },
+        this.consent,
+        h('span', {}, 'I agree that this picture is sent to the online server, where the players of this puzzle can see it. It is deleted when the puzzle is solved or when nobody has touched it for a day.'),
       ),
-      h('section', {}, h('h3', {}, 'Join a friend'), h('div', { class: 'row' }, this.codeInput, this.joinBtn)),
-      this.statusEl,
-      h('section', {}, h('h3', {}, 'Your online puzzles'), this.listEl),
-    ];
+      this.startBtn,
+    );
+    this.joinSection = h('section', {}, h('h3', {}, 'Join a friend'), h('div', { class: 'row' }, this.codeInput, this.joinBtn));
+    this.listSection = h('section', {}, h('h3', {}, 'Your online puzzles'), this.listEl);
     this.el = h(
       'div',
       { class: 'inprogress online', role: 'dialog', 'aria-label': 'Play with friends', hidden: true, onclick: (e: Event) => (e.target === this.el ? this.close() : undefined) },
@@ -113,14 +117,7 @@ export class OnlinePanel {
         'div',
         { class: 'card' },
         h('header', {}, h('h2', {}, 'Play with friends'), h('button', { type: 'button', class: 'close', onclick: () => this.close() }, 'Close')),
-        h(
-          'div',
-          { class: 'body' },
-          this.nameField,
-          this.whoEl,
-          this.signInBox,
-          ...this.signedInOnly,
-        ),
+        h('div', { class: 'body' }, this.whoEl, this.nameField, this.needAccount, this.startSection, this.joinSection, this.statusEl, this.listSection),
       ),
     );
   }
@@ -129,17 +126,30 @@ export class OnlinePanel {
     this.statusEl.textContent = '';
     this.el.hidden = false;
     this.refreshAccount();
-    if (!this.deps.identity.signIn || this.deps.identity.who()) {
-      this.refresh();
-      void this.loadList();
-    }
+    void this.prepare();
   }
 
-  /** Opens the panel for a player who has not signed in yet but has come with an invite link: after signing in they are taken to the puzzle. */
-  needSignIn(hash: string): void {
-    this.pendingHash = hash;
+  /** Asks the server about the account (one that has no name yet is asked for one), and then shows what the player can do. */
+  private async prepare(): Promise<void> {
+    const s = this.deps.identity;
+    if (s.kind() === 'account') {
+      await s.refreshProfile();
+      if (!this.isOpen) return;
+      this.refreshAccount();
+    }
+    if (s.needsName()) {
+      this.say('Choose the name the other players will see, and press Save.');
+      return;
+    }
+    this.refresh();
+    if (s.kind() !== 'none') void this.loadList();
+  }
+
+  /** Opens the panel for someone who came with an invite link and has not chosen a name: they can, and then press Join. */
+  confirmJoin(text: string): void {
     this.open();
-    this.statusEl.textContent = 'Sign in to join this puzzle.';
+    this.codeInput.value = text;
+    this.statusEl.textContent = 'Choose your name (or keep this one), then press Join.';
   }
 
   /** Opens the panel with something to tell the player. */
@@ -148,20 +158,43 @@ export class OnlinePanel {
     this.statusEl.textContent = text;
   }
 
-  /** What the top of the panel shows: the name to choose (local build), or who is signed in, or the sign-in button. */
+  /** What the panel shows for who the player is: the account, the name, and what they can do (an account makes puzzles; anyone can join one). */
   private refreshAccount(): void {
-    const { identity } = this.deps;
-    const who = identity.who();
-    const accounts = !!identity.signIn;
-    this.nameField.hidden = !identity.setName;
-    this.nameInput.value = who?.name ?? '';
-    this.whoEl.replaceChildren(
-      ...(accounts && who
-        ? [h('span', {}, 'Signed in as ', h('strong', {}, who.name)), h('button', { type: 'button', class: 'small', onclick: () => identity.signOut?.() }, 'Sign out')]
-        : []),
-    );
-    this.signInBox.hidden = !(accounts && !who);
-    for (const el of this.signedInOnly) el.hidden = accounts && !who;
+    const s = this.deps.identity;
+    const kind = s.kind();
+    const who = s.who();
+    const needs = s.needsName();
+    this.whoEl.replaceChildren(...(kind === 'account' && who ? [h('span', {}, 'Signed in as ', h('strong', {}, who.name)), h('button', { type: 'button', class: 'small', onclick: () => this.signOut() }, 'Sign out')] : []));
+    if (document.activeElement !== this.nameInput) this.nameInput.value = s.name();
+    this.nameLabel.textContent = needs ? 'Choose a display name' : 'Your name';
+    this.needAccount.hidden = needs || s.canCreate() || !s.hasAccounts;
+    this.startSection.hidden = needs || !s.canCreate();
+    this.joinSection.hidden = needs;
+    this.listSection.hidden = needs || kind === 'none';
+  }
+
+  private async saveName(): Promise<void> {
+    const s = this.deps.identity;
+    const was = s.needsName();
+    const ok = await s.setName(this.nameInput.value);
+    this.nameInput.value = s.name();
+    this.refreshAccount();
+    if (!ok) {
+      this.say(cleanName(this.nameInput.value) ? 'Kept on this device; the online server could not be reached.' : 'Type the name the other players will see.');
+      return;
+    }
+    this.say('Saved.');
+    if (was) void this.prepare();
+  }
+
+  private async signIn(): Promise<void> {
+    await this.deps.identity.signIn(this.pendingHash);
+    this.open();                                                                  // a sign-in page takes the player away and brings them back; a stand-in only needs the panel to be drawn again
+  }
+
+  private signOut(): void {
+    this.deps.identity.signOut();
+    this.open();
   }
 
   close(): void {
@@ -202,8 +235,8 @@ export class OnlinePanel {
     const res = await this.deps.api.list();
     if (!res.ok) {
       // a sign-in that the server does not take any more: the button to sign in again is shown
-      if (res.error === 'sign-in') this.signInBox.hidden = false;
-      const local = !this.deps.identity.signIn;
+      if (res.error === 'sign-in') this.refreshAccount();
+      const local = !cloudConfig();
       this.listEl.replaceChildren(h('li', { class: 'empty' }, res.error === 'offline' ? `Could not reach the online server.${local ? ' Is it running (npm run server)?' : ''}` : sayError(res.error)));
       return;
     }
@@ -258,6 +291,10 @@ export class OnlinePanel {
     const entry = this.deps.chosen();
     const { api, prefs, photos } = this.deps;
     if (!entry || entry.video || this.busy) return;
+    if (!this.deps.identity.canCreate()) {
+      this.say('Making a puzzle needs an account.');
+      return;
+    }
     if (!(this.consent as HTMLInputElement).checked) {
       this.say('Tick the box to agree that the picture is sent to the server.');
       return;
@@ -294,7 +331,7 @@ export class OnlinePanel {
 
   // ---------------------------------------------------------------------------------------------------------------- joining
 
-  /** Joins with what the player typed or a link opened the game with. A code alone knocks: this waits until a member lets the player in. */
+  /** Joins with what the player typed or a link opened the game with. A code alone knocks: this waits until a member lets the player in. Needs no account: a guest is made if there is none. */
   async join(text: string): Promise<void> {
     const inv = parseInvite(text);
     if (!inv) {
@@ -303,7 +340,22 @@ export class OnlinePanel {
     }
     if (!this.isOpen) this.open();
     const mine = ++this.attempt;
+    const s = this.deps.identity;
     this.setBusy(true, 'Joining…');
+    if (!(await s.ensureGuest())) {
+      if (mine === this.attempt) this.setBusy(false, sayError('offline'));
+      return;
+    }
+    await s.refreshProfile();
+    if (mine !== this.attempt) return;
+    this.refreshAccount();
+    if (s.needsName()) {
+      // an account that has no name yet is asked for one before it shows up in somebody's puzzle
+      this.setBusy(false);
+      this.codeInput.value = text;
+      this.say('Choose the name the other players will see, press Save, and then press Join.');
+      return;
+    }
     for (;;) {
       const res = await this.deps.api.join(inv);
       if (mine !== this.attempt) return;

@@ -68,9 +68,14 @@ A lock's `until` is on the server's clock. The descriptor carries `serverTime`; 
   A member may publish only on their own topic and subscribe to `puzzle/{room}/#` of the rooms they belong to; the IoT authorizer builds that policy from the room's members.
   Others ignore hand messages from anyone who is not the current lock holder. Hand messages never change the board.
 
-## Requests (HTTP, with the player's sign-in token)
+## Requests (HTTP, with the player's token)
 
 Every request carries `protocol`; a server that no longer understands it answers `update-required`.
+
+The token is an account's (a Cognito ID token) or a guest's. **A guest can join and play but cannot make a puzzle** (`account-required`).
+
+- `POST /guest` `{ token? }` -> `{ token, id, expiresAt }`, with no sign-in: a token for a new guest, or (when the old one is shown and is still good) a new one for the same guest. A guest's id starts with `g`.
+- `GET /me` -> `{ id, name, guest }`; `name` is nothing until the player has chosen one. `PUT /me` `{ name }` -> the same: the name the other players see (at most 24 characters, no control characters).
 
 - `POST /rooms` `CreateRoomRequest` -> the room id, a signed upload address for the picture, and the invite (`code`, `secret`, `link`). The request must say `consent: true`. The picture then goes by `PUT` to that address (JPEG or PNG, at most a few MB, and the size the puzzle was made for, or the room is thrown away); only then can anyone join (`not-ready` before).
 - `POST /join` `{ code, secret? }` -> `RoomDescriptor`. With the secret (the link) the player is in at once. With only the code the room publishes a `knock` and a member answers.
@@ -84,7 +89,7 @@ Failures are `{ ok: false, error }` with one of the `ApiError` values.
 
 `npm run server` starts the same `RoomService` that the cloud will run, on memory, at http://localhost:8787 (HTTP for the requests, a WebSocket at `/ws` in place of the cloud's publish/subscribe;
 `PORT`, `WEB_BASE` and `FREE_ROOMS_PER_WEEK` change it). `npm run dev` then shows **Play with friends** on the main screen. There is no real sign-in: each browser tab is a player of its own
-(`dev:<id>:<name>`), which is what makes two tabs two players. Stopping the server forgets every room.
+(`dev:<id>:<name>`), which is what makes two tabs two players; the panel can sign that identity out, and then the tab is a guest (`POST /guest`), which is how guests are tried without a sign-in service. Stopping the server forgets every room.
 
 The server is built from interfaces (`server/src/types.ts`: store, media, publish/subscribe, presence, clock, random) so that the cloud can fill them with DynamoDB, S3 and IoT Core.
 `RoomService` is every request as a method; `router.ts` turns an HTTP request into a call and has nothing of Node in it; `local.ts` is the Node part.

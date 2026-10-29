@@ -14,7 +14,7 @@ Local play stays exactly as it is: free, unlimited, no account, nothing leaves t
 
 - **Puzzle types:** Jigsaw only at first. The turn-based types (Sliding Tiles, Focus Point) come next, the layout-sensitive ones (Strips, Overlap, Rotascope) last. Limits are per type and can differ.
 - **Jigsaw size online:** at most 1,000 pieces. Everything else stays as it is locally.
-- **Accounts:** local play needs none. Creating or joining an online puzzle needs one. Sign-in with Google and with e-mail at launch; Apple and Facebook later.
+- **Accounts:** local play needs none. **Joining** an online puzzle needs none (a guest: an id the server makes, and a name the player chooses). **Making** one needs an account. Sign-in with Google and with e-mail at launch; Apple and Facebook later.
 - **Free tier:** 3 online puzzles *created* per week. More puzzles, video puzzles and bigger limits are for a paid tier (payments are not part of this plan, but the limits come from configuration so a tier can change them). Joining does not count.
 - **Room limits:** 8 players per puzzle, 5 active online puzzles per player.
 - **Hosting:** everything online is AWS, serverless, so that it costs about nothing with no players and scales by itself when there are many.
@@ -68,9 +68,9 @@ The Lambda code uses the same `src/core` rules as the game, so the server decide
 
 ### Codes and links
 
-- **Link:** `https://<domain>/#/join/<code>~<secret>`. It opens the web version, asks for sign-in if needed, joins and plays. The long secret makes a link as private as the picture itself. The part after `#` never reaches a server log. If the Android app is installed, an Android App Link opens it instead.
+- **Link:** `https://<domain>/#/join/<code>~<secret>`. It opens the web version, asks for a name (and nothing else), joins and plays. The long secret makes a link as private as the picture itself. The part after `#` never reaches a server log. If the Android app is installed, an Android App Link opens it instead.
 - **Code:** 5 digits, for typing on any platform. Because only 100,000 codes exist, a code alone must not let a stranger into a room by guessing: joining by code **knocks**, and any member who is online approves. The link skips the knock.
-- **Limits on guessing:** failed codes are rate-limited per account and per IP (WAF), and sign-in is required to try one.
+- **Limits on guessing:** failed codes are rate-limited per IP (WAF) and per player. A guest costs nothing to make, so the limit per player does not hold one back: what protects a puzzle is the per-IP limit, and that a code alone only *knocks* (a member has to say yes).
 - The creator can regenerate the code and link (which cuts off old ones) and remove a player or close the puzzle.
 
 ## Sign-in on each platform
@@ -105,7 +105,8 @@ The Lambda code uses the same `src/core` rules as the game, so the server decide
 - [x] The live side on IoT Core (`Live` stack, `server/src/aws/authorizer.ts`, `presence.ts`, `jwt.ts`): a custom authorizer checks the Cognito token and that the player is a member, and answers with a policy for that one room (connect under `<room>:<player>:<connection>`, hear the room's events and hands, publish only the own hand); a topic rule hands the broker's connect / disconnect events to a function that keeps who is online per connection and tells the room. **Deployed to dev and checked end to end** with a hand-written MQTT client against the real broker and real Cognito tokens: a member gets in, a non-member and a forged token do not, every publish or subscribe outside the policy is refused, presence is written and said, two tabs of one player count as one (see `online-realtime.md`).
 - [ ] Still to do in this phase: the web firewall (WAF) in front of the API, reserved concurrency once the account's limit allows it (it is 10 in a new account: a request for more is due before launch).
 - [x] The game's side (PR #24): `IotRealtime` (MQTT over WebSocket to the broker, with its own small MQTT in `mqtt.ts`: +9 kB, 3.5 kB gzipped; keep-alive, silence detection, reconnect with a fresh token, and a refusal that is told from a lost network by asking the API), `CognitoAccount` (Cognito's sign-in page with the code flow and PKCE, tokens kept on the device and renewed before they run out), the panel's sign-in state (including an invite link that goes to the sign-in page and back), and the build settings (`VITE_*`, read by `.github/workflows/deploy.yml` from the stacks' outputs; the Live stack now says the broker's address as an output). **Run against the real dev broker with real tokens**: two members connect through the game's own client, presence and hands reach each other, a dropped connection comes back with a fresh token, a non-member ends up "refused" after the API says so. Local-server mode checked in a browser as before.
-- [ ] Not done yet from this: the name other players see is the account's `name`, or else the start of the e-mail address (a display name to choose belongs to the account screen of Phase 3, and sign-up should ask for it); nothing has been run through the real API (its address waits for DNS) or the real sign-in page (a real sign-in has to be typed by a person); the live connection has been run from Node, not yet from a browser, and not from a phone.
+- [x] Guests and display names (PR #25): a player can **join without an account** (`POST /guest` gives a signed guest token, 90 days, renewed for the same guest; the API function and the broker's authorizer both accept it) but **cannot make a puzzle** (the gateway wants a Cognito token on `POST /rooms`, and the service says `account-required` to a guest). Everyone can **choose a display name**, kept on the server (`PUT /me`, an item per player; a guest's expires), and an **account that has none is asked for one** the first time (the sign-in service only knows an e-mail address, so the name no longer falls back to it for anyone who has been asked). The signing key moved from the Api stack to the Data stack so that the authorizer can read it. Run against the real dev broker with a real key: guests join a room, hear each other and the presence, are turned away when not members, forged, or signed with another key. Browser-checked on the local server: the account's name step, a guest joining by link with a name of their choice, a guest seeing "Making a puzzle needs an account", and the server refusing a guest's create.
+- [ ] Not done yet from this: nothing has been run through the real API (its address waits for DNS) or the real sign-in page (a real sign-in has to be typed by a person); the live connection has been run from Node, not yet from a browser, and not from a phone.
 
 ### 3. The feature
 - [ ] **Consent dialog** before anything is uploaded; remember nothing but the answer for this puzzle.
@@ -115,7 +116,7 @@ The Lambda code uses the same `src/core` rules as the game, so the server decide
 - [ ] "Online puzzles" list (like "In progress"): puzzles I am in, who is online, time left before expiry, leave and rejoin.
 - [ ] Play: the 24-hour idle expiry, the solved flow (watch, leave, removed from the list), time shown for fun but not counted in best times.
 - [ ] **Save to library**: for anyone who does not have the picture; the creator's own copy is recognised by the source photo id, others by the room they saved it from.
-- [ ] Account screen: sign in and out, display name, delete account.
+- [ ] Account screen: sign in and out, change the display name (the panel has the name box already), delete account.
 
 ### 4. Limits, safety and policy (before any public release)
 - [ ] Quota: 3 creations per rolling 7 days; limits per tier and per type from configuration; a clear message with when the next one is free.

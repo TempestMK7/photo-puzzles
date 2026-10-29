@@ -34,10 +34,11 @@ export function build(app: App): void {
       origins,
       table: data.table,
       media: data.media,
+      signing: data.signingKey,
       pool: auth.pool,
       client: auth.client,
     });
-    new LiveStack(app, stackName(stage, 'Live'), { env, stage, table: data.table, pool: auth.pool, client: auth.client });
+    new LiveStack(app, stackName(stage, 'Live'), { env, stage, table: data.table, pool: auth.pool, client: auth.client, signing: data.signingKey });
   }
 
   Tags.of(app).add('app', 'puzzlevidio');

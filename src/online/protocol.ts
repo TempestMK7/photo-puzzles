@@ -87,7 +87,9 @@ export type ApiError =
   | 'busy'
   | 'not-holder'
   | 'no-group'
-  | 'ended';
+  | 'ended'
+  /** Making a puzzle needs an account; joining one does not. */
+  | 'account-required';
 
 export interface ApiFailure {
   ok: false;
@@ -158,6 +160,34 @@ export const topics = {
   hand: (room: string, player: string) => `puzzle/${room}/hand/${player}`,
   hands: (room: string) => `puzzle/${room}/hand/+`,
 } as const;
+
+/** What a player is called to the others: at most this many characters. */
+export const NAME_MAX = 24;
+
+/** A display name as it is kept: no control or direction-changing characters, spaces squeezed together, cut to `NAME_MAX`; nothing if nothing is left. */
+export function cleanName(text: unknown): string | null {
+  if (typeof text !== 'string') return null;
+  const t = text.replace(/[\p{Cc}\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu, '').replace(/\s+/g, ' ').trim();
+  const cut = Array.from(t).slice(0, NAME_MAX).join('').trim();
+  return cut || null;
+}
+
+/** What the server says about the player who asks: `name` is nothing until they have chosen one. */
+export interface MeResponse {
+  ok: true;
+  id: string;
+  name: string | null;
+  guest: boolean;
+}
+
+/** A guest's token: someone who joins puzzles without an account. The same token (and so the same player) is asked for again before it runs out. */
+export interface GuestResponse {
+  ok: true;
+  token: string;
+  id: string;
+  /** When the token runs out (ms). */
+  expiresAt: number;
+}
 
 /**
  * The name a game gives its connection to a room's broker: `<room>:<player>:<one connection>`. The cloud's policy only lets a player connect under a name that starts with their own

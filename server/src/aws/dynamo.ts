@@ -13,6 +13,7 @@ export interface Sender {
  *   CODE#<digits> / CODE            a code and the room it opens
  *   PLAYER#<id>   / ROOM#<id>       a player's membership
  *   PLAYER#<id>   / CREATION#<ms>   a puzzle that was made, for the quota
+ *   PLAYER#<id>   / PROFILE         the display name the player chose (with a `ttl` for a guest, who may not come back)
  * `ttl` (seconds) is when DynamoDB may delete an item, up to two days late: nothing here relies on that, expiry is checked when an item is read.
  */
 const roomKey = (id: string) => ({ pk: `ROOM#${id}`, sk: 'META' });
@@ -217,6 +218,17 @@ export class DynamoStore implements Store {
     // two puzzles in the same millisecond are possible only in a test, but they should not be one
     const tag = Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0');
     await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: `PLAYER#${playerId}`, sk: `CREATION#${pad(at)}#${tag}`, ttl: seconds(at + CREATION_KEEP_MS) } }));
+  }
+
+  async getName(playerId: string): Promise<string | undefined> {
+    const { Item } = await this.db.send(new GetCommand({ TableName: this.table, Key: { pk: `PLAYER#${playerId}`, sk: 'PROFILE' } }));
+    // an entry that has run out may still be there for a day or two (DynamoDB deletes late): it is not looked at
+    if (!Item || (typeof Item.ttl === 'number' && Item.ttl <= seconds(this.clock.now()))) return undefined;
+    return Item.name as string;
+  }
+
+  async setName(playerId: string, name: string, until?: number): Promise<void> {
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: `PLAYER#${playerId}`, sk: 'PROFILE', name, ...(until === undefined ? {} : { ttl: seconds(until) }) } }));
   }
 }
 

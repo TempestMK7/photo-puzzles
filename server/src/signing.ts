@@ -3,13 +3,13 @@ import type { Clock } from './types';
 const enc = new TextEncoder();
 
 /** An HMAC of a text, as hex. */
-async function mac(key: Uint8Array, text: string): Promise<string> {
+export async function mac(key: Uint8Array, text: string): Promise<string> {
   const k = await crypto.subtle.importKey('raw', key as BufferSource, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   return [...new Uint8Array(await crypto.subtle.sign('HMAC', k, enc.encode(text)))].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /** Equal texts, without stopping at the first difference (a signature must not be found out a letter at a time). */
-function same(a: string, b: string): boolean {
+export function same(a: string, b: string): boolean {
   let diff = a.length ^ b.length;
   for (let i = 0; i < Math.max(a.length, b.length); i++) diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
   return diff === 0;

@@ -34,6 +34,12 @@ describe('data', () => {
   it('bills per request and lets items expire', () => {
     dev.hasResourceProperties('AWS::DynamoDB::Table', { BillingMode: 'PAY_PER_REQUEST', TimeToLiveSpecification: { AttributeName: 'ttl', Enabled: true } });
   });
+  it('has a key for signing (picture addresses and guest tokens), made by AWS and never in the template', () => {
+    prod.hasResourceProperties('AWS::SecretsManager::Secret', { GenerateSecretString: Match.objectLike({ PasswordLength: 48 }) });
+    prod.hasResource('AWS::SecretsManager::Secret', { DeletionPolicy: 'Retain' });
+    dev.hasResource('AWS::SecretsManager::Secret', { DeletionPolicy: 'Delete' });
+    expect(JSON.stringify(prod.toJSON())).not.toContain('resolve:secretsmanager');
+  });
   it('keeps the data of the real stage, and can lose that of a test stage', () => {
     prod.hasResource('AWS::DynamoDB::Table', { DeletionPolicy: 'Retain', Properties: { DeletionProtectionEnabled: true } });
     dev.hasResource('AWS::DynamoDB::Table', { DeletionPolicy: 'Delete' });
@@ -166,17 +172,20 @@ describe('api', () => {
     prod.hasResourceProperties('AWS::ApiGatewayV2::Api', { DisableExecuteApiEndpoint: true });
   });
 
-  it('checks the Cognito ID token on every route but the upload of a picture', () => {
+  it('wants an account (a Cognito ID token) to make a puzzle, and lets guests do the rest through the function', () => {
     prod.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', { AuthorizerType: 'JWT', JwtConfiguration: { Audience: [Match.anyValue()], Issuer: Match.anyValue() } });
     const routes = Object.values(prod.findResources('AWS::ApiGatewayV2::Route')).map((r) => (r as { Properties: { RouteKey: string; AuthorizationType?: string } }).Properties);
     expect(routes.map((r) => [r.RouteKey, r.AuthorizationType ?? 'NONE']).sort()).toEqual(
       [
-        ['GET /rooms', 'JWT'],
-        ['GET /rooms/{proxy+}', 'JWT'],
-        ['POST /join', 'JWT'],
-        ['POST /rooms', 'JWT'],
-        ['POST /rooms/{proxy+}', 'JWT'],
-        ['PUT /media/{id}', 'NONE'],
+        ['POST /rooms', 'JWT'],                  // making a puzzle: only with an account
+        ['GET /rooms', 'NONE'],                  // from here the function checks the token itself, a Cognito one or a guest's
+        ['GET /rooms/{proxy+}', 'NONE'],
+        ['POST /rooms/{proxy+}', 'NONE'],
+        ['POST /join', 'NONE'],
+        ['GET /me', 'NONE'],
+        ['PUT /me', 'NONE'],
+        ['POST /guest', 'NONE'],
+        ['PUT /media/{id}', 'NONE'],             // the address is signed
       ].sort(),
     );
   });
@@ -195,12 +204,12 @@ describe('api', () => {
     prod.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'nodejs22.x',
       Architectures: ['arm64'],
-      Environment: { Variables: Match.objectLike({ API_BASE: 'https://api.puzzlevid.io', WEB_BASE: 'https://puzzlevid.io', TABLE_NAME: Match.anyValue(), MEDIA_BUCKET: Match.anyValue(), SIGNING_SECRET_ARN: Match.anyValue() }) },
+      Environment: { Variables: Match.objectLike({ API_BASE: 'https://api.puzzlevid.io', WEB_BASE: 'https://puzzlevid.io', TABLE_NAME: Match.anyValue(), MEDIA_BUCKET: Match.anyValue(), SIGNING_SECRET_ARN: Match.anyValue(), USER_POOL_ID: Match.anyValue(), CLIENT_ID: Match.anyValue() }) },
     });
     prod.hasResourceProperties('AWS::Logs::LogGroup', { RetentionInDays: 30 });
     const text = JSON.stringify(prod.toJSON());
     expect(text).not.toContain('resolve:secretsmanager');                  // the function reads the key when it starts; it is not put in the template
-    prod.hasResourceProperties('AWS::SecretsManager::Secret', { GenerateSecretString: Match.objectLike({ PasswordLength: 48 }) });
+    expect(Object.keys(prod.findResources('AWS::SecretsManager::Secret'))).toEqual([]);          // the key is made by the Data stack, which the functions share
   });
 
   it('can publish only to the topics of puzzles, and does no more than it must', () => {
@@ -246,9 +255,9 @@ describe('live', () => {
     });
   });
 
-  it('lets the authorizer read one item and nothing else', () => {
+  it('lets the authorizer read one item and the key that tells a guest\'s token, and nothing else', () => {
     const st = statementsOf(dev, /Authorizer/);
-    expect(actionsOf(st).filter((a) => !a.startsWith('logs:') && !a.startsWith('xray:'))).toEqual(['dynamodb:GetItem']);
+    expect(actionsOf(st).filter((a) => !a.startsWith('logs:') && !a.startsWith('xray:')).sort()).toEqual(['dynamodb:GetItem', 'secretsmanager:DescribeSecret', 'secretsmanager:GetSecretValue']);
   });
 
   it('lets the presence function write who is online, and say it on the rooms\' topics only', () => {
