@@ -71,4 +71,6 @@ disconnect only when it was the player's last. The rule sees the connections of 
 - Signing is off on the authorizer (a browser cannot sign an address), so anyone can ask IoT to call it; the function gives nothing to a call without a good token, but each call costs a Lambda run, and a WAF does not
   stand in front of the broker. Keep an eye on the invocation count of the authorizer.
 
-**Still not measured:** a round trip from a phone on mobile data to a laptop, and the size of the game's own MQTT client (not written yet). If either looks bad, AppSync Events is the second choice, as above.
+**The game's client** (`src/online/mqtt.ts` and `iotRealtime.ts`) added 9 kB to the page (3.5 kB gzipped): a hundred lines of MQTT 3.1.1 at QoS 0 instead of a library. The game's own client has been run against the real dev broker (from Node): connect, subscribe, presence, hands both ways, a dropped connection coming back with a fresh token, and a refusal told from a lost network.
+
+**Still not measured:** a round trip from a phone on mobile data to a laptop, and the client in a browser (it uses the browser's `WebSocket` with the same subprotocol and a binary type of `arraybuffer`; only Node's has been tried). If either looks bad, AppSync Events is the second choice, as above.

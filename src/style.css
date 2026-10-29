@@ -233,3 +233,6 @@ button.small { padding: 4px 10px; font-size: 13px; }
 .onlinebar .invite .code { font-size: 34px; font-weight: 700; letter-spacing: 0.3em; text-align: center; color: var(--accent2); }
 .onlinebar .invite input { text-transform: none; letter-spacing: normal; font-size: 12px; }
 .onlinebar .invite .buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.online [hidden] { display: none; }
+.online .who { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--dim); }
+.online .who strong { color: var(--text); }

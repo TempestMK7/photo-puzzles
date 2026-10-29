@@ -7,6 +7,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as iot from 'aws-cdk-lib/aws-iot';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as sns from 'aws-cdk-lib/aws-sns';
+import * as cr from 'aws-cdk-lib/custom-resources';
 import type { Construct } from 'constructs';
 import { ALARM_TOPIC_NAME, liveAuthorizerName, type Stage } from './config';
 import { functionDefaults, logGroup, repo } from './lambda';
@@ -86,6 +87,15 @@ export class LiveStack extends Stack {
     alarm('AuthorizerErrors', authorizer, 'The broker authorizer threw an error: players cannot join the live side of a room');
     alarm('PresenceErrors', presence, 'The presence function threw an error: who is online may be wrong');
 
+    // The broker's address is made by AWS for the account and cannot be known when the template is written: it is asked for once, and said as an output (like the other stacks' outputs),
+    // so that the build of the game can be given it.
+    const endpoint = new cr.AwsCustomResource(this, 'Endpoint', {
+      onUpdate: { service: 'Iot', action: 'describeEndpoint', parameters: { endpointType: 'iot:Data-ATS' }, physicalResourceId: cr.PhysicalResourceId.of('iot-data-endpoint') },
+      policy: cr.AwsCustomResourcePolicy.fromStatements([new iam.PolicyStatement({ actions: ['iot:DescribeEndpoint'], resources: ['*'] })]),
+      installLatestAwsSdk: false,
+    });
+
+    new CfnOutput(this, 'IotEndpoint', { value: endpoint.getResponseField('endpointAddress') });
     new CfnOutput(this, 'AuthorizerName', { value: liveAuthorizerName(props.stage) });
     new CfnOutput(this, 'AuthorizerFunction', { value: authorizer.functionName });
     new CfnOutput(this, 'PresenceFunction', { value: presence.functionName });

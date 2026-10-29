@@ -1,10 +1,10 @@
 import { findKind, optionsOf, puzzleSeedText } from '../core/kinds';
 import type { Prefs } from '../core/prefs';
 import { seedFromText } from '../core/rng';
-import type { OnlineApi } from '../online/api';
-import type { DevIdentity } from '../online/identity';
+import type { CallError, OnlineApi } from '../online/api';
+import type { Account } from '../online/identity';
 import { pictureForUpload } from '../online/picture';
-import { DEFAULT_LIMITS, parseInvite, type ApiError, type Invite, type RoomDescriptor, type RoomSettings, type RoomSummary } from '../online/protocol';
+import { DEFAULT_LIMITS, parseInvite, type Invite, type RoomDescriptor, type RoomSettings, type RoomSummary } from '../online/protocol';
 import type { Realtime } from '../online/realtime';
 import { OnlineRoom } from '../online/room';
 import type { PhotoEntry, PhotoLibrary } from '../store/photos';
@@ -15,7 +15,7 @@ export interface OnlineDeps {
   photos: PhotoLibrary;
   api: OnlineApi;
   realtime: Realtime;
-  identity: DevIdentity;
+  identity: Account;
   /** The photo chosen on the main screen. */
   chosen(): PhotoEntry | undefined;
   /** A room is ready to be played (`invite` only for the one who has just made it). */
@@ -23,10 +23,12 @@ export interface OnlineDeps {
 }
 
 /** What to tell the player when the server said no. */
-export function sayError(error: ApiError | 'offline', failure?: { retryAt?: number }): string {
+export function sayError(error: CallError, failure?: { retryAt?: number }): string {
   switch (error) {
     case 'offline':
       return 'Could not reach the online server.';
+    case 'sign-in':
+      return 'Please sign in again.';
     case 'update-required':
       return 'This version of the game is too old to play online. Please update it.';
     case 'unauthorized':
@@ -59,7 +61,21 @@ export function sayError(error: ApiError | 'offline', failure?: { retryAt?: numb
 /** The pop-up for playing with friends: make a puzzle, join one with a code or a link, and the puzzles the player is in. */
 export class OnlinePanel {
   readonly el: HTMLElement;
-  private nameInput = h('input', { type: 'text', class: 'plain', maxLength: 24, 'aria-label': 'Your name', onchange: () => this.deps.identity.setName(this.nameInput.value) });
+  private nameInput = h('input', { type: 'text', class: 'plain', maxLength: 24, 'aria-label': 'Your name', onchange: () => this.deps.identity.setName?.(this.nameInput.value) });
+  private nameField = h('label', { class: 'field' }, h('span', {}, 'Your name'), this.nameInput);
+  /** Who is signed in, and the way out (with an account; the local build has only a name). */
+  private whoEl = h('div', { class: 'who' });
+  private signInBox = h(
+    'section',
+    { hidden: true },
+    h('h3', {}, 'Sign in'),
+    h('p', { class: 'chosen' }, 'Sign in to play with friends. Your account is only used to know who is in a puzzle.'),
+    h('button', { type: 'button', class: 'primary', onclick: () => void this.deps.identity.signIn?.(this.pendingHash) }, 'Sign in or create an account'),
+  );
+  /** What there is to do once signed in; hidden before. */
+  private signedInOnly: HTMLElement[] = [];
+  /** An invite link that the player came with, to go back to after signing in. */
+  private pendingHash = '';
   private chosenEl = h('div', { class: 'chosen' });
   private consent = h('input', { type: 'checkbox', id: 'online-consent' });
   private startBtn = h('button', { type: 'button', class: 'primary', onclick: () => void this.start() }, 'Start');
@@ -72,6 +88,24 @@ export class OnlinePanel {
   private attempt = 0;
 
   constructor(private readonly deps: OnlineDeps) {
+    this.signedInOnly = [
+      h(
+        'section',
+        {},
+        h('h3', {}, 'Start a Jigsaw'),
+        this.chosenEl,
+        h(
+          'label',
+          { class: 'consent', for: 'online-consent' },
+          this.consent,
+          h('span', {}, 'I agree that this picture is sent to the online server, where the players of this puzzle can see it. It is deleted when the puzzle is solved or when nobody has touched it for a day.'),
+        ),
+        this.startBtn,
+      ),
+      h('section', {}, h('h3', {}, 'Join a friend'), h('div', { class: 'row' }, this.codeInput, this.joinBtn)),
+      this.statusEl,
+      h('section', {}, h('h3', {}, 'Your online puzzles'), this.listEl),
+    ];
     this.el = h(
       'div',
       { class: 'inprogress online', role: 'dialog', 'aria-label': 'Play with friends', hidden: true, onclick: (e: Event) => (e.target === this.el ? this.close() : undefined) },
@@ -82,34 +116,52 @@ export class OnlinePanel {
         h(
           'div',
           { class: 'body' },
-          h('label', { class: 'field' }, h('span', {}, 'Your name'), this.nameInput),
-          h(
-            'section',
-            {},
-            h('h3', {}, 'Start a Jigsaw'),
-            this.chosenEl,
-            h(
-              'label',
-              { class: 'consent', for: 'online-consent' },
-              this.consent,
-              h('span', {}, 'I agree that this picture is sent to the online server, where the players of this puzzle can see it. It is deleted when the puzzle is solved or when nobody has touched it for a day.'),
-            ),
-            this.startBtn,
-          ),
-          h('section', {}, h('h3', {}, 'Join a friend'), h('div', { class: 'row' }, this.codeInput, this.joinBtn)),
-          this.statusEl,
-          h('section', {}, h('h3', {}, 'Your online puzzles'), this.listEl),
+          this.nameField,
+          this.whoEl,
+          this.signInBox,
+          ...this.signedInOnly,
         ),
       ),
     );
   }
 
   open(): void {
-    this.nameInput.value = this.deps.identity.get().name;
     this.statusEl.textContent = '';
     this.el.hidden = false;
-    this.refresh();
-    void this.loadList();
+    this.refreshAccount();
+    if (!this.deps.identity.signIn || this.deps.identity.who()) {
+      this.refresh();
+      void this.loadList();
+    }
+  }
+
+  /** Opens the panel for a player who has not signed in yet but has come with an invite link: after signing in they are taken to the puzzle. */
+  needSignIn(hash: string): void {
+    this.pendingHash = hash;
+    this.open();
+    this.statusEl.textContent = 'Sign in to join this puzzle.';
+  }
+
+  /** Opens the panel with something to tell the player. */
+  notice(text: string): void {
+    this.open();
+    this.statusEl.textContent = text;
+  }
+
+  /** What the top of the panel shows: the name to choose (local build), or who is signed in, or the sign-in button. */
+  private refreshAccount(): void {
+    const { identity } = this.deps;
+    const who = identity.who();
+    const accounts = !!identity.signIn;
+    this.nameField.hidden = !identity.setName;
+    this.nameInput.value = who?.name ?? '';
+    this.whoEl.replaceChildren(
+      ...(accounts && who
+        ? [h('span', {}, 'Signed in as ', h('strong', {}, who.name)), h('button', { type: 'button', class: 'small', onclick: () => identity.signOut?.() }, 'Sign out')]
+        : []),
+    );
+    this.signInBox.hidden = !(accounts && !who);
+    for (const el of this.signedInOnly) el.hidden = accounts && !who;
   }
 
   close(): void {
@@ -149,7 +201,10 @@ export class OnlinePanel {
   private async loadList(): Promise<void> {
     const res = await this.deps.api.list();
     if (!res.ok) {
-      this.listEl.replaceChildren(h('li', { class: 'empty' }, res.error === 'offline' ? 'Could not reach the online server. Is it running (npm run server)?' : sayError(res.error)));
+      // a sign-in that the server does not take any more: the button to sign in again is shown
+      if (res.error === 'sign-in') this.signInBox.hidden = false;
+      const local = !this.deps.identity.signIn;
+      this.listEl.replaceChildren(h('li', { class: 'empty' }, res.error === 'offline' ? `Could not reach the online server.${local ? ' Is it running (npm run server)?' : ''}` : sayError(res.error)));
       return;
     }
     this.renderList(res.rooms);
@@ -194,7 +249,7 @@ export class OnlinePanel {
 
   private enter(descriptor: RoomDescriptor, invite: Invite | null): void {
     this.close();
-    this.deps.onPlay(new OnlineRoom(this.deps.api, this.deps.realtime, descriptor, this.deps.identity.get().id), invite);
+    this.deps.onPlay(new OnlineRoom(this.deps.api, this.deps.realtime, descriptor, this.deps.identity.who()?.id ?? ''), invite);
   }
 
   // ---------------------------------------------------------------------------------------------------------------- making a puzzle
@@ -233,7 +288,7 @@ export class OnlinePanel {
     }
   }
 
-  private fail(r: { error: ApiError | 'offline'; retryAt?: number }): void {
+  private fail(r: { error: CallError; retryAt?: number }): void {
     this.setBusy(false, sayError(r.error, r));
   }
 

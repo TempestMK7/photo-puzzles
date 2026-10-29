@@ -1,4 +1,5 @@
 import type {
+  ApiError,
   ApiFailure,
   CommandResponse,
   CreateRoomRequest,
@@ -12,11 +13,14 @@ import type {
 import { PROTOCOL_VERSION } from './protocol';
 import type { Command } from '../core/jigsawRoom';
 
-/** The server could not be reached at all (no connection, or a site that refuses the page). */
+/** The server could not be reached at all (no connection, or a site that refuses the page), or it does not know who is asking any more (`sign-in`: the sign-in has run out). */
 export interface Offline {
   ok: false;
-  error: 'offline';
+  error: 'offline' | 'sign-in';
 }
+
+/** Every way a request can come back refused or not at all. */
+export type CallError = ApiError | Offline['error'];
 
 export interface Identity {
   id: string;
@@ -35,17 +39,20 @@ export interface RoomApi {
 export class OnlineApi implements RoomApi {
   constructor(
     private readonly base: string,
-    private readonly identity: () => Identity | null,
+    /** What to send as the token: nothing when nobody is signed in. */
+    private readonly token: () => Promise<string | null> | string | null,
   ) {}
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T | Offline> {
-    const who = this.identity();
     try {
+      const token = await this.token();
       const res = await fetch(`${this.base}${path}`, {
         method,
-        headers: { ...(who ? { Authorization: `Bearer ${who.token}` } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
+      // the gateway says 401 (with a body of its own) when the token is not good: the player has to sign in again
+      if (res.status === 401) return { ok: false, error: 'sign-in' };
       return (await res.json()) as T;
     } catch {
       return { ok: false, error: 'offline' };
