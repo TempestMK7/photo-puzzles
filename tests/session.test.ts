@@ -17,7 +17,7 @@ class MemoryStorage implements Storage {
 
 /** An account that can be signed in and out, with the name its sign-in knows. */
 class FakeAccount implements Account {
-  user: { id: string; name: string; email?: string } | null = null;
+  user: { id: string; name: string; email?: string; picture?: string } | null = null;
   who() { return this.user; }
   async token() { return this.user ? `account-token-${this.user.id}` : null; }
   async signIn() { this.user = { id: 'acc1', name: 'ann.lee', email: 'ann.lee@example.com' }; }
@@ -258,5 +258,17 @@ describe('signing in with Google', () => {
     expect(new OnlineSession(Object.assign(new FakeAccount(), { hasGoogle: false, async signInWithGoogle() {} }), guest, new MemoryStorage()).google).toBeUndefined();
     expect(setup().session.google).toBeUndefined();                      // an account that has no Google at all
     expect(setup({ account: false }).session.google).toBeUndefined();
+  });
+});
+
+describe('the profile picture', () => {
+  it('is the one the account has, when its sign-in has one, and nothing for a guest or nobody', async () => {
+    const t = setup();
+    expect(t.session.picture()).toBeNull();
+    (t.account as FakeAccount).user = { id: 'acc1', name: 'Ann', picture: 'https://pictures.example/ann.png' };
+    expect(t.session.picture()).toBe('https://pictures.example/ann.png');
+    (t.account as FakeAccount).user = { id: 'acc1', name: 'Ann' };
+    expect(t.session.picture()).toBeNull();
+    expect(setup({ account: false }).session.picture()).toBeNull();
   });
 });

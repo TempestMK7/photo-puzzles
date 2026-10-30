@@ -155,6 +155,10 @@ describe('auth', () => {
     t.hasResourceProperties('AWS::Cognito::UserPoolClient', { SupportedIdentityProviders: ['COGNITO', 'Google'] });
     expect(JSON.stringify(t.toJSON())).toContain('resolve:secretsmanager:puzzlevidio/google');
   });
+  it('takes the name, the e-mail address and the profile picture from Google', () => {
+    const t = stack(app({ googleClientId: 'client-id', googleSecretName: 'puzzlevidio/google' }), 'PuzzleVidio-prod-Auth');
+    t.hasResourceProperties('AWS::Cognito::UserPoolIdentityProvider', { AttributeMapping: { email: 'email', name: 'name', picture: 'picture' } });
+  });
 });
 
 describe('web', () => {

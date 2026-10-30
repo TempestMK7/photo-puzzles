@@ -35,7 +35,7 @@ export function initialOf(name: string): string {
 }
 
 /**
- * The round badge on the main screen (the first letter of the account's name, or a G for a guest) and the profile it opens: the name the other players see, what the player is signed in
+ * The round badge on the main screen (the account's profile picture if the sign-in has one, else the first letter of its name, or a G for a guest) and the profile it opens: the name the other players see, what the player is signed in
  * as, and the ways to sign in, sign out and delete the account.
  */
 export class ProfileDialog {
@@ -70,15 +70,35 @@ export class ProfileDialog {
     this.refreshBadge();
   }
 
-  /** The badge shows the first letter of the account's name, and a G when nobody is signed in. */
+  /** Pictures that could not be shown (so the letter stays, and the same address is not tried again every time). */
+  private brokenPictures = new Set<string>();
+
+  /** A badge shows the profile picture, or the letter when there is none or it does not load. */
+  private paint(badge: HTMLElement, letter: string, picture: string | null): void {
+    if (!picture || this.brokenPictures.has(picture)) {
+      badge.replaceChildren(letter);
+      badge.classList.remove('photo');
+      return;
+    }
+    const img = h('img', { src: picture, alt: '', referrerPolicy: 'no-referrer', draggable: false });
+    img.addEventListener('error', () => {
+      this.brokenPictures.add(picture);
+      this.refreshBadge();
+    });
+    badge.replaceChildren(img);
+    badge.classList.add('photo');
+  }
+
+  /** The badge shows the account's profile picture, or the first letter of its name, and a G when nobody is signed in. */
   refreshBadge(): void {
     const s = this.deps.identity;
     const account = s.kind() === 'account';
     const letter = account ? initialOf(s.name()) : 'G';
-    this.badge.textContent = letter;
+    const picture = account ? s.picture() : null;
+    this.paint(this.badge, letter, picture);
     this.badge.title = account ? `Signed in as ${s.name()}` : 'Not signed in: your profile';
     this.badge.classList.toggle('guest', !account);
-    this.bigBadge.textContent = letter;
+    this.paint(this.bigBadge, letter, picture);
     this.bigBadge.classList.toggle('guest', !account);
   }
 

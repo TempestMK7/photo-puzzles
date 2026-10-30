@@ -108,6 +108,11 @@ export class OnlineSession implements Account {
     return a?.signInWithGoogle && a.hasGoogle ? () => a.signInWithGoogle!() : undefined;
   }
 
+  /** The address of the account's profile picture, if the sign-in service has one (a Google sign-in does). */
+  picture(): string | null {
+    return this.account?.who()?.picture ?? null;
+  }
+
   /** The e-mail address the account was made with (what the sign-in service says), if this is an account. */
   email(): string | null {
     return this.account?.who()?.email ?? null;

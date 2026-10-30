@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { CognitoAccount, type CognitoEnv } from '../src/online/cognito';
+import { CognitoAccount, pictureOf, type CognitoEnv } from '../src/online/cognito';
 
 class MemoryStorage implements Storage {
   private m = new Map<string, string>();
@@ -121,6 +121,20 @@ describe('who the player is', () => {
     expect(await withClaims({ sub: 'u1', email: 'ann.lee@example.com' })).toEqual({ id: 'u1', name: 'ann.lee', email: 'ann.lee@example.com' });
     expect(await withClaims({ sub: 'u1' })).toEqual({ id: 'u1', name: 'Player', email: undefined });
     expect((await withClaims({ sub: 'u1', name: 'A'.repeat(40) }))!.name).toHaveLength(24);
+  });
+  it('has a profile picture when the sign-in service gives one, and only a secure address', async () => {
+    const url = 'https://lh3.googleusercontent.com/a/abc=s96-c';
+    expect((await withClaims({ sub: 'u1', name: 'Ann', picture: url }))!.picture).toBe(url);
+    expect((await withClaims({ sub: 'u1', name: 'Ann' }))!.picture).toBeUndefined();
+    expect((await withClaims({ sub: 'u1', picture: 'http://example.com/a.png' }))!.picture).toBeUndefined();
+    expect((await withClaims({ sub: 'u1', picture: 'javascript:alert(1)' }))!.picture).toBeUndefined();
+    expect((await withClaims({ sub: 'u1', picture: 7 }))!.picture).toBeUndefined();
+  });
+  it('takes no picture that is not an address, or is absurdly long', () => {
+    expect(pictureOf('not a url')).toBeUndefined();
+    expect(pictureOf('')).toBeUndefined();
+    expect(pictureOf(`https://example.com/${'a'.repeat(600)}`)).toBeUndefined();
+    expect(pictureOf(' https://example.com/a.png ')).toBe('https://example.com/a.png');
   });
   it('is nobody before signing in', () => {
     expect(setup().account.who()).toBeNull();
