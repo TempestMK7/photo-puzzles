@@ -1,8 +1,8 @@
 import type { Rng } from '../core/rng';
 
 // Backgrounds for the empty board in Overlap: radial patterns drawn in code (sunbursts, targets, rose windows, spirals, ray-and-dot wheels). A piece's window cell shows
-// the bit of this pattern that lies under its home, so the pattern has to look different from one place to the next: every style has a centre away from the middle
-// of the board and rings / spokes of varying widths.
+// the bit of this pattern that lies under its home, so the pattern has to look different from one place to the next: every style has its centre off the board (past one
+// of its sides), so that the board shows rings and rays sweeping across it, with bands of varying widths.
 
 const PALETTES: string[][] = [
   ['#5b1f1a', '#c8793a', '#f0d9b5', '#2a1b14'],
@@ -144,6 +144,7 @@ function wheel(e: Env): void {
     const a = (k / spokes) * Math.PI * 2;
     const grad = g.createLinearGradient(cx, cy, cx + Math.cos(a) * e.R, cy + Math.sin(a) * e.R);
     grad.addColorStop(0, pal[1]);
+    grad.addColorStop(0.8, pal[1]);          // (the centre is off the board: the spokes have to last as far as the board is)
     grad.addColorStop(1, 'rgba(0,0,0,0)');
     g.strokeStyle = grad;
     g.lineWidth = rand(rng, 2, 9);
@@ -176,8 +177,12 @@ export function makePattern(rng: Rng, w: number, h: number): HTMLCanvasElement {
   c.height = h;
   const g = c.getContext('2d')!;
   const pal = PALETTES[rng.below(PALETTES.length)];
-  const cx = w * rand(rng, 0.3, 0.7);
-  const cy = h * rand(rng, 0.3, 0.7);
+  // the centre lies outside the board: past one of its four sides, somewhere along it (a little beyond its ends too, for a corner)
+  const side = rng.below(4);
+  const out = rand(rng, 0.2, 0.6);
+  const along = rand(rng, -0.15, 1.15);
+  const cx = side === 0 ? -w * out : side === 1 ? w * (1 + out) : w * along;
+  const cy = side === 2 ? -h * out : side === 3 ? h * (1 + out) : h * along;
   const env: Env = { g, w, h, cx, cy, R: Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy)), pal, rng };
   g.fillStyle = pal[0];
   g.fillRect(0, 0, w, h);

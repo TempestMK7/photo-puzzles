@@ -209,7 +209,7 @@ export class StripsSession implements PuzzleSession {
 
   /** Puts the dragged strip where the pointer holds it - or, for a finger, a little above it - and drops it if that is its own hole, turned right. */
   private placeDrag(d: Drag, now: number): void {
-    const p = d.lift ? d.lift.held(d.at, now, this.lastView) : d.at;
+    const p = d.lift ? d.lift.held(d.at, now) : d.at;
     this.game.moveTo(d.id, Math.floor(p.x / S) - d.gx, Math.floor(p.y / S) - d.gy);
     if (this.game.lockIfHome(d.id)) {                              // over its own hole, turned right: it drops by itself, the button need not be released
       this.locked(d.id);

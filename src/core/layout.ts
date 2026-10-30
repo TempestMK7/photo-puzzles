@@ -15,7 +15,10 @@ export interface Rect {
 export function focusLayout(rng: Rng, width: number, height: number, pieces: number, irregular: boolean): Rect[] {
   pieces = Math.max(1, Math.floor(pieces));
   if (!irregular) return gridLayout(width, height, pieces);
-  const minSide = Math.max(8, Math.floor(Math.min(width, height) / 12));
+  // (a picture cannot be cut into far more than (12 x 12) rectangles of this size: more pieces than that, as in 200, need smaller ones; up to 60 the cut is what it always was,
+  // so that a puzzle made earlier is the same puzzle)
+  const base = Math.floor(Math.min(width, height) / 12);
+  const minSide = Math.max(8, pieces <= 60 ? base : Math.floor((base * Math.sqrt(60)) / Math.sqrt(pieces)));
   const rects: Rect[] = [{ x: 0, y: 0, w: width, h: height }];
   const stuck: boolean[] = [false];
   while (rects.length < pieces) {

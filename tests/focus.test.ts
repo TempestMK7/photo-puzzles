@@ -21,7 +21,7 @@ describe('layout', () => {
     [97, 61],
   ]) {
     for (const irregular of [false, true]) {
-      for (const pieces of [6, 16, 33, 60]) {
+      for (const pieces of [6, 16, 33, 60, 200]) {
         it(`${w}x${h} ${pieces} pieces irregular=${irregular} tiles exactly`, () => {
           const rects = focusLayout(new Rng(7), w, h, pieces, irregular);
           expect(tilesExactly(rects, w, h)).toBe(true);
@@ -33,6 +33,22 @@ describe('layout', () => {
 
   it('irregular layouts reach the piece count on a normal photo', () => {
     expect(focusLayout(new Rng(3), 1200, 800, 40, true)).toHaveLength(40);
+  });
+
+  it('irregular layouts reach 200 pieces on a normal photo, in any proportion, and keep every piece big enough to use', () => {
+    for (const [w, h] of [[1200, 800], [800, 800], [600, 400], [1000, 1500], [1920, 1080], [2400, 600]]) {
+      for (let seed = 1; seed <= 5; seed++) {
+        const rects = focusLayout(new Rng(seed), w, h, 200, true);
+        expect(rects).toHaveLength(200);
+        expect(Math.min(...rects.flatMap((r) => [r.w, r.h]))).toBeGreaterThanOrEqual(Math.max(8, Math.floor(Math.min(w, h) / 40)));
+      }
+    }
+  });
+
+  it('layouts up to 60 pieces are what they always were', () => {
+    const r = focusLayout(new Rng(3), 1200, 800, 40, true);
+    expect(r).toHaveLength(40);
+    expect(Math.min(...r.flatMap((q) => [q.w, q.h]))).toBeGreaterThanOrEqual(66);        // the cut keeps pieces at least a twelfth of the short side
   });
 
   it('the same seed gives the same layout', () => {

@@ -41,7 +41,7 @@ export const KINDS: readonly KindDef[] = [
     blurb: 'Pieces of different sizes are shuffled. Click two to trade places and sizes.',
     available: true,
     options: [
-      { key: 'pieces', label: 'Pieces', min: 6, max: 60, def: 16, step: 2 },
+      { key: 'pieces', label: 'Pieces', min: 6, max: 200, def: 16, step: 2 },
       { key: 'irregular', label: 'Irregular pieces', min: 0, max: 1, def: 1, toggle: true },
       { key: 'grid', label: 'Grid lines', min: 0, max: 1, def: 1, toggle: true, display: true },
       { key: 'animate', label: 'Animations', min: 0, max: 1, def: 1, toggle: true, display: true },
@@ -51,7 +51,7 @@ export const KINDS: readonly KindDef[] = [
   {
     id: 'overlap',
     name: 'Overlap',
-    blurb: 'L-shaped pieces that overlap wait in stacks. Drag the top piece onto the grid, turned the way it lies in the picture. Tap a piece to turn it.',
+    blurb: 'Pieces that overlap wait in stacks: each has a centre square of its own and some squares around it that other pieces share. Drag the top piece onto the grid, centre first, turned the way it lies in the picture. Tap a piece to turn it.',
     available: true,
     options: [
       { key: 'cells', label: 'Cells across', min: 5, max: 16, def: 7 },

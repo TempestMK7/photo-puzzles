@@ -407,13 +407,10 @@ export class JigsawSession implements PuzzleSession {
     if (this.init.flag('haptics')) haptic(kind);
   }
 
-  /** Where the dragged group is held: at the pointer, or, for a finger, a little above it (but never off the top of the screen). */
+  /** Where the dragged group is held: at the pointer, or, for a finger, a little above it. It may go up past the top of the screen (a piece for the top edge of the board needs that), but not off the table. */
   private hold(d: Drag): { x: number; y: number } {
     let y = d.qy - d.lift * (d.k * d.k * (3 - 2 * d.k));
-    if (d.lift) {
-      const dpr = window.devicePixelRatio || 1;
-      y = Math.max(y, this.cam.cy - this.frameY - (this.canvasH / 2 - 24 * dpr) / this.cam.zoom, -this.frameY);
-    }
+    if (d.lift) y = Math.max(y, -this.frameY);
     return { x: d.qx, y };
   }
 
