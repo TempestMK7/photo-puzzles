@@ -316,6 +316,9 @@ button.link:hover:not(:disabled) { background: none; color: var(--text); }
 .avatar:hover:not(:disabled) { background: var(--accent2); }
 .avatar.guest { background: var(--panel2); border-color: var(--line); color: var(--dim); }
 .avatar.guest:hover:not(:disabled) { background: #4a3123; }
+.avatar { overflow: hidden; }
+.avatar.photo { background: var(--panel2); }
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .avatar.big { width: 56px; height: 56px; font-size: 26px; cursor: default; }
 .bar .avatar { margin-left: 4px; }
 .online .avatar { color: #1b1210; }

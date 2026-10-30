@@ -68,6 +68,17 @@ function claimsOf(token: string): Record<string, unknown> | null {
   }
 }
 
+/** The address of the profile picture that the sign-in service knows (Google's, for a Google sign-in): a secure address, or nothing. */
+export function pictureOf(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length > 500) return undefined;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === 'https:' ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 const expiresAt = (token: string): number => (Number(claimsOf(token)?.exp) || 0) * 1000;
 
 /**
@@ -114,12 +125,12 @@ export class CognitoAccount implements Account {
     }
   }
 
-  who(): { id: string; name: string; email?: string } | null {
+  who(): { id: string; name: string; email?: string; picture?: string } | null {
     const tokens = this.read();
     const claims = tokens && claimsOf(tokens.id);
     if (!claims || typeof claims.sub !== 'string') return null;
     const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
-    return { id: claims.sub, name: (text(claims.name) || text(claims.email).split('@')[0] || 'Player').slice(0, 24), email: text(claims.email) || undefined };
+    return { id: claims.sub, name: (text(claims.name) || text(claims.email).split('@')[0] || 'Player').slice(0, 24), email: text(claims.email) || undefined, picture: pictureOf(claims.picture) };
   }
 
   token(): Promise<string | null> {

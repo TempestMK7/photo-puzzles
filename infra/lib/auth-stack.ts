@@ -54,7 +54,7 @@ export class AuthStack extends Stack {
           clientId: props.google.clientId,
           clientSecretValue: SecretValue.secretsManager(props.google.secretName),
           scopes: ['openid', 'email', 'profile'],
-          attributeMapping: { email: cognito.ProviderAttribute.GOOGLE_EMAIL, fullname: cognito.ProviderAttribute.GOOGLE_NAME },
+          attributeMapping: { email: cognito.ProviderAttribute.GOOGLE_EMAIL, fullname: cognito.ProviderAttribute.GOOGLE_NAME, profilePicture: cognito.ProviderAttribute.GOOGLE_PICTURE },
         })
       : undefined;
 

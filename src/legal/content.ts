@@ -50,7 +50,7 @@ export function privacy(): LegalPage {
             ['A **check of the picture** by an automatic service (Amazon Rekognition) for explicit, violent, disturbing or hateful content', 'when the picture arrives', 'to keep such pictures out', 'the check is done by Amazon Web Services, whose own terms apply to it; we keep only its result for the puzzle'],
             ['The **state of the puzzle** (where the pieces are, who holds one)', 'while you play', 'so that everyone sees the same board', 'until the puzzle ends (as above)'],
             ['Your **display name** and a colour', 'when you join or make a puzzle', 'so that the others know who is who', "an account's name: until you delete the account. A guest's name: 100 days after you last set it"],
-            ['Your **account**: e-mail address, and the name that Google gives us if you sign in with Google', 'when you create an account', 'to sign you in and to count the puzzles you may make', 'until you delete the account. Held by our sign-in service (Amazon Cognito)'],
+            ['Your **account**: e-mail address, and the name and the profile picture (its web address, not the image) that Google gives us if you sign in with Google', 'when you create an account', 'to sign you in and to count the puzzles you may make', 'until you delete the account. Held by our sign-in service (Amazon Cognito)'],
             ['A **guest id** (a random id, signed by us; kept on your device)', 'the first time you join a puzzle without an account', 'so that the server knows you are the same guest when you come back', 'the token lasts 90 days and is renewed when you come back'],
             ['**Which puzzles you are in**, and when you made puzzles (for the limit of three a week)', 'while you play', 'to show your list, and to keep the limit', 'your memberships: until the puzzle ends or you leave. The record of puzzles made: 8 days'],
             ['Your **network address** (IP address)', 'every request to our server', 'to stop a script from guessing codes or making thousands of guests: counters per address, not a log', 'a few hours (counters of one hour or fifteen minutes; the database deletes them within two days)'],
@@ -61,7 +61,7 @@ export function privacy(): LegalPage {
           ],
         },
       },
-      { p: 'The other players of a puzzle can see your display name, your colour, that you are in the puzzle and whether you are connected, which piece you hold, and the picture. They cannot see your e-mail address or your id.' },
+      { p: 'The other players of a puzzle can see your display name, your colour, that you are in the puzzle and whether you are connected, which piece you hold, and the picture. They cannot see your e-mail address or your id. A profile picture from Google is shown only to you, in the round badge on your own screen, and your browser loads it from Google.' },
       { h: 'What we do not do' },
       {
         ul: [
