@@ -1,6 +1,6 @@
 import type { Offline } from './api';
 import type { GuestAccount } from './guestAccount';
-import type { Account } from './identity';
+import type { Account, PasswordAccount } from './identity';
 import { cleanName, type ApiFailure, type MeResponse } from './protocol';
 
 const NAME_KEY = 'photo-puzzles/online/player-name';
@@ -17,8 +17,8 @@ export type Kind = 'account' | 'guest' | 'none';
  * Who is playing, to the rest of the game: the account the player signed in with, or else a guest, or nobody yet. An account can make puzzles and join them; a guest can only join. Either
  * can choose the name the others see. A guest is made when they first need to be (joining a puzzle), not before.
  *
- * The name is kept on this device and on the server. For a guest it is whatever they chose (or "Guest 1234" until they do). For an account the server's copy decides, and an account that
- * has none yet is asked for one (`needsName`): it is what the others will call them, and the sign-in service only knows an e-mail address.
+ * The name is kept on this device and on the server. For a guest it is whatever they chose (or "Guest 1234" until they do). For an account the server's copy decides; one that has none
+ * yet gets the name its sign-in knows (see `refreshProfile`).
  */
 export class OnlineSession implements Account {
   private api: ProfileApi | null = null;
@@ -92,8 +92,19 @@ export class OnlineSession implements Account {
     return this.account?.signIn?.(returnHash) ?? Promise.resolve();
   }
 
-  signOut(): void {
-    this.account?.signOut?.();
+  /** True if signing out takes the page away and brings it back. */
+  signOut(): boolean {
+    return this.account?.signOut?.() ?? false;
+  }
+
+  /** The game's own e-mail and password pages, in a build whose accounts have them. */
+  get passwords(): PasswordAccount | undefined {
+    return this.account?.passwords;
+  }
+
+  /** The e-mail address the account was made with (what the sign-in service says), if this is an account. */
+  email(): string | null {
+    return this.account?.who()?.email ?? null;
   }
 
   /** The server does not know the token that was shown: a guest's is dropped (the next thing that needs one makes a new guest). */
@@ -111,12 +122,26 @@ export class OnlineSession implements Account {
     return true;
   }
 
-  /** Asks the server for the account's name (an account is asked for one if it has none). */
+  /**
+   * Asks the server for the account's name. An account that has none yet is given the one its sign-in knows (the name it was made with, or the start of the e-mail address) and can
+   * change it in its profile; it is only asked for one if the server cannot be told (`needsName`).
+   */
   async refreshProfile(): Promise<void> {
     const who = this.account?.who();
     if (!who || !this.api) return;
     const res = await this.api.me();
-    if (res.ok) this.profile = { id: who.id, name: res.name };
+    if (!res.ok) return;
+    this.profile = { id: who.id, name: res.name };
+    if (res.name !== null) return;
+    // only the server is told: on this device the name stays what it was, so that it is not taken for a name that the player chose (a guest on the same device would be called by it)
+    const given = await this.api.setName(this.name());
+    if (given.ok) this.profile = { id: who.id, name: given.name };
+  }
+
+  /** Whether the server has been asked about the account that is signed in (so that what the pages show for its name will not change when it answers). */
+  profileLoaded(): boolean {
+    const who = this.account?.who();
+    return !who || this.profile?.id === who.id;
   }
 
   /** An account that has signed in and has not chosen a name yet. */

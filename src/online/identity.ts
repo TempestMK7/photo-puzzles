@@ -2,13 +2,32 @@ import type { Identity } from './api';
 
 /** Who the player is, as the rest of the game needs to know it: the local build's stand-in, a guest, and the cloud's Cognito account all are one. */
 export interface Account {
-  /** Who is signed in, from what is kept here (no network); nothing when nobody is. */
-  who(): { id: string; name: string } | null;
+  /** Who is signed in, from what is kept here (no network); nothing when nobody is. `email` is what the sign-in service knows, if it says. */
+  who(): { id: string; name: string; email?: string } | null;
   /** What goes in the `Authorization` header and in the broker's address: made fresh if it is about to run out. Nothing when nobody is signed in (or the sign-in has ended). */
   token(): Promise<string | null>;
   /** Only an account that needs signing in has these. */
   signIn?(returnHash?: string): Promise<void>;
-  signOut?(): void;
+  /** Signs out. True if that takes the page away (and brings it back), so that whoever asked has to leave a message for the page that comes back. */
+  signOut?(): boolean;
+  /** The game's own sign-in and sign-up pages: only an account with its own password sign-in has this (`CognitoAccount`). */
+  passwords?: PasswordAccount;
+}
+
+/** Why a sign-in, sign-up or reset did not work: what the page says is up to it. */
+export type AuthError = 'wrong' | 'unconfirmed' | 'reset' | 'exists' | 'password' | 'invalid' | 'code' | 'expired' | 'limit' | 'offline' | 'failed';
+export type AuthResult = { ok: true; /** A code was sent to the address, and has to be given before the account is used. */ needsCode?: boolean } | { ok: false; error: AuthError };
+
+/** An e-mail address with a password: the steps of making an account, signing in and forgetting the password. */
+export interface PasswordAccount {
+  signInWithPassword(email: string, password: string): Promise<AuthResult>;
+  signUp(email: string, password: string, name: string): Promise<AuthResult>;
+  /** The code from the e-mail that confirms an address. */
+  confirmSignUp(email: string, code: string): Promise<AuthResult>;
+  resendCode(email: string): Promise<AuthResult>;
+  /** Sends a code to the address that lets the player choose a new password. */
+  forgotPassword(email: string): Promise<AuthResult>;
+  resetPassword(email: string, code: string, password: string): Promise<AuthResult>;
 }
 
 const ID_KEY = 'photo-puzzles/online/id';
@@ -85,7 +104,8 @@ export class DevAccount implements Account {
     this.store?.removeItem(OUT_KEY);
   }
 
-  signOut(): void {
+  signOut(): boolean {
     this.store?.setItem(OUT_KEY, '1');
+    return false;
   }
 }

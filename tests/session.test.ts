@@ -17,11 +17,11 @@ class MemoryStorage implements Storage {
 
 /** An account that can be signed in and out, with the name its sign-in knows. */
 class FakeAccount implements Account {
-  user: { id: string; name: string } | null = null;
+  user: { id: string; name: string; email?: string } | null = null;
   who() { return this.user; }
   async token() { return this.user ? `account-token-${this.user.id}` : null; }
-  async signIn() { this.user = { id: 'acc1', name: 'ann.lee' }; }
-  signOut() { this.user = null; }
+  async signIn() { this.user = { id: 'acc1', name: 'ann.lee', email: 'ann.lee@example.com' }; }
+  signOut() { this.user = null; return false; }
 }
 
 function setup(opts: { account?: boolean; storage?: Storage } = {}) {
@@ -161,22 +161,45 @@ describe('the name of a guest', () => {
 });
 
 describe('the name of an account', () => {
-  it('is asked for when the server has none, and not before the server was asked', async () => {
+  it('is the name the sign-in knows when the server has none: kept on the server, and the account is not asked', async () => {
     const t = setup();
     await t.session.signIn();
+    expect(t.session.profileLoaded()).toBe(false);
     expect(t.session.needsName()).toBe(false);                                    // not known yet
     await t.session.refreshProfile();
-    expect(t.session.needsName()).toBe(true);
-    expect(t.session.name()).toBe('ann.lee');                                     // what to suggest: what the sign-in knows
+    expect(t.session.profileLoaded()).toBe(true);
+    expect(t.session.needsName()).toBe(false);
+    expect(t.session.name()).toBe('ann.lee');
+    expect(t.server.names.get('acc1')).toBe('ann.lee');
   });
 
-  it('suggests the name the player chose as a guest, if they did', async () => {
+  it('does not leave that name on the device as one the player chose (a guest after signing out is not called by it)', async () => {
+    const t = setup();
+    await t.session.signIn();
+    await t.session.refreshProfile();
+    expect(t.session.nameChosen()).toBe(true);                                    // for the account: the server has it
+    t.session.signOut();
+    expect(t.session.nameChosen()).toBe(false);
+    expect(t.session.name()).toMatch(/^Guest \d{4}$/);
+  });
+
+  it('is only asked for when the server cannot be given the name that the sign-in knows', async () => {
+    const t = setup();
+    await t.session.signIn();
+    t.api.setName = async () => ({ ok: false, error: 'offline' });
+    await t.session.refreshProfile();
+    expect(t.session.needsName()).toBe(true);
+    expect(t.session.name()).toBe('ann.lee');
+  });
+
+  it('is the name the player chose as a guest, if they did', async () => {
     const t = setup();
     await t.session.setName('Zed');
     await t.session.signIn();
     await t.session.refreshProfile();
-    expect(t.session.needsName()).toBe(true);
+    expect(t.session.needsName()).toBe(false);
     expect(t.session.name()).toBe('Zed');
+    expect(t.server.names.get('acc1')).toBe('Zed');
   });
 
   it('is kept on the server once chosen, and the account is not asked again', async () => {
@@ -210,7 +233,10 @@ describe('the name of an account', () => {
     expect(t.session.needsName()).toBe(false);                                    // not asked about yet
     expect(t.session.who()!.name).not.toBe('Annie');
     await t.session.refreshProfile();
-    expect(t.session.needsName()).toBe(true);
+    expect(t.session.needsName()).toBe(false);
+    expect(t.session.name()).toBe('bob');
+    expect(t.server.names.get('acc2')).toBe('bob');
+    expect(t.server.names.get('acc1')).toBe('Annie');
   });
 
   it('is not asked for when the server cannot say (the account can still be used)', async () => {

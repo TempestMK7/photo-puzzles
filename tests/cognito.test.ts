@@ -104,9 +104,9 @@ describe('who the player is', () => {
     return t.account.who();
   };
   it('is the name the account has, or else the start of the e-mail address, or else "Player"', async () => {
-    expect(await withClaims({ sub: 'u1', name: 'Ann Lee', email: 'x@example.com' })).toEqual({ id: 'u1', name: 'Ann Lee' });
-    expect(await withClaims({ sub: 'u1', email: 'ann.lee@example.com' })).toEqual({ id: 'u1', name: 'ann.lee' });
-    expect(await withClaims({ sub: 'u1' })).toEqual({ id: 'u1', name: 'Player' });
+    expect(await withClaims({ sub: 'u1', name: 'Ann Lee', email: 'x@example.com' })).toEqual({ id: 'u1', name: 'Ann Lee', email: 'x@example.com' });
+    expect(await withClaims({ sub: 'u1', email: 'ann.lee@example.com' })).toEqual({ id: 'u1', name: 'ann.lee', email: 'ann.lee@example.com' });
+    expect(await withClaims({ sub: 'u1' })).toEqual({ id: 'u1', name: 'Player', email: undefined });
     expect((await withClaims({ sub: 'u1', name: 'A'.repeat(40) }))!.name).toHaveLength(24);
   });
   it('is nobody before signing in', () => {
@@ -182,12 +182,110 @@ describe('signing out', () => {
       return s;
     })();
     expect(t.account.who()).not.toBeNull();
-    t.account.signOut();
+    expect(t.account.signOut()).toBe(true);          // the page is taken away (and comes back)
     expect(t.account.who()).toBeNull();
     expect(t.local!.getItem('photo-puzzles/online/auth')).toBeNull();
     const url = new URL(t.went[t.went.length - 1]);
     expect(`${url.origin}${url.pathname}`).toBe(`${HOST}/logout`);
     expect(url.searchParams.get('logout_uri')).toBe(REDIRECT);
+  });
+});
+
+/** A user pool that answers in its own way: what was asked (the target and the body), and a reply for each target. */
+function pool(replies: Record<string, Response | (() => Response)>) {
+  const asked: { url: string; target: string; body: Record<string, unknown> }[] = [];
+  const t = setup();
+  const reply = (target: string): Response => {
+    const r = replies[target];
+    return typeof r === 'function' ? r() : (r ?? json({ __type: 'InternalErrorException' }, 500));
+  };
+  const env = (t.account as unknown as { env: CognitoEnv }).env;
+  env.fetch = (async (url: string, init: RequestInit) => {
+    const target = String((init.headers as Record<string, string>)['X-Amz-Target']).split('.').pop()!;
+    asked.push({ url, target, body: JSON.parse(String(init.body)) });
+    return reply(target);
+  }) as never;
+  return { ...t, asked };
+}
+const error = (type: string) => json({ __type: `com.amazonaws.cognito#${type}` , message: 'm' }, 400);
+
+describe('the e-mail and password pages', () => {
+  it('signs in by asking the user pool of the region in the address of the sign-in pages, and keeps the tokens', async () => {
+    const t = pool({ InitiateAuth: json({ AuthenticationResult: { IdToken: jwt({ sub: 'u9', email: 'me@example.com', exp: 1_700_003_600 }), RefreshToken: 'r9' } }) });
+    const res = await new CognitoAccount({ host: 'https://x.auth.eu-west-2.amazoncognito.com', clientId: 'c' }, null, null, (t.account as unknown as { env: CognitoEnv }).env).passwords.signInWithPassword(' me@example.com ', 'Secret123');
+    expect(res).toEqual({ ok: true });
+    expect(t.asked[0].url).toBe('https://cognito-idp.eu-west-2.amazonaws.com/');
+    expect(t.asked[0].target).toBe('InitiateAuth');
+    expect(t.asked[0].body).toEqual({ ClientId: 'c', AuthFlow: 'USER_PASSWORD_AUTH', AuthParameters: { USERNAME: 'me@example.com', PASSWORD: 'Secret123' } });
+  });
+
+  it('is signed in afterwards, with the e-mail address of the account, and the refresh token is the one the pool gave', async () => {
+    const t = pool({ InitiateAuth: json({ AuthenticationResult: { IdToken: jwt({ sub: 'u9', email: 'me@example.com', exp: 1_700_003_600 }), RefreshToken: 'r9' } }) });
+    expect(await t.account.passwords.signInWithPassword('me@example.com', 'Secret123')).toEqual({ ok: true });
+    expect(t.account.who()).toEqual({ id: 'u9', name: 'me', email: 'me@example.com' });
+    expect(JSON.parse(t.local!.getItem('photo-puzzles/online/auth')!).refresh).toBe('r9');
+  });
+
+  it('says what went wrong, in words the page can use, and is not signed in', async () => {
+    const cases: [string, string][] = [
+      ['NotAuthorizedException', 'wrong'],
+      ['UserNotFoundException', 'wrong'],
+      ['UserNotConfirmedException', 'unconfirmed'],
+      ['PasswordResetRequiredException', 'reset'],
+      ['TooManyRequestsException', 'limit'],
+      ['SomethingNew', 'failed'],
+    ];
+    for (const [type, want] of cases) {
+      const t = pool({ InitiateAuth: error(type) });
+      expect(await t.account.passwords.signInWithPassword('a@b.co', 'x')).toEqual({ ok: false, error: want });
+      expect(t.account.who()).toBeNull();
+    }
+  });
+
+  it('says "offline" when the pool cannot be reached, and "failed" for a challenge it does not know how to answer', async () => {
+    const t = setup({ reply: () => { throw new TypeError('network'); } });
+    expect(await t.account.passwords.signInWithPassword('a@b.co', 'x')).toEqual({ ok: false, error: 'offline' });
+    const c = pool({ InitiateAuth: json({ ChallengeName: 'NEW_PASSWORD_REQUIRED', Session: 's' }) });
+    expect(await c.account.passwords.signInWithPassword('a@b.co', 'x')).toEqual({ ok: false, error: 'failed' });
+  });
+
+  it('makes an account with the e-mail address and, if given, the name; says whether a code has to be given', async () => {
+    const t = pool({ SignUp: json({ UserConfirmed: false, UserSub: 's' }) });
+    expect(await t.account.passwords.signUp(' new@example.com', 'Secret123', ' Ann ')).toEqual({ ok: true, needsCode: true });
+    expect(t.asked[0].body).toEqual({ ClientId: 'client1', Username: 'new@example.com', Password: 'Secret123', UserAttributes: [{ Name: 'email', Value: 'new@example.com' }, { Name: 'name', Value: 'Ann' }] });
+    const bare = pool({ SignUp: json({ UserConfirmed: true }) });
+    expect(await bare.account.passwords.signUp('n@example.com', 'Secret123', '  ')).toEqual({ ok: true, needsCode: false });
+    expect((bare.asked[0].body.UserAttributes as unknown[]).length).toBe(1);
+  });
+
+  it('says that an address is taken, or a password is not allowed', async () => {
+    expect(await pool({ SignUp: error('UsernameExistsException') }).account.passwords.signUp('a@b.co', 'Secret123', '')).toEqual({ ok: false, error: 'exists' });
+    expect(await pool({ SignUp: error('InvalidPasswordException') }).account.passwords.signUp('a@b.co', 'weak', '')).toEqual({ ok: false, error: 'password' });
+  });
+
+  it('confirms an address, sends the code again, and resets a password with a code', async () => {
+    const t = pool({ ConfirmSignUp: json({}), ResendConfirmationCode: json({}), ForgotPassword: json({}), ConfirmForgotPassword: json({}) });
+    expect(await t.account.passwords.confirmSignUp('a@b.co', ' 123456 ')).toEqual({ ok: true });
+    expect(await t.account.passwords.resendCode('a@b.co')).toEqual({ ok: true });
+    expect(await t.account.passwords.forgotPassword('a@b.co')).toEqual({ ok: true });
+    expect(await t.account.passwords.resetPassword('a@b.co', '654321', 'Secret123')).toEqual({ ok: true });
+    expect(t.asked.map((a) => a.target)).toEqual(['ConfirmSignUp', 'ResendConfirmationCode', 'ForgotPassword', 'ConfirmForgotPassword']);
+    expect(t.asked[0].body).toEqual({ ClientId: 'client1', Username: 'a@b.co', ConfirmationCode: '123456' });
+    expect(t.asked[3].body).toEqual({ ClientId: 'client1', Username: 'a@b.co', ConfirmationCode: '654321', Password: 'Secret123' });
+  });
+
+  it('says that a code is wrong or has run out', async () => {
+    expect(await pool({ ConfirmSignUp: error('CodeMismatchException') }).account.passwords.confirmSignUp('a@b.co', '1')).toEqual({ ok: false, error: 'code' });
+    expect(await pool({ ConfirmSignUp: error('ExpiredCodeException') }).account.passwords.confirmSignUp('a@b.co', '1')).toEqual({ ok: false, error: 'expired' });
+  });
+
+  it('signs out without leaving the page (and revokes the refresh token) when the player signed in with a password', async () => {
+    const t = pool({ InitiateAuth: json({ AuthenticationResult: { IdToken: jwt({ sub: 'u9', exp: 1_700_003_600 }), RefreshToken: 'r9' } }), RevokeToken: json({}) });
+    await t.account.passwords.signInWithPassword('a@b.co', 'x');
+    expect(t.account.signOut()).toBe(false);
+    expect(t.went).toEqual([]);
+    expect(t.account.who()).toBeNull();
+    expect(t.asked.at(-1)).toMatchObject({ target: 'RevokeToken', body: { Token: 'r9', ClientId: 'client1' } });
   });
 });
 
