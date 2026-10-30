@@ -11,6 +11,7 @@ import { parseInvite } from './online/protocol';
 import { WsRealtime, type Realtime } from './online/realtime';
 import { OnlineSession } from './online/session';
 import { SaveStore } from './store/saves';
+import { listenForShared } from './store/shared';
 import type { PhotoEntry } from './store/photos';
 import { LibraryScreen } from './ui/library';
 import { OnlinePanel } from './ui/online';
@@ -175,6 +176,7 @@ async function main(): Promise<void> {
 
   if (import.meta.env.DEV) Object.assign(window, { __play: play, __library: library });        // for poking at the game from the console while developing
   await library.load();
+  listenForShared((files) => library.addFiles(files));        // what other apps share with the Android app lands in the library
   // a link to a puzzle (https://.../#/join/12345~secret) joins it
   const link = signedInHash || window.location.hash;
   if (panel && player.kind() === 'account' && parseInvite(link)) await player.refreshProfile();        // to know whether the account has a name before deciding to ask
