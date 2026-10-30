@@ -4,6 +4,7 @@ import { CognitoAccount } from '../online/cognito';
 import { cloudConfig } from '../online/config';
 import { h } from '../ui/dom';
 import { SignInDialog } from '../ui/signin';
+import { appVersion, versionLabel } from '../version';
 import { AdminApi, sayAdminError, type AdminFailure } from './api';
 
 type Tab = 'players' | 'rooms' | 'reports' | 'logs';
@@ -63,6 +64,7 @@ class AdminPage {
     const who = this.account.who();
     this.top.replaceChildren(
       h('h1', {}, 'PuzzleVidio admin'),
+      h('span', { class: 'dim' }, versionLabel(appVersion())),
       h('span', { class: 'spacer' }),
       ...extra,
       ...(who ? [h('span', { class: 'dim' }, who.email ?? who.name), h('button', { type: 'button', class: 'small', onclick: () => this.signOut() }, 'Sign out')] : []),
