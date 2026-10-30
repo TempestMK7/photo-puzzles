@@ -12,7 +12,7 @@ export function build(app: App): void {
   const s = settings(app.node);
   const env = { account: process.env.CDK_DEFAULT_ACCOUNT, region: REGION };
 
-  new OpsStack(app, stackName('shared', 'Ops'), { env, budgetUsd: s.budgetUsd, alertEmail: s.alertEmail, githubRepo: s.githubRepo, githubProviderArn: s.githubProviderArn });
+  new OpsStack(app, stackName('shared', 'Ops'), { env, budgetUsd: s.budgetUsd, alertEmail: s.alertEmail, githubRepo: s.githubRepo, githubSubjectPrefix: s.githubSubjectPrefix, githubProviderArn: s.githubProviderArn });
 
   for (const stage of STAGES) {
     const origins = siteOrigins(stage, s.zoneName);

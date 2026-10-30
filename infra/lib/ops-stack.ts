@@ -10,6 +10,7 @@ export interface OpsStackProps extends StackProps {
   budgetUsd: number;
   alertEmail?: string;
   githubRepo: string;
+  githubSubjectPrefix?: string;
   githubProviderArn?: string;
 }
 
@@ -42,13 +43,16 @@ export class OpsStack extends Stack {
       ? iam.OpenIdConnectProvider.fromOpenIdConnectProviderArn(this, 'GitHub', props.githubProviderArn)
       : new iam.OpenIdConnectProvider(this, 'GitHub', { url: 'https://token.actions.githubusercontent.com', clientIds: ['sts.amazonaws.com'] });
 
+    // GitHub says the repository two ways in a token: `repo:owner/name`, or with the owner's and the repository's ids when the repository has immutable subjects.
+    const subjects = [`repo:${props.githubRepo}:ref:refs/heads/main`];
+    if (props.githubSubjectPrefix) subjects.push(`repo:${props.githubSubjectPrefix}:ref:refs/heads/main`);
     // Only the main branch of this repository can take the role, and all it can do by itself is to use the roles that `cdk bootstrap` made: they hold the real permissions.
     this.deployRole = new iam.Role(this, 'Deploy', {
       roleName: DEPLOY_ROLE_NAME,
       maxSessionDuration: Duration.hours(1),
       assumedBy: new iam.WebIdentityPrincipal(provider.openIdConnectProviderArn, {
         StringEquals: { 'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com' },
-        StringLike: { 'token.actions.githubusercontent.com:sub': `repo:${props.githubRepo}:ref:refs/heads/main` },
+        StringLike: { 'token.actions.githubusercontent.com:sub': subjects.length === 1 ? subjects[0] : subjects },
       }),
     });
     this.deployRole.addToPolicy(new iam.PolicyStatement({ actions: ['sts:AssumeRole'], resources: [`arn:aws:iam::${this.account}:role/cdk-*`] }));

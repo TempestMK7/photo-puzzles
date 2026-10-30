@@ -127,6 +127,24 @@ describe('ops', () => {
       },
     });
   });
+  it('also trusts the immutable subject (owner and repository ids) of the repository, when it is given', () => {
+    const ids = stack(app({ githubSubjectPrefix: 'TempestMK7@1/photo-puzzles@2' }), 'PuzzleVidio-shared-Ops');
+    ids.hasResourceProperties('AWS::IAM::Role', {
+      RoleName: 'puzzlevidio-github-deploy',
+      AssumeRolePolicyDocument: {
+        Statement: [
+          Match.objectLike({
+            Condition: {
+              StringEquals: { 'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com' },
+              StringLike: {
+                'token.actions.githubusercontent.com:sub': ['repo:TempestMK7/photo-puzzles:ref:refs/heads/main', 'repo:TempestMK7@1/photo-puzzles@2:ref:refs/heads/main'],
+              },
+            },
+          }),
+        ],
+      },
+    });
+  });
   it('can only use the roles of the bootstrap (and read stacks), not change the account itself', () => {
     const statements = Object.values(t.findResources('AWS::IAM::Policy')).flatMap(
       (p) => (p as { Properties: { PolicyDocument: { Statement: { Action: string }[] } } }).Properties.PolicyDocument.Statement,
