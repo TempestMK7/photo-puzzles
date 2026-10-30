@@ -35,6 +35,12 @@ function session(): Storage | null {
 }
 
 async function main(): Promise<void> {
+  // the admin page (https://<the game's address>/admin) is a page of its own, loaded only for whoever goes there: the game is not started
+  if (/^\/admin\/?$/.test(window.location.pathname)) {
+    const { openAdmin } = await import('./admin/page');
+    await openAdmin(document.getElementById('app')!);
+    return;
+  }
   const prefs = new Prefs(storage());
   const saves = new SaveStore();
   const photos = new PhotoLibrary((id) => saves.removeForPhoto(id));

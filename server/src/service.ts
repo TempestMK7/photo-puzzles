@@ -29,6 +29,7 @@ import {
   type RoomSummary,
 } from '../../src/online/protocol';
 import { sniffImage } from './image';
+import type { AdminRoomSummary } from '../../src/online/adminProtocol';
 import { playedMs } from './played';
 import type { Accounts, Clock, Limits, Media, Moderation, Player, Presence, PubSub, Random, Report, RoomRecord, Store } from './types';
 
@@ -188,6 +189,38 @@ export class RoomService {
       pieces: room.settings.opts.pieces,
       picture: room.ready ? await this.d.media.signedUrl(room.id) : null,
     };
+  }
+
+  /** For the operator: the puzzles that exist now, longest-lived first, with who is in each and who is connected. */
+  async adminRooms(): Promise<AdminRoomSummary[]> {
+    const now = this.d.clock.now();
+    const out: AdminRoomSummary[] = [];
+    for (const room of await this.d.store.allRooms()) {
+      if (room.expiresAt <= now) continue;
+      const online = new Set(await this.d.presence.online(room.id));
+      out.push({
+        id: room.id,
+        owner: { id: room.ownerId, name: room.members.find((m) => m.id === room.ownerId)?.name ?? '' },
+        members: room.members.map((m) => ({ id: m.id, name: m.name, online: online.has(m.id) })),
+        pieces: room.settings.opts.pieces,
+        status: room.status,
+        ready: room.ready,
+        createdAt: room.createdAt,
+        expiresAt: room.expiresAt,
+        playedMs: playedMs(room, now),
+      });
+    }
+    return out.sort((a, b) => b.expiresAt - a.expiresAt);
+  }
+
+  /** For the operator: the display names that players chose (a player who never did has none here). */
+  async adminNames(ids: string[]): Promise<Map<string, string>> {
+    const names = new Map<string, string>();
+    for (const id of ids) {
+      const name = await this.d.store.getName(id);
+      if (name) names.set(id, name);
+    }
+    return names;
   }
 
   /** For the operator: ends a puzzle now, with its picture and its codes; the players are told it was closed. */

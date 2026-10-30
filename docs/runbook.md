@@ -21,6 +21,31 @@ aws logs describe-log-groups --log-group-name-prefix PuzzleVidio-<stage> --query
 
 *(run)* The outputs that matter: `ApiFunction`, `AdminFunction` (Api stack); `PresenceFunction`, `AuthorizerFunction` (Live stack).
 
+## The admin page
+
+`https://<the game's address>/admin` (`https://dev.puzzlevid.io/admin`, later `https://puzzlevid.io/admin`) is a page for the operator: sign in with an account that is in the **admin group** and look at
+
+- **Players**: every account of the user pool (name chosen, e-mail, when it was made, its state, its id), with **Ban** and **Unban**;
+- **Puzzles**: every puzzle that exists (who made it, who is in it and who is connected right now, the pieces, how long it has been played, when it ends), with **Look** (the picture, in the page) and **End this puzzle**;
+- **Reports**: the last 30 days, with **Look** at the puzzle a report names (a puzzle that has ended cannot be looked at: the report keeps the ids);
+- **Logs**: the logs of the functions of that stage, a function at a time, for the last 15 minutes to a day, with a filter (`ERROR`, or any text); the newest 200 lines.
+
+Ending a puzzle and banning a player ask a second time. **Deleting an account is not in the page** (it is `delete-account` of the operator's function, below).
+
+**Who may use it:** an account is an administrator when it is in the Cognito group `admins`. Nobody is at first; put an account in by hand (the account has to exist: sign up in the game first), and take it out the same way:
+
+```
+aws cognito-idp admin-add-user-to-group --user-pool-id <the stage's pool> --username <the e-mail address of the account> --group-name admins
+aws cognito-idp admin-remove-user-from-group --user-pool-id <the stage's pool> --username <the e-mail address of the account> --group-name admins
+aws cognito-idp list-users-in-group --user-pool-id <the stage's pool> --group-name admins
+```
+
+The pool's id is the Auth stack's output `UserPoolId`. The group is on the account's token, so a change reaches the page at the next sign-in (the token lasts an hour). Two things check it: the gateway lets only a signed-in account through to `/admin/*`, and the function looks for the group again; an account that is not in it gets "Not an administrator".
+
+**Privacy:** the page shows e-mail addresses and the logs (which hold ids and never e-mail addresses or pictures). Keep the group small; the privacy policy draft names the operator as someone who can see them.
+
+The page needs the stage's own pool: an administrator of dev is not one of prod.
+
 ## Is it up?
 
 1. The game: `https://<domain>/` answers 200. The API: `https://api.<domain>/me` answers `401` without a token (the gateway is up and wants a sign-in). *(run)*

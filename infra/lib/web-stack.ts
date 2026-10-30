@@ -45,6 +45,12 @@ export class WebStack extends Stack {
       },
     });
 
+    // The admin page is at /admin, and the page's files are found by addresses relative to where it is: /admin/ (with the slash) would look for them under /admin/, so it goes to /admin.
+    const adminSlash = new cloudfront.Function(this, 'AdminSlash', {
+      runtime: cloudfront.FunctionRuntime.JS_2_0,
+      code: cloudfront.FunctionCode.fromInline("function handler(event) { var r = event.request; if (r.uri.indexOf('/admin/') === 0) return { statusCode: 301, statusDescription: 'Moved Permanently', headers: { location: { value: '/admin' } } }; return r; }"),
+    });
+
     // The game is one page with hash addresses (#/join/...), so a missing file is not an address: it gets the page.
     const page = { responseHttpStatus: 200, responsePagePath: '/index.html', ttl: Duration.minutes(1) };
     this.distribution = new cloudfront.Distribution(this, 'Cdn', {
@@ -53,6 +59,7 @@ export class WebStack extends Stack {
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         responseHeadersPolicy: headers,
         compress: true,
+        functionAssociations: [{ function: adminSlash, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST }],
       },
       defaultRootObject: 'index.html',
       domainNames: [props.domain],

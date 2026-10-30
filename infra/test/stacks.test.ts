@@ -35,6 +35,45 @@ describe('settings', () => {
   });
 });
 
+describe('the admin page', () => {
+  const prod = stack(app(), 'PuzzleVidio-prod-Api');
+  const functions = Object.entries(prod.findResources('AWS::Lambda::Function')) as [string, { Properties: { Handler?: string } }][];
+  const web = functions.find(([id]) => /^AdminWeb[0-9A-F]{8}$/.test(id));
+
+  it('has a function of its own behind the gateway, which may read the accounts and the logs of its stage and does nothing else to either', () => {
+    expect(web).toBeDefined();
+    const targets = JSON.stringify(Object.values(prod.findResources('AWS::ApiGatewayV2::Integration')));
+    expect(targets).toContain(web![0]);
+    const st = statementsOf(prod, /^AdminWebServiceRole|AdminWebDefaultPolicy/);
+    const pool = st.filter((x) => actionsOf([x]).some((a) => a.startsWith('cognito-idp:')));
+    expect(pool.map((x) => actionsOf([x]).join())).toEqual(['cognito-idp:ListUsers']);
+    const logs = st.filter((x) => actionsOf([x]).some((a) => a.startsWith('logs:') && a !== 'logs:CreateLogStream' && a !== 'logs:PutLogEvents'));
+    expect(logs.map((x) => actionsOf([x]).join()).sort()).toEqual(['logs:DescribeLogGroups', 'logs:FilterLogEvents']);
+    const filter = logs.find((x) => actionsOf([x]).includes('logs:FilterLogEvents'))!;
+    expect(JSON.stringify(filter.Resource)).toContain('log-group:PuzzleVidio-prod-*:*');
+    expect(actionsOf(st)).not.toContain('*');
+    expect(actionsOf(st).some((a) => a.startsWith('rekognition:'))).toBe(false);
+  });
+
+  it('knows which stage it is, to find its own logs', () => {
+    const env = (web![1] as unknown as { Properties: { Environment: { Variables: Record<string, unknown> } } }).Properties.Environment.Variables;
+    expect(env.STAGE).toBe('prod');
+  });
+
+  it('has a group in the user pool for the people who may use it', () => {
+    stack(app(), 'PuzzleVidio-prod-Auth').hasResourceProperties('AWS::Cognito::UserPoolGroup', { GroupName: 'admins' });
+  });
+
+  it('sends /admin/ to /admin, so that the page finds its files', () => {
+    const t = stack(app(), 'PuzzleVidio-prod-Web');
+    t.hasResourceProperties('AWS::CloudFront::Function', { FunctionConfig: Match.objectLike({ Runtime: 'cloudfront-js-2.0' }) });
+    t.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({ DefaultCacheBehavior: Match.objectLike({ FunctionAssociations: [Match.objectLike({ EventType: 'viewer-request' })] }) }),
+    });
+    expect(JSON.stringify(t.toJSON())).toContain("location: { value: '/admin' }");
+  });
+});
+
 describe('api limits', () => {
   it('puts the limits in the environment of the functions, only when they are given', () => {
     const none = JSON.stringify(stack(app(), 'PuzzleVidio-dev-Api').toJSON());
@@ -235,6 +274,8 @@ describe('api', () => {
         ['POST /me/delete', 'NONE'],
         ['POST /guest', 'NONE'],
         ['PUT /media/{id}', 'NONE'],             // the address is signed
+        ['GET /admin/{proxy+}', 'JWT'],          // the admin page: a Cognito token at the gateway, and the admin group in the function
+        ['POST /admin/{proxy+}', 'JWT'],
       ].sort(),
     );
   });
@@ -278,7 +319,7 @@ describe('api', () => {
 
   it('has a function for the operator that no address reaches, and can tell only the alarm topic that a puzzle was reported', () => {
     const functions = Object.entries(prod.findResources('AWS::Lambda::Function')) as [string, { Properties: { Environment?: { Variables?: Record<string, unknown> } } }][];
-    const admin = functions.find(([id]) => id.startsWith('Admin'));
+    const admin = functions.find(([id]) => /^Admin[0-9A-F]{8}$/.test(id));
     expect(admin).toBeDefined();
     // the gateway's integrations point at the Api function only: the Admin function can only be invoked with permission to invoke it
     const targets = JSON.stringify(Object.values(prod.findResources('AWS::ApiGatewayV2::Integration')));

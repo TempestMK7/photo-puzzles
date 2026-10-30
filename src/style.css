@@ -196,6 +196,45 @@ body.dragging .library::after {
 .zoom .zlabel { font-size: 13px; min-width: 58px; font-variant-numeric: tabular-nums; color: var(--dim); border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
 .viewbar { position: absolute; left: 0; right: 0; bottom: max(14px, env(safe-area-inset-bottom)); display: flex; justify-content: center; }
 
+/* ---------------------------------------------------------------- the admin page (/admin) */
+.admin { height: 100%; overflow-y: auto; padding: 0 16px 40px; max-width: 1200px; margin: 0 auto; }
+.admin .top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.admin h1 { margin: 0; font-size: 20px; letter-spacing: 0.04em; }
+.admin h2 { margin: 0 0 8px; font-size: 17px; }
+.admin .spacer { flex: 1; }
+.admin .dim { color: var(--dim); font-size: 13px; }
+.admin a.back { color: var(--accent2); font-size: 13px; }
+.admin .gate { max-width: 420px; margin: 60px auto; padding: 20px; background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; display: flex; flex-direction: column; gap: 12px; }
+.admin .gate p { margin: 0; }
+.admin .tabs { display: flex; gap: 6px; padding: 12px 0; overflow-x: auto; }
+.admin .tabs button[aria-selected='true'] { background: #9a4a1c; border-color: var(--accent2); font-weight: 600; }
+.admin .row { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
+.admin .row.wrap { flex-wrap: wrap; }
+.admin .row .dim { flex: 1; }
+.admin .scroll { overflow-x: auto; }
+.admin table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin th, .admin td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.admin th { color: var(--accent2); font-weight: 600; white-space: nowrap; }
+.admin .badge { margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); font-size: 11px; }
+.admin .badge.bad { background: #7a1f1f; border-color: #c0443a; color: #fff; }
+.admin .on { color: #7dff7d; }
+.admin .off { color: var(--dim); }
+.admin button.id { font-family: ui-monospace, Consolas, monospace; font-size: 12px; padding: 0; }
+.admin .ask { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.admin .ask input { width: 220px; }
+.admin .note { margin: 8px 0; padding: 7px 10px; border: 1px solid var(--accent2); border-radius: 6px; background: var(--panel2); font-size: 13px; }
+.admin .error { color: #ff9d94; }
+.admin .look { margin: 0 0 16px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; }
+.admin .look p { margin: 0 0 8px; }
+.admin .picture { max-width: min(100%, 480px); max-height: 360px; display: block; margin: 8px 0 12px; border-radius: 6px; border: 1px solid var(--line); }
+.admin select { font: inherit; background: var(--bg); color: inherit; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; }
+.admin .row input.plain { flex: 1 1 220px; min-width: 0; }
+.admin .log { font: 12px/1.45 ui-monospace, Consolas, monospace; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+.admin .log .line { white-space: pre-wrap; word-break: break-word; padding: 2px 0; border-bottom: 1px solid rgba(107, 74, 54, 0.35); }
+.admin .log .at { color: var(--dim); }
+.admin .log .line.bad { color: #ff9d94; }
+.admin .pane > div > button { margin-top: 10px; }
+
 /* ---------------------------------------------------------------- playing with friends */
 .bar .friends { margin-left: auto; }
 .bar .friends + .progress-btn { margin-left: 0; }
