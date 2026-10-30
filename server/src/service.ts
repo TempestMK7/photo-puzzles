@@ -29,7 +29,7 @@ import {
   type RoomSummary,
 } from '../../src/online/protocol';
 import { sniffImage } from './image';
-import type { Accounts, Clock, Limits, Media, Player, Presence, PubSub, Random, Report, RoomRecord, Store } from './types';
+import type { Accounts, Clock, Limits, Media, Moderation, Player, Presence, PubSub, Random, Report, RoomRecord, Store } from './types';
 
 export interface Deps {
   store: Store;
@@ -43,6 +43,8 @@ export interface Deps {
   webBase: string;
   /** Where an account is deleted for good (nothing for a server that has no accounts). */
   accounts?: Accounts;
+  /** Looks at every picture before the puzzle can be joined (nothing for a server that has no such service). */
+  moderation?: Moderation;
   /** Tells the operator something (an e-mail, in the cloud). Nothing for a server that has nobody to tell. */
   notify?: (text: string) => Promise<void>;
 }
@@ -152,12 +154,17 @@ export class RoomService {
       note: cleanNote(req.note),
     };
     await this.d.store.addReport(report);
-    try {
-      await this.d.notify?.(`A puzzle was reported (${report.reason}): room ${roomId}, made by ${report.ownerId}, reported by ${report.reporterId}. List the reports with the admin function.`);
-    } catch (e) {
-      console.error(e);                                         // the report is kept: the operator finds it when they look
-    }
+    await this.tell(`A puzzle was reported (${report.reason}): room ${roomId}, made by ${report.ownerId}, reported by ${report.reporterId}. List the reports with the admin function.`);
     return { ok: true };
+  }
+
+  /** Tells the operator something; if that cannot be done the thing is logged and goes on (what was kept is there to be found). */
+  private async tell(text: string): Promise<void> {
+    try {
+      await this.d.notify?.(text);
+    } catch (e) {
+      console.error(e);
+    }
   }
 
   /** For the operator: the reports of the last `days` days, newest first. */
@@ -268,6 +275,20 @@ export class RoomService {
     if (!found || found.width !== room.settings.width || found.height !== room.settings.height) {
       await this.cleanup(room, 'owner');                          // not the picture the puzzle was made for: nothing is kept
       return fail('bad-request');
+    }
+    if (this.d.moderation) {
+      let verdict: Awaited<ReturnType<Moderation['check']>>;
+      try {
+        verdict = await this.d.moderation.check(bytes, found.type);
+      } catch (e) {
+        console.error(e);
+        return fail('busy');                                      // not looked at: nothing is shown, and the creator may send it again
+      }
+      if (!verdict.ok) {
+        await this.cleanup(room, 'owner');
+        await this.tell(`A picture was turned down by the automatic check (${verdict.label}): room ${roomId}, made by ${room.ownerId}. The puzzle was ended.`);
+        return fail('rejected');
+      }
     }
     await this.d.media.put(roomId, bytes, found.type);
     const done = await this.update(roomId, (r) => {

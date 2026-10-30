@@ -5,6 +5,7 @@ import { IoTDataPlaneClient } from '@aws-sdk/client-iot-data-plane';
 import { S3Client } from '@aws-sdk/client-s3';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { RekognitionClient } from '@aws-sdk/client-rekognition';
 import { PublishCommand, SNSClient } from '@aws-sdk/client-sns';
 import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
 import { DEFAULT_LIMITS } from '../../../src/online/protocol';
@@ -17,6 +18,7 @@ import { Signer } from '../signing';
 import type { Auth, Limits } from '../types';
 import { playerFrom } from './claims';
 import { CognitoAccounts } from './cognito';
+import { RekognitionModeration } from './rekognition';
 import { DynamoPresence, DynamoRates, DynamoStore } from './dynamo';
 import { CognitoVerifier, fetchJson } from './jwt';
 import { IotPubSub } from './iot';
@@ -95,6 +97,8 @@ export async function buildService() {
     limits,
     webBase: need('WEB_BASE'),
     accounts: new CognitoAccounts(new CognitoIdentityProviderClient({}), need('USER_POOL_ID')),
+    // every picture is looked at before anyone else can see it
+    moderation: new RekognitionModeration(new RekognitionClient({})),
     // a report goes to the alarm topic, so that it reaches the operator's e-mail
     notify: async (text) => void (await sns.send(new PublishCommand({ TopicArn: need('ALERT_TOPIC_ARN'), Subject: 'PuzzleVidio: a puzzle was reported', Message: text }))),
   });

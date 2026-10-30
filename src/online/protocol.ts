@@ -93,7 +93,9 @@ export type ApiError =
   /** Making a puzzle needs an account; joining one does not. */
   | 'account-required'
   /** The operator has stopped this player from playing online. */
-  | 'banned';
+  | 'banned'
+  /** The automatic check of the picture turned it down. */
+  | 'rejected';
 
 export interface ApiFailure {
   ok: false;

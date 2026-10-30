@@ -98,6 +98,12 @@ export interface Store {
   forgetPlayer(playerId: string): Promise<void>;
 }
 
+/** The automatic look at a picture before anyone else may see it. */
+export interface Moderation {
+  /** `label` says what was found (for the operator; the player is only told that the picture cannot be used). Throws if it could not be checked. */
+  check(bytes: Uint8Array, type: string): Promise<{ ok: true } | { ok: false; label: string }>;
+}
+
 /** The sign-in service, which can be told to forget an account (Cognito in the cloud; the local server has none). */
 export interface Accounts {
   delete(playerId: string): Promise<void>;

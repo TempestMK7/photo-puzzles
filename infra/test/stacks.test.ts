@@ -221,6 +221,9 @@ describe('api', () => {
     expect(JSON.stringify(publish.Resource)).toContain('topic/puzzle/*');
     const pool = st.filter((x) => actionsOf([x]).some((a) => a.startsWith('cognito-idp:')));
     expect(pool.map((x) => actionsOf([x]).join())).toEqual(['cognito-idp:AdminDeleteUser']);                // the one thing it does to the user pool
+    const look = st.filter((x) => actionsOf([x]).some((a) => a.startsWith('rekognition:')));
+    expect(look.map((x) => actionsOf([x]).join())).toEqual(['rekognition:DetectModerationLabels']);          // it looks at pictures and does nothing else with the service
+    expect(statementsOf(prod, /^AdminServiceRole|AdminDefaultPolicy|AdminServiceRoleDefaultPolicy/).some((x) => actionsOf([x]).some((a) => a.startsWith('rekognition:')))).toBe(false);
     expect(actionsOf(st)).not.toContain('*');
     expect(actionsOf(st).filter((a) => a.startsWith('secretsmanager:')).sort()).toEqual(['secretsmanager:DescribeSecret', 'secretsmanager:GetSecretValue']);
   });
