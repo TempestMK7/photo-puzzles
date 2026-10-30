@@ -67,6 +67,14 @@ describe('auth', () => {
       SupportedIdentityProviders: ['COGNITO'],
     });
   });
+  it('lets the game sign in with a password itself, and sends its e-mail from the domain through SES', () => {
+    const t = stack(app(), 'PuzzleVidio-prod-Auth');
+    t.hasResourceProperties('AWS::Cognito::UserPoolClient', { ExplicitAuthFlows: Match.arrayWith(['ALLOW_USER_PASSWORD_AUTH', 'ALLOW_REFRESH_TOKEN_AUTH']) });
+    t.hasResourceProperties('AWS::Cognito::UserPool', {
+      EmailConfiguration: Match.objectLike({ EmailSendingAccount: 'DEVELOPER', From: 'PuzzleVidio <no-reply@puzzlevid.io>' }),
+      Policies: { PasswordPolicy: Match.objectLike({ MinimumLength: 8, RequireSymbols: false, RequireNumbers: true }) },
+    });
+  });
   it('lets a local game sign in to the test stage only', () => {
     stack(app(), 'PuzzleVidio-dev-Auth').hasResourceProperties('AWS::Cognito::UserPoolClient', { CallbackURLs: ['https://dev.puzzlevid.io/', 'http://localhost:5173/'] });
   });
@@ -144,6 +152,10 @@ describe('ops', () => {
         ],
       },
     });
+  });
+  it('verifies the domain for e-mail (DKIM and an envelope sender in the zone) and asks receivers to distrust unsigned mail', () => {
+    t.hasResourceProperties('AWS::SES::EmailIdentity', { EmailIdentity: 'puzzlevid.io', MailFromAttributes: Match.objectLike({ MailFromDomain: 'mail.puzzlevid.io' }) });
+    t.hasResourceProperties('AWS::Route53::RecordSet', { Name: '_dmarc.puzzlevid.io.', Type: 'TXT' });
   });
   it('can only use the roles of the bootstrap (and read stacks), not change the account itself', () => {
     const statements = Object.values(t.findResources('AWS::IAM::Policy')).flatMap(
