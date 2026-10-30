@@ -102,6 +102,12 @@ export class OnlineSession implements Account {
     return this.account?.passwords;
   }
 
+  /** The way to sign in with Google, in a build whose user pool has it. */
+  get google(): (() => Promise<void>) | undefined {
+    const a = this.account;
+    return a?.signInWithGoogle && a.hasGoogle ? () => a.signInWithGoogle!() : undefined;
+  }
+
   /** The e-mail address the account was made with (what the sign-in service says), if this is an account. */
   email(): string | null {
     return this.account?.who()?.email ?? null;

@@ -1,6 +1,6 @@
 import type { AuthError, AuthResult, PasswordAccount } from '../online/identity';
 import { emailLooksRight, passwordOk, passwordRules } from '../online/password';
-import { h } from './dom';
+import { h, svg } from './dom';
 
 type Mode = 'signin' | 'signup' | 'code' | 'forgot' | 'reset';
 
@@ -30,6 +30,10 @@ export function sayAuthError(error: AuthError): string {
   }
 }
 
+/** Google's own mark, which its button has to show (drawn here: nothing is fetched from Google to show a button). */
+const GOOGLE_G =
+  '<svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>';
+
 /**
  * The game's own sign-in and sign-up pages, as a pop-up over the main screen (the user pool is called directly: see `CognitoAccount.passwords`). `ask()` opens it and says
  * whether the player is signed in when it closes. The rules for a password are only listed once the player has started one.
@@ -48,10 +52,20 @@ export class SignInDialog {
   private busy = false;
   private done: ((signedIn: boolean) => void) | null = null;
 
-  constructor(private readonly passwords: PasswordAccount) {
+  constructor(
+    private readonly passwords: PasswordAccount,
+    /** Goes to Google's sign-in page (and comes back to the game signed in), in a build whose accounts can. */
+    private readonly google?: () => Promise<void>,
+  ) {
     this.body.addEventListener('submit', (e) => {
       e.preventDefault();
       void this.submit();
+    });
+    // coming back with the browser's Back button from Google's page shows this pop-up as it was left, held still: let it go
+    window.addEventListener('pageshow', (e) => {
+      if (!e.persisted || !this.busy) return;
+      this.busy = false;
+      this.render();
     });
     this.el = h(
       'div',
@@ -106,6 +120,7 @@ export class SignInDialog {
     const passwordBox = this.input('password', this.password, (v) => ((this.password = v), this.drawRules()), { autocomplete: m === 'signin' ? 'current-password' : 'new-password', 'aria-label': m === 'reset' ? 'New password' : 'Password' });
     const codeBox = this.input('text', this.code, (v) => (this.code = v), { autocomplete: 'one-time-code', inputMode: 'numeric', 'aria-label': 'Code from the e-mail' });
     let first: HTMLInputElement = emailBox;
+    if (this.google && (m === 'signin' || m === 'signup')) kids.push(this.googleButton(m === 'signin' ? 'Sign in with Google' : 'Sign up with Google'), h('p', { class: 'or' }, 'or with an e-mail address'));
     switch (m) {
       case 'signin':
         kids.push(this.field('E-mail address', emailBox), this.field('Password', passwordBox));
@@ -137,6 +152,23 @@ export class SignInDialog {
     this.body.replaceChildren(...kids.filter((k): k is Node => !!k));
     this.drawRules();
     window.setTimeout(() => first.focus(), 0);
+  }
+
+  private googleButton(label: string): HTMLElement {
+    return h('button', { type: 'button', class: 'google', onclick: () => void this.goGoogle() }, svg(GOOGLE_G, 'mark'), label);
+  }
+
+  /** The page is taken away to Google's, and comes back signed in (or not): nothing here is waiting for the answer. */
+  private async goGoogle(): Promise<void> {
+    if (this.busy || !this.google) return;
+    this.setBusy(true);
+    this.say('Going to Google…');
+    try {
+      await this.google();
+    } catch {
+      this.setBusy(false);
+      this.say('Could not start the sign-in with Google.');
+    }
   }
 
   /** The list of what a password needs: nothing until the player has typed a character in the password box. */

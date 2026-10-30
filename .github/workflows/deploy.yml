@@ -91,6 +91,8 @@ jobs:
 
       # Where everything is, from what the stacks said, goes into the build of the game (none of it is secret: it is in the page that every visitor gets).
       - name: Find where everything is
+        env:
+          GOOGLE_ON: ${{ vars.GOOGLE_CLIENT_ID != '' && vars.GOOGLE_SECRET_NAME != '' && 'yes' || '' }}
         run: |
           out() { aws cloudformation describe-stacks --stack-name "PuzzleVidio-$STAGE-$1" --query "Stacks[0].Outputs[?OutputKey=='$2'].OutputValue" --output text; }
           {
@@ -99,6 +101,7 @@ jobs:
             echo "VITE_IOT_AUTHORIZER=$(out Live AuthorizerName)"
             echo "VITE_COGNITO_HOST=$(out Auth SignInHost)"
             echo "VITE_COGNITO_CLIENT_ID=$(out Auth ClientId)"
+            echo "VITE_GOOGLE_SIGNIN=$GOOGLE_ON"
           } >> "$GITHUB_ENV"
 
       # The build says which one it is (src/version.ts): the number of this run, the commit (vite.config.ts reads GITHUB_SHA), and the stage.

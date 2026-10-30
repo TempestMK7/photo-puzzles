@@ -4,6 +4,8 @@ import type { Account, AuthError, AuthResult, PasswordAccount } from './identity
 export interface CognitoConfig {
   host: string;
   clientId: string;
+  /** The user pool has Google as a way to sign in (the app client lists it): the pages may offer it. */
+  google?: boolean;
 }
 
 /** What the world gives the account, so that a test can put fakes in its place. */
@@ -150,8 +152,18 @@ export class CognitoAccount implements Account {
     }
   }
 
+  /** Whether this account can sign in with Google (`signInWithGoogle`). */
+  get hasGoogle(): boolean {
+    return !!this.config.google;
+  }
+
+  /** Goes straight to Google's own page (the sign-in service's page that lists the ways to sign in is skipped), and comes back like `signIn`. */
+  signInWithGoogle(returnHash = ''): Promise<void> {
+    return this.signIn(returnHash, 'Google');
+  }
+
   /** Goes to the sign-in page. `returnHash` (an invite link, say) comes back with the player. */
-  async signIn(returnHash = ''): Promise<void> {
+  async signIn(returnHash = '', provider = ''): Promise<void> {
     const rand = (n: number) => b64url(crypto.getRandomValues(new Uint8Array(n)));
     const verifier = rand(48);
     const state = rand(16);
@@ -169,6 +181,7 @@ export class CognitoAccount implements Account {
       state,
       code_challenge: challenge,
       code_challenge_method: 'S256',
+      ...(provider ? { identity_provider: provider } : {}),
     });
     this.env.go(`${this.config.host}/oauth2/authorize?${query}`);
   }

@@ -75,7 +75,7 @@ The Lambda code uses the same `src/core` rules as the game, so the server decide
 
 ## Sign-in on each platform
 
-- **Web:** the game's **own sign-in and sign-up window** for e-mail and password (the user pool is called directly, with a verification code), and Cognito's hosted page with the OAuth code flow and PKCE for **Google** (a federated provider; **not configured yet**, `infra/README.md` says how).
+- **Web:** the game's **own sign-in and sign-up window** for e-mail and password (the user pool is called directly, with a verification code), and, for **Google**, a **Sign in with Google** button in that window that goes straight to Google through Cognito (the OAuth code flow with PKCE; a federated provider; **built, and switched on by the `GOOGLE_CLIENT_ID` and `GOOGLE_SECRET_NAME` repository variables: not set up yet**, `infra/README.md` says how). An account made with Google is **not yet joined** to one made with e-mail and a password for the same address (two accounts, two ids): see Phase 4.
 - **Android app (WebView):** e-mail and password work inside the web view, as on the web. Google refuses sign-in inside an embedded web view: for Google, use a Chrome Custom Tab and return to the app through the App Link.
 - **itch.io (page in an iframe) and a Steam wrapper:** the iframe cannot show the sign-in pages and a wrapper has no normal browser. Use a **device code**: the game shows a short code and `<domain>/link`, the player signs in on the web there, and the game collects the result. This needs a small custom Lambda flow and works everywhere, including a Steam Deck.
 - Every build takes its server addresses and pool ids from build-time settings; nothing assumes it is served from our domain. The API allows the web, itch, Android and desktop-wrapper origins.
@@ -135,6 +135,7 @@ The Lambda code uses the same `src/core` rules as the game, so the server decide
 
 ### 5. Platforms
 - [ ] Android: App Links (`assetlinks.json` on the domain, intent filter), Custom Tab sign-in (**only for Google** now: e-mail and password work in the web view), INTERNET permission (already added locally), network security settings.
+- [ ] **Join a Google sign-in to the e-mail account with the same address** (a pre-sign-up trigger in the Auth stack that links the Google identity to the confirmed native user with that address with `AdminLinkProviderForUser`, never to an unconfirmed one; and a native sign-up for an address that already has a Google account is refused with a message). Without it, a player who made an account with e-mail and then clicks Google gets a second, empty account. Needs a real Google sign-in to try, because Cognito's first attempt after linking is known to answer with an error that a second attempt does not.
 - [ ] itch.io build: iframe-friendly, device-code sign-in, allowed origin on the API.
 - [ ] Device-code sign-in Lambda flow and the `<domain>/link` page.
 - [ ] Steam: a desktop wrapper (Steamworks, depots) once everything else works. Steam sign-in as an identity later.

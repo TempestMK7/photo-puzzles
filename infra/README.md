@@ -81,10 +81,15 @@ A ban is a record of an id only: it stays when the account is deleted (a new acc
 
 ## Google sign-in
 
-1. In the Google Cloud console make an OAuth client of the type "web application". Its authorised redirect URI is
-   `https://puzzlevidio-<stage>.auth.us-east-1.amazoncognito.com/oauth2/idpresponse` (one for `dev`, one for `prod`).
-2. Keep the client secret in Secrets Manager, not in a file: `aws secretsmanager create-secret --name puzzlevidio/google --secret-string <secret>`.
-3. Deploy with `-c googleClientId=<id> -c googleSecretName=puzzlevidio/google` (in GitHub: the variables `GOOGLE_CLIENT_ID` and `GOOGLE_SECRET_NAME`).
+The sign-in and sign-up pop-ups of the game show a **Sign in with Google** button when the build says the user pool has Google (the deploy sets `VITE_GOOGLE_SIGNIN` when both repository variables below are set). The button takes the page to Google through Cognito's authorize address (`identity_provider=Google`, the same code flow with PKCE as before) and the player comes back to the game signed in. The Android app does not show it (Google refuses its sign-in page inside an app's web view; see the plan).
+
+1. In the Google Cloud console make a project, and set up the consent screen (the "Google Auth Platform" pages): app name PuzzleVidio, a support address, **External**, scopes `openid`, `email`, `profile` (none of them needs Google's review). While the app is in *Testing* only the accounts listed as test users can sign in; *Publish app* opens it to everybody (the privacy and terms pages should be up first: Google asks for their addresses).
+2. Make an OAuth client of the type "web application". Authorised JavaScript origins: none. Authorised redirect URIs, both of these (one client serves both stages):
+   `https://puzzlevidio-dev.auth.us-east-1.amazoncognito.com/oauth2/idpresponse` and `https://puzzlevidio-prod.auth.us-east-1.amazoncognito.com/oauth2/idpresponse`.
+3. Keep the client secret in Secrets Manager, not in a file of the repository: `aws secretsmanager create-secret --name puzzlevidio/google --secret-string <secret>` (with the secret put in from a file or a variable, so that it does not stay in the shell's history).
+4. Set the repository variables `GOOGLE_CLIENT_ID` (the client id; it is not secret) and `GOOGLE_SECRET_NAME` (`puzzlevidio/google`), or deploy by hand with `-c googleClientId=<id> -c googleSecretName=puzzlevidio/google`. The next deploy of the Auth stack adds the provider to the user pool and lists it on the app client; the build after it shows the button.
+
+An account made with Google is a **separate account** from one made with an e-mail address and password for the same address: Cognito does not join them by itself (see the plan: linking them is the next step).
 
 ## What it costs with nobody playing
 
