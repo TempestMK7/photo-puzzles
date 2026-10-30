@@ -11,23 +11,21 @@ describe('Lift', () => {
   it('rises over a short time to its distance above the finger, and never goes past it', () => {
     vi.stubGlobal('window', { devicePixelRatio: 1 });
     const lift = new Lift(40, 1000);
-    expect(lift.held({ x: 10, y: 500 }, 1000, view)).toEqual({ x: 10, y: 500 });
-    const half = lift.held({ x: 10, y: 500 }, 1000 + LIFT_MS / 2, view);
+    expect(lift.held({ x: 10, y: 500 }, 1000)).toEqual({ x: 10, y: 500 });
+    const half = lift.held({ x: 10, y: 500 }, 1000 + LIFT_MS / 2);
     expect(half.y).toBeGreaterThan(460);
     expect(half.y).toBeLessThan(500);
-    expect(lift.held({ x: 10, y: 500 }, 1000 + LIFT_MS, view)).toEqual({ x: 10, y: 460 });
-    expect(lift.held({ x: 10, y: 500 }, 99999, view)).toEqual({ x: 10, y: 460 });
+    expect(lift.held({ x: 10, y: 500 }, 1000 + LIFT_MS)).toEqual({ x: 10, y: 460 });
+    expect(lift.held({ x: 10, y: 500 }, 99999)).toEqual({ x: 10, y: 460 });
     expect(lift.done(1000 + LIFT_MS - 1)).toBe(false);
     expect(lift.done(1000 + LIFT_MS)).toBe(true);
   });
 
-  it('keeps the piece on the screen when the finger is near the top: 24 css pixels down, or the finger itself if that is higher', () => {
-    vi.stubGlobal('window', { devicePixelRatio: 2 });
+  it('does not keep the piece on the screen: with the finger near the top it goes up past the edge, so that a piece can be put on the top edge', () => {
     const lift = new Lift(40, 0);
-    // the top margin is 24 css pixels = 48 canvas pixels = 24 board units at scale 2, from a board whose top is at the canvas top
-    expect(lift.held({ x: 0, y: 30 }, 999, view).y).toBe(24);
-    expect(lift.held({ x: 0, y: 10 }, 999, view).y).toBe(10);
-    expect(lift.held({ x: 0, y: 200 }, 999, view).y).toBe(160);
+    expect(lift.held({ x: 0, y: 30 }, 999).y).toBe(-10);
+    expect(lift.held({ x: 0, y: 10 }, 999).y).toBe(-30);
+    expect(lift.held({ x: 0, y: 200 }, 999).y).toBe(160);
   });
 });
 

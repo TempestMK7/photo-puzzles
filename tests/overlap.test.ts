@@ -1,36 +1,82 @@
 import { describe, expect, it } from 'vitest';
-import { generateOverlap, OverlapGame, shapeCells, STACKS } from '../src/core/overlap';
+import { DIRS, generateOverlap, OverlapGame, STACKS, type OverlapSetup } from '../src/core/overlap';
 import { Rng } from '../src/core/rng';
 
 const make = (seed: number, cols = 7, rows = 5, turned = true, placed = 20, windows = true) => generateOverlap(new Rng(seed), { cols, rows, turned, placed, windows });
 
-describe('overlap shapes', () => {
-  it('every orientation is an L in a 2 x 2 box, with the same three cells in the same order', () => {
-    for (let o = 0; o < 4; o++) {
-      const cells = shapeCells(o);
-      expect(cells).toHaveLength(3);
-      expect(Math.min(...cells.map((c) => c.x))).toBe(0);
-      expect(Math.min(...cells.map((c) => c.y))).toBe(0);
-      expect(Math.max(...cells.map((c) => c.x))).toBe(1);
-      expect(Math.max(...cells.map((c) => c.y))).toBe(1);
-      expect(new Set(cells.map((c) => `${c.x},${c.y}`)).size).toBe(3);
-    }
-    expect(shapeCells(5)).toEqual(shapeCells(1));
+/** The cells (as indexes) a piece covers at home: its centre, then its arms. */
+const cellsOf = (s: OverlapSetup, id: number): number[] => {
+  const p = s.pieces[id];
+  return [p.cy * s.cols + p.cx, ...p.arms.map((d) => (p.cy + DIRS[d].y) * s.cols + p.cx + DIRS[d].x)];
+};
+
+/** Sizes that show every kind of edge: odd and even widths and heights, the smallest board and a big one. */
+const SIZES: [number, number][] = [[5, 3], [5, 4], [6, 5], [7, 5], [8, 6], [9, 9], [12, 8], [16, 12]];
+
+describe('the four directions', () => {
+  it('go clockwise from the top, so that a quarter turn clockwise moves each to the next', () => {
+    expect(DIRS).toEqual([{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }]);
   });
 });
 
 describe('generateOverlap', () => {
-  it('covers every cell, keeps pieces inside the grid and is reproducible', () => {
-    for (let seed = 1; seed <= 30; seed++) {
-      const s = make(seed, 5 + (seed % 6), 3 + (seed % 5));
-      const cover = new Array(s.cols * s.rows).fill(0);
-      for (const p of s.pieces) {
-        expect(p.bx >= 0 && p.by >= 0 && p.bx + 2 <= s.cols && p.by + 2 <= s.rows).toBe(true);
-        for (const c of shapeCells(p.orient)) cover[(p.by + c.y) * s.cols + p.bx + c.x]++;
+  it('lays pieces on a checkerboard: each has its own centre cell, and a centre cell belongs to no other piece', () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      for (const [cols, rows] of SIZES) {
+        const s = make(seed, cols, rows);
+        const centres = s.pieces.map((p) => p.cy * cols + p.cx);
+        expect(new Set(centres).size).toBe(centres.length);
+        const parity = (s.pieces[0].cx + s.pieces[0].cy) % 2;
+        expect(s.pieces.every((p) => (p.cx + p.cy) % 2 === parity)).toBe(true);
+        expect(s.pieces).toHaveLength(Array.from({ length: cols * rows }, (_, i) => ((i % cols) + Math.floor(i / cols)) % 2).filter((v) => v === parity).length);
+        const covered = new Set<number>();
+        for (const id of s.pieces.map((p) => p.id)) cellsOf(s, id).slice(1).forEach((c) => covered.add(c));
+        for (const c of centres) expect(covered.has(c)).toBe(false);          // a centre is never another piece's arm
       }
-      expect(cover.every((n) => n >= 1)).toBe(true);
-      expect(make(seed, 5 + (seed % 6), 3 + (seed % 5))).toEqual(s);
     }
+  });
+
+  it('gives each piece its centre and two to four neighbouring overlap cells (three to five cells), inside the grid', () => {
+    const sizes = new Set<number>();
+    for (let seed = 1; seed <= 40; seed++) {
+      for (const [cols, rows] of SIZES) {
+        const s = make(seed, cols, rows);
+        for (const p of s.pieces) {
+          expect(p.arms.length).toBeGreaterThanOrEqual(2);
+          expect(p.arms.length).toBeLessThanOrEqual(4);
+          expect(new Set(p.arms).size).toBe(p.arms.length);
+          expect([...p.arms].sort((a, b) => a - b)).toEqual(p.arms);
+          for (const d of p.arms) {
+            const x = p.cx + DIRS[d].x;
+            const y = p.cy + DIRS[d].y;
+            expect(x >= 0 && y >= 0 && x < cols && y < rows).toBe(true);
+            expect((x + y) % 2).not.toBe((p.cx + p.cy) % 2);                  // an overlap cell
+          }
+          sizes.add(1 + p.arms.length);
+        }
+      }
+    }
+    expect([...sizes].sort()).toEqual([3, 4, 5]);
+  });
+
+  it('covers every cell, and every overlap cell by at least two pieces', () => {
+    for (let seed = 1; seed <= 60; seed++) {
+      for (const [cols, rows] of SIZES) {
+        const s = make(seed, cols, rows);
+        const cover = new Array<number>(cols * rows).fill(0);
+        for (const p of s.pieces) cellsOf(s, p.id).forEach((c) => cover[c]++);
+        const centre = new Set(s.pieces.map((p) => p.cy * cols + p.cx));
+        cover.forEach((n, c) => {
+          if (centre.has(c)) expect(n).toBe(1);
+          else expect(n).toBeGreaterThanOrEqual(2);
+        });
+      }
+    }
+  });
+
+  it('is reproducible from the seed, and differs between seeds', () => {
+    expect(make(9, 8, 6)).toEqual(make(9, 8, 6));
+    expect(make(9, 8, 6)).not.toEqual(make(10, 8, 6));
   });
 
   it('deals every piece that is not placed to a stack, and never starts solved', () => {
@@ -41,24 +87,25 @@ describe('generateOverlap', () => {
     expect(new OverlapGame(s).solved).toBe(false);
   });
 
-  it('some pieces have a window, only on a cell another piece also reveals, never when windows are off', () => {
+  it('puts windows only on overlap cells that another piece also reveals, never on a centre, never on a placed piece, and never when windows are off', () => {
     let windows = 0;
-    for (let seed = 1; seed <= 30; seed++) {
+    for (let seed = 1; seed <= 40; seed++) {
       const s = make(seed, 8, 6);
-      const solid = new Array(s.cols * s.rows).fill(0);
-      for (const p of s.pieces) shapeCells(p.orient).forEach((c, k) => {
-        if (k !== p.marker) solid[(p.by + c.y) * s.cols + p.bx + c.x]++;
+      const solid = new Array<number>(s.cols * s.rows).fill(0);
+      for (const p of s.pieces) cellsOf(s, p.id).forEach((c, k) => {
+        if (k !== p.marker) solid[c]++;
       });
       for (const p of s.pieces) {
         if (p.marker < 0) continue;
         windows++;
-        const c = shapeCells(p.orient)[p.marker];
-        expect(solid[(p.by + c.y) * s.cols + p.bx + c.x]).toBeGreaterThanOrEqual(1);
+        expect(p.marker).toBeGreaterThanOrEqual(1);                            // not the centre
+        expect(p.marker).toBeLessThanOrEqual(p.arms.length);
+        expect(solid[cellsOf(s, p.id)[p.marker]]).toBeGreaterThanOrEqual(1);
         expect(s.placedAtStart.includes(p.id)).toBe(false);
       }
       expect(make(seed, 8, 6, true, 20, false).pieces.every((p) => p.marker < 0)).toBe(true);
     }
-    expect(windows).toBeGreaterThan(20);
+    expect(windows).toBeGreaterThan(30);
   });
 
   it('turned pieces start turned, and none do when turned is off', () => {
@@ -76,13 +123,14 @@ describe('OverlapGame', () => {
       const id = g.top(st);
       while (g.rot[id] !== 0) g.rotate(id);
       const p = g.pieces[id];
-      expect(g.drop(id, p.bx, p.by)).toBe('placed');
+      expect(g.drop(id, p.cx, p.cy)).toBe('placed');
     }
   }
 
   it('can be solved by putting every top piece in place', () => {
     for (let seed = 1; seed <= 25; seed++) {
-      const g = new OverlapGame(make(seed, 5 + (seed % 6), 3 + (seed % 5)));
+      const [cols, rows] = SIZES[seed % SIZES.length];
+      const g = new OverlapGame(make(seed, cols, rows));
       solve(g);
       expect(g.solved).toBe(true);
       expect(g.revealed.every(Boolean)).toBe(true);
@@ -90,22 +138,45 @@ describe('OverlapGame', () => {
     }
   });
 
+  it('turns a piece about its centre: the centre stays, each arm moves to the next direction', () => {
+    const g = new OverlapGame(make(5, 7, 5, false, 0));
+    const id = g.top(g.stacks.findIndex((s) => s.length));
+    const arms = g.pieces[id].arms;
+    expect(g.cellsNow(id)).toEqual([{ x: 0, y: 0 }, ...arms.map((d) => DIRS[d])]);
+    g.rotate(id);
+    expect(g.cellsNow(id)[0]).toEqual({ x: 0, y: 0 });
+    expect(g.cellsNow(id).slice(1)).toEqual(arms.map((d) => DIRS[(d + 1) % 4]));
+    g.rotate(id, -1);
+    expect(g.cellsNow(id).slice(1)).toEqual(arms.map((d) => DIRS[d]));
+    for (let i = 0; i < 4; i++) g.rotate(id);
+    expect(g.rot[id]).toBe(0);
+  });
+
   it('a wrong place or a wrong turn sends the piece back and counts a miss', () => {
     const g = new OverlapGame(make(5, 7, 5, true, 0));
     const st = g.stacks.findIndex((s) => s.length);
     const id = g.top(st);
     const p = g.pieces[id];
-    expect(g.drop(id, (p.bx + 1) % 5, p.by)).toBe('wrong');
+    expect(g.drop(id, (p.cx + 1) % 7, p.cy)).toBe('wrong');
     if (g.rot[id] === 0) g.rotate(id);
-    expect(g.drop(id, p.bx, p.by)).toBe('wrong'); // right place, wrong turn
+    expect(g.drop(id, p.cx, p.cy)).toBe('wrong'); // right place, wrong turn
     expect(g.misses).toBe(2);
     expect(g.top(st)).toBe(id);
     expect(g.revealed.some(Boolean)).toBe(false);
   });
 
-  it('a piece whose cells all show already is taken off its stack', () => {
-    let seen = false;
-    for (let seed = 1; seed <= 40 && !seen; seed++) {
+  it('a piece placed reveals its centre and its arms, and nothing else', () => {
+    const g = new OverlapGame(make(8, 8, 6, false, 0, false));
+    const st = g.stacks.findIndex((s) => s.length);
+    const id = g.top(st);
+    const p = g.pieces[id];
+    g.drop(id, p.cx, p.cy);
+    const shown = g.revealed.map((r, i) => (r ? i : -1)).filter((i) => i >= 0).sort((a, b) => a - b);
+    expect(shown).toEqual(g.homeCells(id).map((c) => c.y * g.cols + c.x).sort((a, b) => a - b));
+  });
+
+  it('needs every piece: the centre cell of a piece shows nowhere else, so no piece is ever left over', () => {
+    for (let seed = 1; seed <= 40; seed++) {
       const g = new OverlapGame(make(seed, 8, 6, false, 0));
       const total = g.total;
       let placed = 0;
@@ -113,38 +184,49 @@ describe('OverlapGame', () => {
         const st = g.stacks.findIndex((s) => s.length);
         const id = g.top(st);
         const p = g.pieces[id];
-        g.drop(id, p.bx, p.by);
+        expect(g.revealed[p.cy * g.cols + p.cx]).toBe(false);
+        g.drop(id, p.cx, p.cy);
         placed++;
       }
-      if (placed < total) seen = true;
+      expect(placed).toBe(total);
     }
-    expect(seen).toBe(true);
   });
 
-  it('a window does not reveal its cell, and clears when something else reveals that cell', () => {
-    for (let seed = 1; seed <= 40; seed++) {
-      const g = new OverlapGame(make(seed, 8, 6, false, 0));
-      const win = g.pieces.find((p) => p.marker >= 0);
-      if (!win) continue;
-      expect(g.windowOf(win.id)).toBe(win.marker);
-      const cell = g.homeCells(win.id)[win.marker];
-      // the piece itself goes first: bring it to the top of its stack and place it
-      const st = g.stacks.findIndex((s) => s.includes(win.id));
-      while (g.top(st) !== win.id) g.cycle(st, 1);
-      g.drop(win.id, win.bx, win.by);
-      expect(g.revealed[cell.y * g.cols + cell.x]).toBe(false);
-      expect(g.windowOf(win.id)).toBe(win.marker);          // still looking at an empty cell
-      const other = g.pieces.find((q) => q.id !== win.id && !g.done[q.id] && g.homeCells(q.id).some((c, k) => c.x === cell.x && c.y === cell.y && k !== q.marker));
+  it('a window does not reveal its cell, and for every unplaced piece that looks at that cell it turns into the picture when any piece is placed over it', () => {
+    let checked = 0;
+    for (let seed = 1; seed <= 60 && checked < 5; seed++) {
+      const g = new OverlapGame(make(seed, 9, 7, false, 0));
+      // all the window pieces that look at the same cell
+      const byCell = new Map<number, number[]>();
+      for (const p of g.pieces) if (p.marker >= 0) {
+        const c = g.homeCells(p.id)[p.marker];
+        const key = c.y * g.cols + c.x;
+        byCell.set(key, [...(byCell.get(key) ?? []), p.id]);
+      }
+      const shared = [...byCell.entries()].find(([, ids]) => ids.length >= 2);
+      if (!shared) continue;
+      const [key, ids] = shared;
+      for (const id of ids) expect(g.windowOf(id)).toBe(g.pieces[id].marker);
+      // a window piece placed does not reveal the cell it looks at
+      const bring = (id: number): void => {
+        const st = g.stacks.findIndex((s2) => s2.includes(id));
+        for (let n = 0; n < 200 && g.top(st) !== id; n++) g.cycle(st, 1);
+        while (g.rot[id] !== 0) g.rotate(id);
+      };
+      bring(ids[0]);
+      g.drop(ids[0], g.pieces[ids[0]].cx, g.pieces[ids[0]].cy);
+      expect(g.revealed[key]).toBe(false);
+      expect(g.windowOf(ids[1])).toBe(g.pieces[ids[1]].marker);                // still a window
+      // a piece that shows that cell for real is placed: every unplaced window on it clears
+      const other = g.pieces.find((q) => q.id !== ids[0] && !g.done[q.id] && g.homeCells(q.id).some((c, k) => c.y * g.cols + c.x === key && k !== q.marker));
       expect(other).toBeDefined();
-      const so = g.stacks.findIndex((s2) => s2.includes(other!.id));
-      for (let n = 0; n < 50 && g.top(so) !== other!.id; n++) g.cycle(so, 1);
-      while (g.rot[other!.id] !== 0) g.rotate(other!.id);
-      g.drop(other!.id, other!.bx, other!.by);
-      expect(g.revealed[cell.y * g.cols + cell.x]).toBe(true);
-      expect(g.windowOf(win.id)).toBe(-1);                 // another piece revealed it: the window has nothing left to hint
-      return;
+      bring(other!.id);
+      g.drop(other!.id, other!.cx, other!.cy);
+      expect(g.revealed[key]).toBe(true);
+      for (const id of ids) if (!g.done[id]) expect(g.windowOf(id)).toBe(-1);
+      checked++;
     }
-    throw new Error('no window piece found');
+    expect(checked).toBeGreaterThan(0);
   });
 
   it('a piece dragged to another drawer goes on top of it', () => {
@@ -170,5 +252,16 @@ describe('OverlapGame', () => {
     expect(g.stacks[0][0]).toBe(before[before.length - 1]);
     g.cycle(0, -1);
     expect(g.stacks[0]).toEqual(before);
+  });
+
+  it('saves and restores what was played', () => {
+    const g = new OverlapGame(make(11, 7, 5, true, 0));
+    const id = g.top(g.stacks.findIndex((s) => s.length));
+    while (g.rot[id] !== 0) g.rotate(id);
+    g.drop(id, g.pieces[id].cx, g.pieces[id].cy);
+    const h = new OverlapGame(make(11, 7, 5, true, 0));
+    h.restore(g.snapshot());
+    expect(h.snapshot()).toEqual(g.snapshot());
+    expect(() => new OverlapGame(make(11, 9, 7, true, 0)).restore(g.snapshot())).toThrow();
   });
 });

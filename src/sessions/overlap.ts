@@ -9,7 +9,11 @@ const CELL = 50;
 const SLOT_W = 144;
 const SLOT_H = 130;
 const GAP = 18;
-const PIECE_Y = 6;             // a piece in a stack sits this far below the top of its slot, clear of the label under it
+const PIECE_Y = 3;             // a piece in a stack sits this far below the top of its slot, clear of the label under it
+const SLOT_SCALE = 0.7;        // a piece in a stack is drawn this much smaller than on the board: it reaches a cell out from its centre in every direction
+const SLOT_PAD = 4;
+/** Bumped when pieces changed what they are: a puzzle that was saved with older ones starts again. */
+const LAYOUT = 2;
 const TAP = 6;                 // a press that moves less than this is a tap (it turns the piece)
 const FLASH_MS = 500;
 const WRONG_MS = 350;
@@ -31,8 +35,9 @@ interface Held {
 }
 
 /**
- * Overlap: the picture is covered by L-shaped pieces that overlap. Pieces wait in stacks; drag the top one onto the grid, turned the way it lies in the picture,
- * and it stays and shows its part of the picture. A tap on a piece turns it; the arrows next to a stack shuffle the pieces under it.
+ * Overlap: the picture is covered by pieces that overlap, each a centre cell and some of the cells around it. Pieces wait in stacks; drag the top one onto the grid, turned the
+ * way it lies in the picture, with its centre over its own cell, and it stays and shows its part of the picture. A tap on a piece turns it; the arrows next to a stack shuffle
+ * the pieces under it.
  */
 export class OverlapSession implements PuzzleSession {
   readonly toggles = [{ key: 'grid', label: 'Grid', title: 'Grid lines' }, ...hapticToggles()];
@@ -52,7 +57,7 @@ export class OverlapSession implements PuzzleSession {
   private hoverStack = -1;
   private activeStack = 0;
   private flash = new Map<number, number>();
-  private wrong: { bx: number; by: number; at: number } | null = null;
+  private wrong: { cells: { x: number; y: number }[]; at: number } | null = null;
 
   constructor(private readonly init: SessionInit) {
     this.cols = init.opts.cells;
@@ -68,7 +73,8 @@ export class OverlapSession implements PuzzleSession {
     this.crop = { sx: (init.width - sw) / 2, sy: (init.height - sh) / 2, sw, sh };
     this.activeStack = Math.max(0, this.game.stacks.findIndex((s) => s.length));
     if (init.restore) {
-      const saved = init.restore as { game: OverlapState; activeStack: number };
+      const saved = init.restore as { layout?: number; game: OverlapState; activeStack: number };
+      if (saved.layout !== LAYOUT) throw new Error('not this puzzle');         // made when pieces were L-shaped
       this.game.restore(saved.game);
       if (Number.isInteger(saved.activeStack) && saved.activeStack >= 0 && saved.activeStack < this.game.stacks.length) this.activeStack = saved.activeStack;
     }
@@ -76,7 +82,7 @@ export class OverlapSession implements PuzzleSession {
   }
 
   serialize(): unknown {
-    return { game: this.game.snapshot(), activeStack: this.activeStack };
+    return { layout: LAYOUT, game: this.game.snapshot(), activeStack: this.activeStack };
   }
 
   // ---------------------------------------------------------------------------------------------------------------- layout
@@ -134,16 +140,19 @@ export class OverlapSession implements PuzzleSession {
   }
 
   /**
-   * A piece at (ox, oy): each of its three cells shows its own bit of the picture, turned with the piece. A window cell shows the empty board's pattern from the
-   * place the piece belongs. With the grid off a piece has no border at all.
+   * A piece with its centre cell's top-left corner at (ox, oy): each cell shows its own bit of the picture, turned with the piece. A window cell shows the empty board's
+   * pattern from the place the piece belongs. With the grid off a piece has no border at all.
    */
-  private drawPiece(ctx: CanvasRenderingContext2D, id: number, ox: number, oy: number, alpha = 1, edge = 'rgba(255,255,255,0.9)'): void {
+  private drawPiece(ctx: CanvasRenderingContext2D, id: number, ox: number, oy: number, alpha = 1, edge = 'rgba(255,255,255,0.9)', scale = 1): void {
     const g = this.game;
     const now = g.cellsNow(id);
     const home = g.homeCells(id);
     const win = g.windowOf(id);
     const turn = (g.rot[id] * Math.PI) / 2;
     ctx.save();
+    ctx.translate(ox, oy);
+    ctx.scale(scale, scale);
+    ox = oy = 0;
     ctx.globalAlpha = alpha;
     now.forEach((c, k) => {
       ctx.save();
@@ -214,7 +223,7 @@ export class OverlapSession implements PuzzleSession {
       const k = 1 - (now - this.wrong.at) / WRONG_MS;
       if (k > 0) {
         ctx.fillStyle = `rgba(230,60,40,${0.45 * k})`;
-        ctx.fillRect(this.gridX + this.wrong.bx * CELL, this.gridY + this.wrong.by * CELL, 2 * CELL, 2 * CELL);
+        for (const c of this.wrong.cells) ctx.fillRect(this.gridX + c.x * CELL, this.gridY + c.y * CELL, CELL, CELL);
         running = true;
       } else this.wrong = null;
     }
@@ -241,7 +250,10 @@ export class OverlapSession implements PuzzleSession {
     ctx.fill();
     ctx.stroke();
     const top = g.top(s);
-    if (top >= 0 && !(this.held && this.held.id === top)) this.drawPiece(ctx, top, slot.x + 8, slot.y + PIECE_Y);
+    if (top >= 0 && !(this.held && this.held.id === top)) {
+      const at = this.slotCentre(s);
+      this.drawPiece(ctx, top, at.x, at.y, 1, 'rgba(255,255,255,0.9)', SLOT_SCALE);
+    }
     ctx.fillStyle = '#a8896a';
     ctx.font = '13px system-ui, sans-serif';
     ctx.textAlign = 'left';
@@ -278,22 +290,26 @@ export class OverlapSession implements PuzzleSession {
     ctx.restore();
   }
 
-  /** Where the held piece's bounding box goes: snapped to the cells when it is over the grid, else centred on the pointer. */
+  /** The top-left corner of the centre cell of a stack's top piece (it reaches a cell out from there in every direction). */
+  private slotCentre(s: number): Pt {
+    const slot = this.slots[s];
+    return { x: slot.x + SLOT_PAD + CELL * SLOT_SCALE, y: slot.y + PIECE_Y + CELL * SLOT_SCALE };
+  }
+
+  /** Where the held piece's centre cell goes: snapped to the cell under the pointer when that is on the grid, else centred on the pointer. */
   private heldBox(h: { at: Pt }): { x: number; y: number; cell: Pt | null } {
-    const bx = Math.round((h.at.x - this.gridX) / CELL - 1);
-    const by = Math.round((h.at.y - this.gridY) / CELL - 1);
     const over = h.at.x >= this.gridX && h.at.y >= this.gridY && h.at.x < this.gridX + this.cols * CELL && h.at.y < this.gridY + this.rows * CELL;
     if (over) {
-      const x = Math.min(this.cols - 2, Math.max(0, bx));
-      const y = Math.min(this.rows - 2, Math.max(0, by));
+      const x = Math.floor((h.at.x - this.gridX) / CELL);
+      const y = Math.floor((h.at.y - this.gridY) / CELL);
       return { x: this.gridX + x * CELL, y: this.gridY + y * CELL, cell: { x, y } };
     }
-    return { x: h.at.x - CELL, y: h.at.y - CELL, cell: null };
+    return { x: h.at.x - CELL / 2, y: h.at.y - CELL / 2, cell: null };
   }
 
   /** Where the held piece is: at the pointer, or - held by a finger - a little above it. */
   private heldPoint(h: Held, now: number): Pt {
-    return h.lift ? h.lift.held(h.at, now, this.lastView) : h.at;
+    return h.lift ? h.lift.held(h.at, now) : h.at;
   }
 
   private drawHeld(ctx: CanvasRenderingContext2D, now: number): void {
@@ -333,7 +349,8 @@ export class OverlapSession implements PuzzleSession {
     }
     const top = g.top(s);
     const slot = this.slots[s];
-    if (top >= 0 && p.x >= slot.x + 8 && p.x < slot.x + 8 + 2 * CELL && p.y >= slot.y + PIECE_Y && p.y < slot.y + PIECE_Y + 2 * CELL) {
+    const reach = 3 * CELL * SLOT_SCALE;
+    if (top >= 0 && p.x >= slot.x + SLOT_PAD && p.x < slot.x + SLOT_PAD + reach && p.y >= slot.y + PIECE_Y && p.y < slot.y + PIECE_Y + reach) {
       this.held = { id: top, stack: s, at: p, moved: false, start: p, touch, lift: null };
       buzz(this.init, 'grab');
     }
@@ -378,7 +395,8 @@ export class OverlapSession implements PuzzleSession {
           });
           buzz(this.init, g.solved ? 'solved' : 'placed');
         } else {
-          this.wrong = { bx: box.cell.x, by: box.cell.y, at: performance.now() };
+          const cell = box.cell;
+          this.wrong = { cells: g.cellsNow(h.id).map((c) => ({ x: cell.x + c.x, y: cell.y + c.y })).filter((c) => c.x >= 0 && c.y >= 0 && c.x < this.cols && c.y < this.rows), at: performance.now() };
           buzz(this.init, 'drop');
         }
       } else buzz(this.init, 'drop');

@@ -18,7 +18,7 @@ export const LIFT_MS = 110;
 
 /**
  * A held piece that a finger holds above the finger. `held(p)` is where the piece is for a finger at p: the finger's place, `distance` board units higher once the piece has
- * risen, and never closer to the top of the screen than a margin (so a finger near the top does not push the piece out of sight).
+ * risen. It is not kept on the screen: a finger near the top takes the piece up past the edge, which is what putting a piece on the edge of the board needs.
  */
 export class Lift {
   constructor(
@@ -37,10 +37,8 @@ export class Lift {
     return now - this.t0 >= LIFT_MS;
   }
 
-  held(p: Pt, now: number, view: View): Pt {
-    const dpr = window.devicePixelRatio || 1;
-    const top = (24 * dpr - view.oy) / view.scale;                     // board units, 24 CSS pixels below the top edge of the canvas
-    return { x: p.x, y: Math.max(p.y - this.distance * this.progress(now), Math.min(p.y, top)) };
+  held(p: Pt, now: number): Pt {
+    return { x: p.x, y: p.y - this.distance * this.progress(now) };
   }
 }
 

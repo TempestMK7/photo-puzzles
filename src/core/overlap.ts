@@ -5,31 +5,19 @@ export interface Cell {
   y: number;
 }
 
-/** The four orientations of the L-shaped piece: each cell relative to the first one (down then left, left then up, up then right, right then down). */
-const RAW: Cell[][] = [
-  [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 1 }],
-  [{ x: 0, y: 0 }, { x: -1, y: 0 }, { x: -1, y: -1 }],
-  [{ x: 0, y: 0 }, { x: 0, y: -1 }, { x: 1, y: -1 }],
-  [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }],
-];
-
-/** Cells of the L in orientation o (0..3), moved so that the bounding box starts at (0, 0). The order of the cells is the same in every orientation. */
-export function shapeCells(o: number): Cell[] {
-  const raw = RAW[((o % 4) + 4) % 4];
-  const minX = Math.min(...raw.map((c) => c.x));
-  const minY = Math.min(...raw.map((c) => c.y));
-  return raw.map((c) => ({ x: c.x - minX, y: c.y - minY }));
-}
+/** The four neighbours of a cell, clockwise from the top: a piece reaches out from its centre cell along some of these. Turning a piece a quarter turn clockwise moves each to the next. */
+export const DIRS: readonly Cell[] = [{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }];
 
 export interface PieceDef {
   id: number;
-  /** Top-left of the bounding box where the piece belongs, and the orientation it has there. */
-  bx: number;
-  by: number;
-  orient: number;
+  /** The piece's centre cell, where it belongs. */
+  cx: number;
+  cy: number;
+  /** The neighbours of the centre (indexes into `DIRS`, ascending) that the piece covers as well, in the orientation it has at home: two to four. */
+  arms: number[];
   /**
-   * Which of the piece's three cells is a window (-1: none). A window shows what the board holds at that place - the empty board's pattern, a hint to where
-   * the piece goes - and does not reveal its cell when the piece is placed.
+   * Which of the piece's cells (0 is the centre, then the arms in order) is a window (-1: none). A window shows what the board holds at that place - the empty board's pattern,
+   * a hint to where the piece goes - and does not reveal its cell when the piece is placed. Only an overlap cell (never the centre) can be one.
    */
   marker: number;
 }
@@ -60,43 +48,48 @@ export interface OverlapSetup {
 export const STACKS = 3;
 
 /**
- * Covers the grid with L-shaped pieces that overlap where that helps (a cell may belong to several pieces), shuffles them, puts some in place and deals the rest to
- * three stacks. Everything comes from the seed.
+ * Lays the pieces over the grid and shuffles them. The cells are divided like a checkerboard: every other cell is a piece's own cell (its centre, which nothing else covers),
+ * the others are overlap cells, each of which two or more pieces cover. Each piece is a centre cell and two to four of the overlap cells next to it, so it has three to five
+ * cells; every overlap cell is covered by at least two pieces (the two it touches, for a corner). Then some pieces are put in place and the rest dealt to three stacks.
+ * Everything comes from the seed.
  */
 export function generateOverlap(rng: Rng, o: OverlapOptions): OverlapSetup {
   const { cols, rows } = o;
-  const cover = new Array<number>(cols * rows).fill(0);
-  const order = Array.from({ length: cols * rows }, (_, i) => i);
-  for (let i = order.length - 1; i > 0; i--) {
-    const j = rng.below(i + 1);
-    [order[i], order[j]] = [order[j], order[i]];
-  }
+  const parity = rng.below(2);                                       // which colour of the checkerboard holds the pieces' own cells
+  const isCentre = (x: number, y: number): boolean => (x + y) % 2 === parity;
+  const inside = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < cols && y < rows;
   const pieces: PieceDef[] = [];
-  for (const cell of order) {
-    if (cover[cell]) continue;
-    const tx = cell % cols;
-    const ty = Math.floor(cell / cols);
-    let best: { bx: number; by: number; orient: number; score: number }[] = [];
-    let bestScore = -1;
-    for (let orient = 0; orient < 4; orient++) {
-      const rel = shapeCells(orient);
-      for (const anchor of rel) {                                  // any of the three cells may be the one that lands on the target
-        const bx = tx - anchor.x;
-        const by = ty - anchor.y;
-        if (bx < 0 || by < 0 || bx + 2 > cols || by + 2 > rows) continue;
-        let score = 0;
-        for (const c of rel) if (!cover[(by + c.y) * cols + bx + c.x]) score++;
-        if (score > bestScore) {
-          bestScore = score;
-          best = [];
-        }
-        if (score === bestScore) best.push({ bx, by, orient, score });
+  const armsOf = new Map<number, Set<number>>();                    // centre cell -> the directions it reaches along
+  const near = (x: number, y: number): number[] => [0, 1, 2, 3].filter((d) => inside(x + DIRS[d].x, y + DIRS[d].y));
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      if (!isCentre(x, y)) continue;
+      const dirs = near(x, y);                                       // (a corner has two, an edge three, the rest four)
+      const take = 2 + rng.below(dirs.length - 1);                   // two to all of them
+      for (let i = dirs.length - 1; i > 0; i--) {
+        const j = rng.below(i + 1);
+        [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+      }
+      armsOf.set(y * cols + x, new Set(dirs.slice(0, take)));
+    }
+  }
+  // an overlap cell that fewer than two pieces reach gets itself added to a neighbouring piece that does not reach it yet
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      if (isCentre(x, y)) continue;
+      const reaching = near(x, y).filter((d) => armsOf.get((y + DIRS[d].y) * cols + x + DIRS[d].x)!.has((d + 2) % 4));
+      const missing = near(x, y).filter((d) => !reaching.includes(d));
+      for (let i = missing.length - 1; i > 0; i--) {
+        const j = rng.below(i + 1);
+        [missing[i], missing[j]] = [missing[j], missing[i]];
+      }
+      for (let n = reaching.length; n < 2 && missing.length; n++) {
+        const d = missing.pop()!;
+        armsOf.get((y + DIRS[d].y) * cols + x + DIRS[d].x)!.add((d + 2) % 4);
       }
     }
-    const pick = best[rng.below(best.length)];
-    pieces.push({ id: 0, bx: pick.bx, by: pick.by, orient: pick.orient, marker: -1 });
-    for (const c of shapeCells(pick.orient)) cover[(pick.by + c.y) * cols + pick.bx + c.x]++;
   }
+  for (const [cell, dirs] of armsOf) pieces.push({ id: 0, cx: cell % cols, cy: Math.floor(cell / cols), arms: [...dirs].sort((a, b) => a - b), marker: -1 });
   for (let i = pieces.length - 1; i > 0; i--) {
     const j = rng.below(i + 1);
     [pieces[i], pieces[j]] = [pieces[j], pieces[i]];
@@ -104,15 +97,16 @@ export function generateOverlap(rng: Rng, o: OverlapOptions): OverlapSetup {
   pieces.forEach((p, i) => (p.id = i));
   const placedCount = Math.min(pieces.length - 1, Math.round((pieces.length * Math.min(50, Math.max(0, o.placed))) / 100));
   const rot = pieces.map((_, i) => (i < placedCount || !o.turned ? 0 : rng.below(4)));
-  // windows: a cell that other pieces cover too, so it always gets revealed; `solid` counts the pieces that cover a cell and reveal it
+  // windows: an overlap cell that other pieces cover too, so it always gets revealed; `solid` counts the pieces that cover a cell and reveal it
+  const cellsOf = (p: PieceDef): number[] => [p.cy * cols + p.cx, ...p.arms.map((d) => (p.cy + DIRS[d].y) * cols + p.cx + DIRS[d].x)];
   const solid = new Array<number>(cols * rows).fill(0);
-  for (const p of pieces) for (const c of shapeCells(p.orient)) solid[(p.by + c.y) * cols + p.bx + c.x]++;
+  for (const p of pieces) for (const cell of cellsOf(p)) solid[cell]++;
   if (o.windows) {
     for (let i = placedCount; i < pieces.length; i++) {
       if (rng.below(3) !== 0) continue;
       const p = pieces[i];
-      const cells = shapeCells(p.orient).map((c) => (p.by + c.y) * cols + p.bx + c.x);
-      const shared = cells.map((cell, k) => (solid[cell] > 1 ? k : -1)).filter((k) => k >= 0);
+      const cells = cellsOf(p);
+      const shared = cells.map((cell, k) => (k > 0 && solid[cell] > 1 ? k : -1)).filter((k) => k >= 0);
       if (!shared.length) continue;
       p.marker = shared[rng.below(shared.length)];
       solid[cells[p.marker]]--;
@@ -121,7 +115,7 @@ export function generateOverlap(rng: Rng, o: OverlapOptions): OverlapSetup {
   const stacks: number[][] = Array.from({ length: STACKS }, () => []);
   let dealt = 0;
   for (let i = placedCount; i < pieces.length; i++) stacks[dealt++ % STACKS].push(i);
-  for (const s of stacks) s.sort((a, b) => Number(pieces[a].marker >= 0) - Number(pieces[b].marker >= 0));        // pieces with a window lie on top, where they can be seen (the sort is stable)
+  for (const st of stacks) st.sort((a, b) => Number(pieces[a].marker >= 0) - Number(pieces[b].marker >= 0));        // pieces with a window lie on top, where they can be seen (the sort is stable)
   return { cols, rows, pieces, rot, placedAtStart: pieces.slice(0, placedCount).map((p) => p.id), stacks };
 }
 
@@ -144,7 +138,7 @@ export class OverlapGame {
   /** Which cells of the picture are showing. */
   readonly revealed: boolean[];
   readonly stacks: number[][];
-  /** Pieces that are in place or were taken off a stack because everything they cover already shows. */
+  /** Pieces that are in place (every piece has to be: its centre cell shows nowhere else). */
   readonly done: boolean[];
   misses = 0;
 
@@ -157,7 +151,6 @@ export class OverlapGame {
     this.revealed = new Array<boolean>(this.cols * this.rows).fill(false);
     this.done = new Array<boolean>(this.pieces.length).fill(false);
     for (const id of setup.placedAtStart) this.reveal(id);
-    this.dropRedundant();
   }
 
   /** Everything that changes while the puzzle is played, as plain data (the rest follows from the seed). */
@@ -199,12 +192,12 @@ export class OverlapGame {
     return this.remaining === 0;
   }
 
-  /** The cells a piece covers now, relative to its bounding box. */
+  /** The cells a piece covers now, relative to its centre cell (which stays where it is when the piece turns), in the same order as `homeCells`: the centre first. */
   cellsNow(id: number): Cell[] {
-    return shapeCells(this.pieces[id].orient + this.rot[id]);
+    return [{ x: 0, y: 0 }, ...this.pieces[id].arms.map((d) => DIRS[(d + this.rot[id]) % 4])];
   }
 
-  /** The window cell of a piece (its index among the three), or -1 when it has none or the cell it looks at shows already. */
+  /** The window cell of a piece (its index among its cells), or -1 when it has none or the cell it looks at shows already. */
   windowOf(id: number): number {
     const m = this.pieces[id].marker;
     if (m < 0) return -1;
@@ -215,7 +208,7 @@ export class OverlapGame {
   /** The picture cells the piece belongs over (its own cells, in the same order as cellsNow). */
   homeCells(id: number): Cell[] {
     const p = this.pieces[id];
-    return shapeCells(p.orient).map((c) => ({ x: p.bx + c.x, y: p.by + c.y }));
+    return [{ x: p.cx, y: p.cy }, ...p.arms.map((d) => ({ x: p.cx + DIRS[d].x, y: p.cy + DIRS[d].y }))];
   }
 
   top(stack: number): number {
@@ -237,10 +230,10 @@ export class OverlapGame {
     else s.push(s.shift()!);
   }
 
-  /** Puts piece `id` (the top of its stack) down with its bounding box at cell (bx, by). Right place and turn: it stays and reveals its cells. */
-  drop(id: number, bx: number, by: number): DropResult {
+  /** Puts piece `id` (the top of its stack) down with its centre on cell (cx, cy). Right place and turn: it stays and reveals its cells. */
+  drop(id: number, cx: number, cy: number): DropResult {
     const p = this.pieces[id];
-    if (this.done[id] || bx !== p.bx || by !== p.by || this.rot[id] !== 0) {
+    if (this.done[id] || cx !== p.cx || cy !== p.cy || this.rot[id] !== 0) {
       this.misses++;
       return 'wrong';
     }
@@ -249,7 +242,6 @@ export class OverlapGame {
       if (i >= 0) s.splice(i, 1);
     }
     this.reveal(id);
-    this.dropRedundant();
     return 'placed';
   }
 
@@ -268,23 +260,5 @@ export class OverlapGame {
     this.homeCells(id).forEach((c, k) => {
       if (k !== this.pieces[id].marker) this.revealed[c.y * this.cols + c.x] = true;
     });
-  }
-
-  /** A piece on top of a stack whose cells all show already has nothing left to do: it goes, and so on down the stack. */
-  private dropRedundant(): void {
-    let again = true;
-    while (again) {
-      again = false;
-      for (const s of this.stacks) {
-        while (s.length) {
-          const id = s[s.length - 1];
-          const marker = this.pieces[id].marker;
-          if (!this.homeCells(id).every((c, k) => k === marker || this.revealed[c.y * this.cols + c.x])) break;
-          s.pop();
-          this.done[id] = true;
-          again = true;
-        }
-      }
-    }
   }
 }

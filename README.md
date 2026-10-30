@@ -15,10 +15,12 @@ or Restart keeps the video where it is. Videos are stored as they are in the bro
 remembered and, being about looks rather than difficulty, do not start a new best-time record.
 
 Playable now:
-- **Focus Point** - the picture is cut into rectangles of different sizes and shuffled; click two pieces to make them trade places *and sizes*; put every piece back.
-- **Overlap** - the picture is covered by L-shaped pieces that overlap. They wait in three stacks; drag the top piece onto the grid (or onto another stack to move it there), turned the way it lies in the
-  picture, and it stays and shows its part. A piece whose cells all show already is removed from its stack. The empty board is a radial pattern drawn in code
-  (sunbursts, targets, rose windows, spirals, wheels - one per puzzle); some pieces have a *window* cell that shows the bit of that pattern from where the piece belongs, as a hint.
+- **Focus Point** - the picture is cut into rectangles of different sizes (6 to 200 of them) and shuffled; click two pieces to make them trade places *and sizes*; put every piece back.
+- **Overlap** - the grid is divided like a checkerboard: every other cell is a piece's own *centre* cell, and the cells between are *overlap* cells. Each piece is a centre and two to four of the overlap
+  cells next to it (three to five cells), and every overlap cell belongs to at least two pieces. The pieces wait in three stacks; drag the top piece onto the grid (or onto another stack to move it there), centre
+  first and turned the way it lies in the picture, and it stays and shows its part. The empty board is a radial pattern drawn in code (sunbursts, targets, rose windows, spirals, wheels - one per puzzle, with its
+  centre off the board); some pieces have a *window* on one of their overlap cells that shows the bit of that pattern from where the piece belongs, as a hint, and turns into the picture for every piece that
+  has it when any piece is placed over that cell.
   Options: cells across (5-16), turned pieces, window pieces, pieces placed at the start.
 - **Strips** - the whole picture is cut into straight strips (1 x N cells, 3 up to the longest allowed; they may cross) that lie scattered and turned on the board. You choose the
   cells across and the longest strip; the number of strips is worked out so that every cell is covered and every strip covers at least one cell that no other strip covers
