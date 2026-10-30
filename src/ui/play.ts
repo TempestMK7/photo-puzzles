@@ -4,12 +4,13 @@ import { randomSeedText, seedFromText } from '../core/rng';
 import { loadPhoto } from '../image';
 import type { OnlineApi } from '../online/api';
 import { PLAYER_COLORS } from '../online/config';
+import { PlaybackSync } from '../online/playbackSync';
 import type { Invite } from '../online/protocol';
 import type { OnlineRoom, RoomView } from '../online/room';
 import { fitView, type View } from '../render';
 import { needsStill, startSession, type PuzzleSession } from '../sessions';
 import type { OnlineHooks } from '../sessions/types';
-import type { PhotoEntry, PhotoLibrary, PlaySource } from '../store/photos';
+import { openVideo, type PhotoEntry, type PhotoLibrary, type PlaySource } from '../store/photos';
 import type { SaveRecord, SaveStore } from '../store/saves';
 import { h } from './dom';
 import { sayError } from './online';
@@ -50,7 +51,11 @@ export class PlayScreen {
   private totalEl = h('span', { class: 'vt' }, '0:00');
   private seekEl = h('input', { type: 'range', class: 'seek', min: 0, max: 1000, value: 0, step: 1, 'aria-label': 'Video position' });
   private muteBtn = h('button', { type: 'button', class: 'icon', title: 'Sound', 'aria-label': 'Sound', onclick: () => this.toggleMute() });
-  private vbar = h('div', { class: 'vbar', hidden: true }, this.pauseBtn, this.curEl, this.seekEl, this.totalEl, this.muteBtn);
+  /** A puzzle played with friends from a video: shown when the player has gone their own way, to be taken back to where the host is. */
+  private syncBtn = h('button', { type: 'button', class: 'sync', hidden: true, title: 'Go back to where the host’s video is, and follow it again', onclick: () => void this.sync?.resync() }, '↻ Sync with host');
+  private vbar = h('div', { class: 'vbar', hidden: true }, this.pauseBtn, this.curEl, this.seekEl, this.totalEl, this.muteBtn, this.syncBtn);
+  private sync: PlaybackSync | null = null;
+  private syncTimer = 0;
   // the zoom control of a board with a camera (Jigsaw), bottom right
   private overlay: HTMLCanvasElement | null = null;
   private zoomLabel = h('button', { type: 'button', class: 'zlabel', title: 'Show everything', 'aria-label': 'Show everything', onclick: () => this.zoomFit() }, '100%');
@@ -140,14 +145,20 @@ export class PlayScreen {
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     new ResizeObserver(() => this.resize()).observe(this.canvas);
     this.seekEl.addEventListener('pointerdown', () => (this.seeking = true));
+    let moved = false;
     this.seekEl.addEventListener('input', () => {
       const v = this.src?.video;
       if (v && Number.isFinite(v.duration)) {
         v.currentTime = (Number(this.seekEl.value) / 1000) * v.duration;
         this.updateBar();
+        moved = true;
       }
     });
-    const endSeek = () => (this.seeking = false);
+    const endSeek = () => {
+      this.seeking = false;
+      if (moved) this.sync?.byPlayer();                         // the host says where the video is, a follower goes their own way
+      moved = false;
+    };
     this.seekEl.addEventListener('pointerup', endSeek);
     this.seekEl.addEventListener('pointercancel', endSeek);
     this.seekEl.addEventListener('change', endSeek);
@@ -205,6 +216,7 @@ export class PlayScreen {
   }
 
   private closeSource(): void {
+    this.stopSync();
     this.toggleRef(false);
     this.pumpToken++;
     this.src?.dispose();
@@ -223,6 +235,8 @@ export class PlayScreen {
     this.refreshMute();
     this.totalEl.textContent = formatTime((Number.isFinite(v.duration) ? v.duration : 0) * 1000);
     this.pauseBtn.textContent = '❚❚';
+    v.addEventListener('play', () => this.refreshPause());
+    v.addEventListener('pause', () => this.refreshPause());
     void v.play().catch(() => {
       v.muted = true;                              // the browser refused to start it with sound: start without
       this.refreshMute();
@@ -263,8 +277,60 @@ export class PlayScreen {
     if (!v) return;
     if (v.paused) void v.play();
     else v.pause();
-    this.pauseBtn.textContent = v.paused ? '\u25b6' : '❚❚';
+    this.refreshPause();
+    this.sync?.byPlayer();
+  }
+
+  /** The pause button shows what it would do (the video may have been paused or played by the sync, and not by the button). */
+  private refreshPause(): void {
+    const v = this.src?.video;
+    if (!v) return;
+    this.pauseBtn.textContent = v.paused ? '▶' : '❚❚';
     this.pauseBtn.title = v.paused ? 'Play' : 'Pause';
+    this.pauseBtn.setAttribute('aria-label', v.paused ? 'Play' : 'Pause');
+  }
+
+  /** Follows the host's video (or, for the host, says where it is): the video of a puzzle played with friends. */
+  private startSync(room: OnlineRoom, v: HTMLVideoElement): void {
+    this.stopSync();
+    const sync = new PlaybackSync(
+      {
+        get currentTime() {
+          return v.currentTime;
+        },
+        get paused() {
+          return v.paused;
+        },
+        get duration() {
+          return Number.isFinite(v.duration) ? v.duration : 0;
+        },
+        seek: (t) => {
+          v.currentTime = t;
+        },
+        play: () =>
+          void v.play().catch(() => {
+            v.muted = true;                                  // the browser refused to start it with sound: start without
+            this.refreshMute();
+            void v.play().catch(() => undefined);
+          }),
+        pause: () => v.pause(),
+      },
+      room,
+    );
+    sync.onChange = () => (this.syncBtn.hidden = !sync.apart);
+    room.onPlayback = () => sync.heard();
+    this.sync = sync;
+    sync.start();
+    this.syncBtn.hidden = !sync.apart;
+    this.syncTimer = window.setInterval(() => sync.tick(), 1000);
+  }
+
+  private stopSync(): void {
+    window.clearInterval(this.syncTimer);
+    this.syncTimer = 0;
+    if (this.online) this.online.room.onPlayback = () => undefined;
+    this.sync = null;
+    this.syncBtn.hidden = true;
   }
 
   private toggleMute(): void {
@@ -385,24 +451,48 @@ export class PlayScreen {
     this.titleEl.textContent = 'Jigsaw · with friends';
     const d = room.descriptor;
     let blob: Blob;
-    let canvas: HTMLCanvasElement;
+    let src: PlaySource;
+    let url: string;
     try {
-      const res = await fetch(d.media.url);
-      if (!res.ok) throw new Error('The picture could not be loaded');
-      blob = await res.blob();
-      canvas = await loadPhoto(blob);
-      if (canvas.width !== d.settings.width || canvas.height !== d.settings.height) throw new Error('The picture does not match this puzzle');
+      if (d.media.type === 'video' && d.media.video) {
+        ({ blob, src, url } = await this.loadOnlineVideo(room, token));
+      } else {
+        const res = await fetch(d.media.url);
+        if (!res.ok) throw new Error('The picture could not be loaded');
+        blob = await res.blob();
+        const canvas = await loadPhoto(blob);
+        if (canvas.width !== d.settings.width || canvas.height !== d.settings.height) throw new Error('The picture does not match this puzzle');
+        url = URL.createObjectURL(blob);
+        src = { source: canvas, width: canvas.width, height: canvas.height, video: null, dispose: () => URL.revokeObjectURL(url) };
+      }
     } catch (e) {
       if (token === this.token) this.showMessage(e instanceof Error ? e.message : 'The picture could not be loaded');
       return;
     }
-    if (token !== this.token) return;
+    if (token !== this.token) {
+      src.dispose();
+      return;
+    }
     this.closeSource();
-    const url = URL.createObjectURL(blob);
-    this.entry = { id: room.id, name: 'Online puzzle', sample: false, thumbUrl: url, previewUrl: url, video: false, duration: 0 };
-    this.src = { source: canvas, width: canvas.width, height: canvas.height, video: null, dispose: () => URL.revokeObjectURL(url) };
+    this.dialogEl.hidden = true;
+    this.entry = { id: room.id, name: 'Online puzzle', sample: false, thumbUrl: url, previewUrl: url, video: !!src.video, duration: src.video?.duration ?? 0 };
+    this.src = src;
     this.online = { room, shown: false, blob };
     this.saveKey = '';
+    // a video plays (with its sound, looped) and the board is drawn again for each new picture of it; where it is, is the host's to say
+    const still = !!src.video && needsStill('jigsaw');
+    if (src.video) {
+      this.setupVideo();
+      if (still) await this.freezeVideo(src.video);                     // a browser that cannot draw video pieces cuts the first picture
+      if (token !== this.token) return;
+      this.frameCanvas = document.createElement('canvas');
+      this.frameCanvas.width = src.width;
+      this.frameCanvas.height = src.height;
+      this.frameTime = -1;
+      this.copyFrame();
+    } else {
+      this.frameCanvas = null;
+    }
     const bar = this.bar!;
     const hooks: OnlineHooks = {
       blockedBy: () => room.holderOther()?.name ?? null,
@@ -415,9 +505,10 @@ export class PlayScreen {
     this.session?.dispose?.();
     this.overlay?.remove();
     this.session = startSession('jigsaw', {
-      source: canvas,
-      width: canvas.width,
-      height: canvas.height,
+      source: this.frameCanvas ?? src.source,
+      video: src.video ?? undefined,
+      width: src.width,
+      height: src.height,
       seed: d.settings.seed,
       opts: d.settings.opts,
       restore: { game: d.state.game, sel: -1, cam: null },
@@ -438,8 +529,65 @@ export class PlayScreen {
       else if (error !== 'offline') bar.say(sayError(error));
     };
     room.attach(this.session as PuzzleSession & RoomView);
+    if (src.video && !still) this.startSync(room, src.video);
     bar.show(room, invite);
     this.onlineChanged();
+  }
+
+  /** The video of a puzzle played with friends: the whole file is fetched (with its progress on the screen), and then played from the player's own memory. */
+  private async loadOnlineVideo(room: OnlineRoom, token: number): Promise<{ blob: Blob; src: PlaySource; url: string }> {
+    const d = room.descriptor;
+    const info = d.media.video!;
+    const say = (text: string) => {
+      if (token === this.token) this.showProgress(text);
+    };
+    say('Loading the video… 0%');
+    const res = await fetch(d.media.url);
+    if (!res.ok) throw new Error('The video could not be loaded');
+    const total = info.bytes;
+    const parts: Uint8Array[] = [];
+    let got = 0;
+    const reader = res.body?.getReader();
+    if (reader) {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parts.push(value);
+        got += value.length;
+        say(`Loading the video… ${Math.min(100, Math.round((got / total) * 100))}%`);
+        if (token !== this.token) {
+          void reader.cancel();
+          break;
+        }
+      }
+    } else {
+      parts.push(new Uint8Array(await res.arrayBuffer()));
+    }
+    const blob = new Blob(parts as BlobPart[], { type: info.type });
+    const url = URL.createObjectURL(blob);
+    let src: PlaySource;
+    try {
+      src = await openVideo(url);
+    } catch (e) {
+      URL.revokeObjectURL(url);
+      throw e;
+    }
+    const inner = src.dispose;
+    src.dispose = () => {
+      inner();
+      URL.revokeObjectURL(url);
+    };
+    if (src.width !== d.settings.width || src.height !== d.settings.height) {
+      src.dispose();
+      throw new Error('The video does not match this puzzle');
+    }
+    return { blob, src, url };
+  }
+
+  /** What is going on while a puzzle is being got ready, with a way out. */
+  private showProgress(text: string): void {
+    this.dialogEl.replaceChildren(h('p', {}, text), h('div', { class: 'buttons' }, h('button', { type: 'button', onclick: () => this.leave() }, 'Back')));
+    this.dialogEl.hidden = false;
   }
 
   /** The room says something changed: the players, the connection, who holds a piece, whether the puzzle is over. */
@@ -469,7 +617,7 @@ export class PlayScreen {
         'div',
         { class: 'buttons' },
         h('button', { type: 'button', onclick: () => this.viewPicture() }, 'View'),
-        h('button', { type: 'button', onclick: () => void this.savePicture() }, 'Save picture'),
+        h('button', { type: 'button', onclick: () => void this.savePicture() }, this.online.room.descriptor.media.type === 'video' ? 'Save video' : 'Save picture'),
         h('button', { type: 'button', class: 'primary', onclick: () => this.leave() }, 'Leave'),
       ),
     );
@@ -496,12 +644,14 @@ export class PlayScreen {
       this.bar?.say('You already have this picture');
       return;
     }
-    const type = o.blob.type || 'image/jpeg';
-    const done = await this.deps.photos.add([new File([o.blob], `Online puzzle.${type === 'image/png' ? 'png' : 'jpg'}`, { type })]);
+    const video = o.room.descriptor.media.type === 'video';
+    const type = o.blob.type || (video ? 'video/mp4' : 'image/jpeg');
+    const ext = video ? ({ 'video/webm': 'webm', 'video/quicktime': 'mov', 'video/x-matroska': 'mkv' } as Record<string, string>)[type] ?? 'mp4' : type === 'image/png' ? 'png' : 'jpg';
+    const done = await this.deps.photos.add([new File([o.blob], `Online puzzle.${ext}`, { type })]);
     if (done.ids.length) {
       this.deps.photoAdded(done.ids[0]);
-      this.bar?.say('Saved to your pictures');
-    } else this.bar?.say('The picture could not be saved');
+      this.bar?.say(video ? 'Saved to your library' : 'Saved to your pictures');
+    } else this.bar?.say(video ? 'The video could not be saved' : 'The picture could not be saved');
   }
 
   /** A video that a puzzle is cut from stops at its first picture, so the same pieces come back every time. */
