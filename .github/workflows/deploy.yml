@@ -7,6 +7,8 @@ name: Deploy
 #   AWS_DEPLOY_ROLE_ARN  the role that the Ops stack made
 #   HOSTED_ZONE_ID       the hosted zone of the domain
 # and may have: ALERT_EMAIL, GOOGLE_CLIENT_ID, GOOGLE_SECRET_NAME, LIMITS (JSON, like {"freeRoomsPerWeek":0}: see docs/runbook.md)
+# and the words of the privacy policy and the terms (/privacy, /terms): LEGAL_OPERATOR (who runs the game), LEGAL_CONTACT (an e-mail address to write to; required for prod) and LEGAL_LAW
+# (optional: the law the terms go by). They are variables so that no name or address is in this public repository.
 on:
   push:
     branches: [main]
@@ -44,6 +46,11 @@ jobs:
         if: inputs.stage == 'prod' && inputs.confirm != 'prod'
         run: |
           echo "::error::To deploy production, type the word prod in the box 'For prod only'."
+          exit 1
+      - name: The privacy policy needs somewhere to write to
+        if: inputs.stage == 'prod' && vars.LEGAL_CONTACT == ''
+        run: |
+          echo "::error::Set the repository variable LEGAL_CONTACT (an e-mail address) before deploying prod: the privacy policy and the terms say where to write."
           exit 1
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -106,6 +113,9 @@ jobs:
         env:
           VITE_BUILD: ${{ github.run_number }}
           VITE_STAGE: ${{ env.STAGE }}
+          LEGAL_OPERATOR: ${{ vars.LEGAL_OPERATOR }}
+          LEGAL_CONTACT: ${{ vars.LEGAL_CONTACT }}
+          LEGAL_LAW: ${{ vars.LEGAL_LAW }}
         run: npm run build
 
       - name: Put the game in place

@@ -70,7 +70,16 @@ describe('the admin page', () => {
     t.hasResourceProperties('AWS::CloudFront::Distribution', {
       DistributionConfig: Match.objectLike({ DefaultCacheBehavior: Match.objectLike({ FunctionAssociations: [Match.objectLike({ EventType: 'viewer-request' })] }) }),
     });
-    expect(JSON.stringify(t.toJSON())).toContain("location: { value: '/admin' }");
+  });
+
+  it('answers /admin/, /privacy/ and /terms/ with the address without the slash, and shows /privacy and /terms from their files', () => {
+    const fn = Object.values(stack(app(), 'PuzzleVidio-prod-Web').findResources('AWS::CloudFront::Function'))[0] as { Properties: { FunctionCode: string } };
+    const handler = new Function(`${fn.Properties.FunctionCode}; return handler;`)() as (e: { request: { uri: string } }) => { uri?: string; statusCode?: number; headers?: { location: { value: string } } };
+    const ask = (uri: string) => handler({ request: { uri } });
+    for (const name of ['admin', 'privacy', 'terms']) expect(ask(`/${name}/`)).toMatchObject({ statusCode: 301, headers: { location: { value: `/${name}` } } });
+    expect(ask('/privacy').uri).toBe('/privacy.html');
+    expect(ask('/terms').uri).toBe('/terms.html');
+    for (const uri of ['/', '/admin', '/index.html', '/assets/a.js', '/privacy.html', '/privacy-x']) expect(ask(uri).uri).toBe(uri);
   });
 });
 

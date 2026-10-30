@@ -70,7 +70,9 @@ input[type='email'], input[type='password'] { text-transform: none; letter-spaci
 .save .txt { display: flex; flex-direction: column; min-width: 0; }
 .save .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .save .b { font-size: 12px; color: var(--dim); }
-.library .version { flex: none; padding: 3px 14px; padding-bottom: max(3px, env(safe-area-inset-bottom)); font-size: 11px; color: var(--dim); text-align: right; border-top: 1px solid var(--line); user-select: text; }
+.library .version { flex: none; display: flex; justify-content: space-between; gap: 12px; padding: 3px 14px; padding-bottom: max(3px, env(safe-area-inset-bottom)); font-size: 11px; color: var(--dim); text-align: right; border-top: 1px solid var(--line); user-select: text; }
+.library .version a { color: var(--dim); }
+.library .version a:hover { color: var(--text); }
 .pfoot { flex: none; display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; border-top: 1px solid var(--line); background: var(--panel2); }
 .pfoot button { flex: 1 1 0; padding: 8px 6px; white-space: nowrap; }
 .pfoot input.link { flex: 1 1 100%; min-width: 0; padding: 8px; }

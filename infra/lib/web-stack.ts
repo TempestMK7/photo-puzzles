@@ -45,10 +45,11 @@ export class WebStack extends Stack {
       },
     });
 
-    // The admin page is at /admin, and the page's files are found by addresses relative to where it is: /admin/ (with the slash) would look for them under /admin/, so it goes to /admin.
+    // The admin page is at /admin, and the page's files are found by addresses relative to where it is: /admin/ (with the slash) would look for them under /admin/, so it goes to /admin. The
+    // privacy policy and the terms are the files privacy.html and terms.html, shown at /privacy and /terms (and the same with a slash goes to the one without).
     const adminSlash = new cloudfront.Function(this, 'AdminSlash', {
       runtime: cloudfront.FunctionRuntime.JS_2_0,
-      code: cloudfront.FunctionCode.fromInline("function handler(event) { var r = event.request; if (r.uri.indexOf('/admin/') === 0) return { statusCode: 301, statusDescription: 'Moved Permanently', headers: { location: { value: '/admin' } } }; return r; }"),
+      code: cloudfront.FunctionCode.fromInline("function handler(event) { var r = event.request; var u = r.uri; var m = /^\\/(admin|privacy|terms)\\/$/.exec(u); if (m) return { statusCode: 301, statusDescription: 'Moved Permanently', headers: { location: { value: '/' + m[1] } } }; if (u === '/privacy' || u === '/terms') r.uri = u + '.html'; return r; }"),
     });
 
     // The game is one page with hash addresses (#/join/...), so a missing file is not an address: it gets the page.
