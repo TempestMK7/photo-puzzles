@@ -12,6 +12,9 @@ export interface Account {
   signOut?(): boolean;
   /** The game's own sign-in and sign-up pages: only an account with its own password sign-in has this (`CognitoAccount`). */
   passwords?: PasswordAccount;
+  /** Goes to Google's sign-in page and comes back signed in: only an account whose user pool has Google has this. */
+  signInWithGoogle?(returnHash?: string): Promise<void>;
+  readonly hasGoogle?: boolean;
 }
 
 /** Why a sign-in, sign-up or reset did not work: what the page says is up to it. */

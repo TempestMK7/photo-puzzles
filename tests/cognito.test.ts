@@ -57,6 +57,19 @@ describe('signing in', () => {
     expect(JSON.stringify(url)).not.toContain(flow.verifier);
   });
 
+  it('goes straight to Google when asked, with the same code flow, and not otherwise', async () => {
+    const t = setup();
+    await t.account.signIn();
+    expect(new URL(t.went[0]).searchParams.has('identity_provider')).toBe(false);
+    await t.account.signInWithGoogle('#/x');
+    const url = new URL(t.went[1]);
+    expect(`${url.origin}${url.pathname}`).toBe(`${HOST}/oauth2/authorize`);
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({ identity_provider: 'Google', response_type: 'code', code_challenge_method: 'S256', redirect_uri: REDIRECT });
+    expect(JSON.parse(t.session.getItem('photo-puzzles/online/auth-flow')!).hash).toBe('#/x');       // what comes back is the flow that was started last
+    expect(t.account.hasGoogle).toBe(false);                                                         // this one was set up without Google
+    expect(new CognitoAccount({ host: HOST, clientId: 'c', google: true }, null, null).hasGoogle).toBe(true);
+  });
+
   it('swaps the code for the tokens when the sign-in page sends the player back, and says what the player was doing', async () => {
     const id = jwt({ sub: 'user-1', name: 'Ann', exp: 1_700_003_600 });
     const t = setup({ reply: () => json({ id_token: id, refresh_token: 'refresh-1', access_token: 'a' }) });

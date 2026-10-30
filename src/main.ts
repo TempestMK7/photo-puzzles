@@ -53,7 +53,9 @@ async function main(): Promise<void> {
   const base = cloud?.api ?? onlineBase();
   const dev = new DevIdentity();
   // the way to sign in: Cognito in the cloud, the made-up identity (which can be signed out, to play as a guest) on a developer's machine
-  const accountSource: Account | null = cloud ? new CognitoAccount({ host: cloud.cognitoHost, clientId: cloud.cognitoClientId }, storage(), session()) : base ? new DevAccount(dev) : null;
+  // (Google does not let its sign-in page open inside an app's web view, so the Android app has no Google button until it signs in through the browser: docs/online-play-plan.md)
+  const google = !!cloud?.google && !('PhotoPuzzlesNative' in window);
+  const accountSource: Account | null = cloud ? new CognitoAccount({ host: cloud.cognitoHost, clientId: cloud.cognitoClientId, google }, storage(), session()) : base ? new DevAccount(dev) : null;
   // the sign-in page sends the player back with a code in the address
   let signedInHash = '';
   let signInFailed = false;
@@ -88,7 +90,7 @@ async function main(): Promise<void> {
     photoAdded: (id) => void library.photoAdded(id),
   });
   // the pop-ups for signing in (the game's own pages, in a build whose accounts have them) and for the profile, with the round badge on the main screen
-  const signInDialog = player.passwords ? new SignInDialog(player.passwords) : null;
+  const signInDialog = player.passwords ? new SignInDialog(player.passwords, player.google) : null;
   const signIn = async (): Promise<boolean> => {
     if (signInDialog) return signInDialog.ask();
     await player.signIn();          // the local build's stand-in

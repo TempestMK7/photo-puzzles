@@ -247,3 +247,16 @@ describe('the name of an account', () => {
     expect(t.session.needsName()).toBe(false);
   });
 });
+
+describe('signing in with Google', () => {
+  it('is offered only when the account can do it, and goes to Google when used', async () => {
+    const went: string[] = [];
+    const google = Object.assign(new FakeAccount(), { hasGoogle: true, async signInWithGoogle(hash?: string) { went.push(hash ?? ''); } });
+    const guest = new GuestAccount('https://api.example', new MemoryStorage(), { fetch: (async () => new Response('{}')) as never, now: () => Date.now() });
+    await new OnlineSession(google, guest, new MemoryStorage()).google!();
+    expect(went).toEqual(['']);
+    expect(new OnlineSession(Object.assign(new FakeAccount(), { hasGoogle: false, async signInWithGoogle() {} }), guest, new MemoryStorage()).google).toBeUndefined();
+    expect(setup().session.google).toBeUndefined();                      // an account that has no Google at all
+    expect(setup({ account: false }).session.google).toBeUndefined();
+  });
+});

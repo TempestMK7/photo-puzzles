@@ -15,6 +15,8 @@ export interface CloudConfig {
   iotAuthorizer: string;
   cognitoHost: string;
   cognitoClientId: string;
+  /** The user pool has Google (the deploy sets VITE_GOOGLE_SIGNIN when the Google client is configured). */
+  google: boolean;
 }
 
 /** The cloud's settings, or nothing when this build does not have all of them (then it is the local server, or no online play at all). */
@@ -26,7 +28,7 @@ export function cloudConfig(): CloudConfig | null {
   const cognitoHost = get('VITE_COGNITO_HOST');
   const cognitoClientId = get('VITE_COGNITO_CLIENT_ID');
   if (!api || !iotEndpoint || !iotAuthorizer || !cognitoHost || !cognitoClientId) return null;
-  return { api: api.replace(/\/+$/, ''), iotEndpoint, iotAuthorizer, cognitoHost: cognitoHost.replace(/\/+$/, ''), cognitoClientId };
+  return { api: api.replace(/\/+$/, ''), iotEndpoint, iotAuthorizer, cognitoHost: cognitoHost.replace(/\/+$/, ''), cognitoClientId, google: get('VITE_GOOGLE_SIGNIN') === 'yes' };
 }
 
 /** The colours of the players, by the number the server gave each (the same on every screen). */
