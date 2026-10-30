@@ -124,7 +124,10 @@ The steps for a notice of copyright infringement (the draft procedure is in `doc
 
 ## Deploying, and going back
 
-- **Deploy:** merge the pull request, then `gh workflow run deploy.yml --ref main -f stage=dev` (or `prod`). It deploys the five stacks of the stage, builds the game against what they said (addresses, pool, client), puts it in the bucket and empties the cache. `gh run watch <id>` follows it. It runs from `main` only.
+- **Dev deploys itself:** every change merged into `main` is tested (the game's tests and the type check) and then deployed to dev, unless it only touches documents (`docs/`, `*.md`). Watch it under Actions > Deploy, or `gh run list --workflow deploy.yml`. A failing test stops it before anything is deployed.
+- **Production is deployed by hand:** Actions > Deploy > Run workflow, stage `prod`, and the word `prod` typed in the box (without it the run stops at once), or `gh workflow run deploy.yml --ref main -f stage=prod -f confirm=prod`. Dev by hand is the same with `-f stage=dev`. Both run from `main` only. **`prod` has not been deployed yet** (it needs the Google client if Google sign-in is wanted, and SES out of the sandbox).
+- **What a deploy does:** the five stacks of the stage, then the game is built against what they said (addresses, pool, client) and put in the bucket, and the cache is emptied. One deployment of a stage at a time: a second waits. `gh run watch <id>` follows one.
+- **Which version is running:** the main screen shows it at the bottom right (`v0.0.1 · build 57 · a1b2c3d · dev`): `package.json`'s version (change it by hand for a release), the number of the deploy run, the commit it was built from, and the stage (not shown for prod). The page says when it was built if the pointer rests on it.
 - **The Ops stack** (budget, deploy role, e-mail domain) is not in that workflow: it is deployed by hand with the owner's own credentials, and **needs `-c githubSubjectPrefix=...` every time** (see `infra/README.md`, step 5) or the deploy role stops trusting the repository.
 - **Going back:** `git revert` the pull request on a branch, merge, deploy. A stack that fails half way rolls itself back (CloudFormation). The data (the table, the picture bucket) is not touched by a deploy of the code.
 - **`dev` and `prod` share the broker's account** and its lifecycle events: each ignores the other's rooms.
