@@ -15,6 +15,8 @@ export const DEFAULT_RATES = {
   failedJoins: { perIp: 30, perPlayer: 10, windowMs: 15 * MIN },
   /** Puzzles made from an address (each account has its own weekly quota besides). */
   creations: { perIp: 30, windowMs: HOUR },
+  /** Reports of puzzles sent by one player. */
+  reports: { perPlayer: 5, windowMs: HOUR },
 };
 
 export type Rates = typeof DEFAULT_RATES;

@@ -75,6 +75,8 @@ export function sayError(error: CallError, failure?: { retryAt?: number }): stri
         return `Too many tries from here. Wait ${minutes} minute${minutes === 1 ? '' : 's'} and try again.`;
       }
       return 'Too many tries. Wait a little.';
+    case 'banned':
+      return 'This account has been stopped from playing online.';
     case 'knock-denied':
       return 'They did not let you in.';
     case 'not-ready':

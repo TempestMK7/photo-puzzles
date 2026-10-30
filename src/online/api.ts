@@ -8,6 +8,7 @@ import type {
   JoinRequest,
   JoinResponse,
   MeResponse,
+  ReportRequest,
   RoomDescriptor,
   RoomSummary,
 } from './protocol';
@@ -123,6 +124,11 @@ export class OnlineApi implements RoomApi {
 
   newInvite(id: string): Promise<{ ok: true; invite: Invite } | ApiFailure | Offline> {
     return this.call('POST', `/rooms/${encodeURIComponent(id)}/invite`, {});
+  }
+
+  /** Tells the operator that the puzzle is a problem. */
+  report(id: string, req: ReportRequest): Promise<{ ok: true } | ApiFailure | Offline> {
+    return this.call('POST', `/rooms/${encodeURIComponent(id)}/report`, req);
   }
 
   /** The owner sends a player out of the puzzle. */

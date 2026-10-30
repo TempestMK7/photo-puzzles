@@ -4,9 +4,11 @@ import { findKind, optionsOf } from '../../src/core/kinds';
 import { Rng } from '../../src/core/rng';
 import {
   cleanName,
+  cleanNote,
   inviteLink,
   normalizeCode,
   PROTOCOL_VERSION,
+  REPORT_REASONS,
   secretFrom,
   topics,
   type ApiError,
@@ -23,10 +25,11 @@ import {
   type RoomDescriptor,
   type RoomMessage,
   type RoomSettings,
+  type ReportRequest,
   type RoomSummary,
 } from '../../src/online/protocol';
 import { sniffImage } from './image';
-import type { Accounts, Clock, Limits, Media, Player, Presence, PubSub, Random, RoomRecord, Store } from './types';
+import type { Accounts, Clock, Limits, Media, Player, Presence, PubSub, Random, Report, RoomRecord, Store } from './types';
 
 export interface Deps {
   store: Store;
@@ -40,6 +43,8 @@ export interface Deps {
   webBase: string;
   /** Where an account is deleted for good (nothing for a server that has no accounts). */
   accounts?: Accounts;
+  /** Tells the operator something (an e-mail, in the cloud). Nothing for a server that has nobody to tell. */
+  notify?: (text: string) => Promise<void>;
 }
 
 const WEEK = 7 * 24 * 3600 * 1000;
@@ -95,12 +100,7 @@ export class RoomService {
    */
   async deleteAccount(player: Player): Promise<{ ok: true } | ApiFailure> {
     const { store, accounts } = this.d;
-    for (const id of await store.roomsOf(player.id)) {
-      const room = await store.getRoom(id);
-      if (!room) continue;
-      if (room.ownerId === player.id) await this.cleanup(room, 'owner');
-      else await this.leave(player, id);
-    }
+    await this.releaseRooms(player);
     await store.forgetPlayer(player.id);
     if (accounts && !player.guest) {
       try {
@@ -111,6 +111,97 @@ export class RoomService {
       }
     }
     return { ok: true };
+  }
+
+  /** The puzzles a player made end (their picture goes with them), and they leave the others (which go on, with a new owner). */
+  private async releaseRooms(player: Player): Promise<void> {
+    const { store } = this.d;
+    for (const id of await store.roomsOf(player.id)) {
+      const room = await store.getRoom(id);
+      if (!room) continue;
+      if (room.ownerId === player.id) await this.cleanup(room, 'owner');
+      else await this.leave(player, id);
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- reports, and what the operator does about them
+
+  /** Whether the operator has stopped this player from playing online. */
+  async isBanned(playerId: string): Promise<boolean> {
+    return !!(await this.d.store.getBan(playerId));
+  }
+
+  /**
+   * A member tells the operator that a puzzle is a problem. The report is kept (with who was in the puzzle: it may be gone before anyone looks) and the operator is told at once.
+   * Nothing happens to the puzzle by itself: the operator looks at the picture and decides (see `adminRemoveRoom` and `adminBan`).
+   */
+  async report(player: Player, roomId: string, req: ReportRequest): Promise<{ ok: true } | ApiFailure> {
+    const r = await this.memberRoom(player, roomId);
+    if ('error' in r) return r;
+    if (!REPORT_REASONS.some((x) => x.id === req?.reason)) return fail('bad-request');
+    const now = this.d.clock.now();
+    const tag = secretFrom(this.d.random.bytes(3));
+    const report: Report = {
+      id: `${String(now).padStart(15, '0')}#${tag}`,
+      at: now,
+      roomId,
+      ownerId: r.room.ownerId,
+      reporterId: player.id,
+      members: r.room.members.map((m) => m.id),
+      reason: req.reason,
+      note: cleanNote(req.note),
+    };
+    await this.d.store.addReport(report);
+    try {
+      await this.d.notify?.(`A puzzle was reported (${report.reason}): room ${roomId}, made by ${report.ownerId}, reported by ${report.reporterId}. List the reports with the admin function.`);
+    } catch (e) {
+      console.error(e);                                         // the report is kept: the operator finds it when they look
+    }
+    return { ok: true };
+  }
+
+  /** For the operator: the reports of the last `days` days, newest first. */
+  async adminReports(days = 30): Promise<Report[]> {
+    return this.d.store.reportsSince(this.d.clock.now() - days * 24 * 3600 * 1000);
+  }
+
+  /** For the operator: what a puzzle is, with a short-lived address of its picture. */
+  async adminRoom(roomId: string) {
+    const room = await this.live(roomId);
+    if (!room) return undefined;
+    return {
+      id: room.id,
+      ownerId: room.ownerId,
+      members: room.members.map((m) => ({ id: m.id, name: m.name })),
+      status: room.status,
+      ready: room.ready,
+      createdAt: room.createdAt,
+      expiresAt: room.expiresAt,
+      pieces: room.settings.opts.pieces,
+      picture: room.ready ? await this.d.media.signedUrl(room.id) : null,
+    };
+  }
+
+  /** For the operator: ends a puzzle now, with its picture and its codes; the players are told it was closed. */
+  async adminRemoveRoom(roomId: string): Promise<boolean> {
+    const room = await this.d.store.getRoom(roomId);
+    if (!room) return false;
+    await this.cleanup(room, 'owner');
+    return true;
+  }
+
+  /** For the operator: stops a player from playing online (they leave every puzzle, and the puzzles they made end) until `adminUnban`. */
+  async adminBan(playerId: string, reason: string): Promise<void> {
+    await this.d.store.ban({ playerId, at: this.d.clock.now(), reason: cleanNote(reason).slice(0, 100) });
+    await this.releaseRooms({ id: playerId, name: '' });
+  }
+
+  async adminUnban(playerId: string): Promise<void> {
+    await this.d.store.unban(playerId);
+  }
+
+  adminBans() {
+    return this.d.store.bans();
   }
 
   /** The player as the others see them: with the name they chose, if they chose one, and otherwise the name that came with the token. */

@@ -66,6 +66,7 @@ describe('the limits on the API', () => {
     newGuests: { perIp: 3, windowMs: HOUR },
     failedJoins: { perIp: 5, perPlayer: 3, windowMs: 15 * MIN },
     creations: { perIp: 2, windowMs: HOUR },
+    reports: { perPlayer: 2, windowMs: HOUR },
   };
   const KEY = new Uint8Array(32).fill(9);
 
@@ -187,6 +188,33 @@ describe('the limits on the API', () => {
       const { call } = setup();
       for (let i = 0; i < 5; i++) expect((await call('POST', '/rooms', { token: ann, body: undefined })).status).toBe(400);
       expect((await call('POST', '/rooms', { token: ann, body: request() })).status).toBe(200);
+    });
+  });
+
+  describe('reports and bans', () => {
+    it('lets a player report a few puzzles an hour and then asks them to wait', async () => {
+      const { call, w } = setup();
+      const made = await open(w, { id: 'ann1', name: 'Ann' });
+      const body = { reason: 'other', note: 'look' };
+      expect((await call('POST', `/rooms/${made.roomId}/report`, { token: ann, body })).status).toBe(200);
+      expect((await call('POST', `/rooms/${made.roomId}/report`, { token: ann, body })).status).toBe(200);
+      const refused = await call('POST', `/rooms/${made.roomId}/report`, { token: ann, body });
+      expect(refused).toMatchObject({ status: 429, body: { ok: false, error: 'rate-limited' } });
+      expect(await w.service.adminReports()).toHaveLength(2);                                  // the one that was refused was not kept
+      expect((await call('POST', `/rooms/${made.roomId}/report`, { token: ann, body: { reason: 'nonsense' } })).status).toBe(429);
+    });
+
+    it('turns a banned player away from everything but their own account, and lets them in again when it is lifted', async () => {
+      const { call, w } = setup();
+      const made = await open(w, { id: 'bob1', name: 'Bob' });
+      await w.service.adminBan('ann1', 'no');
+      expect(await call('GET', '/me', { token: ann })).toMatchObject({ status: 200, body: { ok: true } });
+      for (const [method, path] of [['GET', '/rooms'], ['GET', `/rooms/${made.roomId}`], ['POST', '/join'], ['POST', `/rooms/${made.roomId}/report`]] as const) {
+        expect(await call(method, path, { token: ann, body: { protocol: PROTOCOL_VERSION, code: made.invite.code, reason: 'other' } }), `${method} ${path}`).toMatchObject({ status: 403, body: { ok: false, error: 'banned' } });
+      }
+      expect((await call('POST', '/me/delete', { token: ann })).status).toBe(200);
+      await w.service.adminUnban('ann1');
+      expect((await call('GET', '/rooms', { token: ann })).status).toBe(200);
     });
   });
 

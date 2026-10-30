@@ -5,6 +5,7 @@ import { IoTDataPlaneClient } from '@aws-sdk/client-iot-data-plane';
 import { S3Client } from '@aws-sdk/client-s3';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { PublishCommand, SNSClient } from '@aws-sdk/client-sns';
 import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
 import { DEFAULT_LIMITS } from '../../../src/online/protocol';
 import { SystemRandom, systemClock } from '../memory';
@@ -66,8 +67,8 @@ const need = (name: string): string => {
   return v;
 };
 
-/** What the deployment says (infra/lib/api-stack.ts), turned into the service. */
-async function build(): Promise<(req: Req) => Promise<Res>> {
+/** What the deployment says (infra/lib/api-stack.ts), turned into the service. The operator's function (admin.ts) runs the same service. */
+export async function buildService() {
   const secret = await new SecretsManagerClient({}).send(new GetSecretValueCommand({ SecretId: need('SIGNING_SECRET_ARN') }));
   if (!secret.SecretString) throw new Error('The signing secret is empty');
   const key = new TextEncoder().encode(secret.SecretString);
@@ -79,6 +80,7 @@ async function build(): Promise<(req: Req) => Promise<Res>> {
   if (!endpoint) throw new Error('IoT has no endpoint');
 
   const db = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+  const sns = new SNSClient({});
   const table = need('TABLE_NAME');
   const media = new S3Media(new S3Client({}), need('MEDIA_BUCKET'), signer, need('API_BASE'));
   // the picture is sent through the API and a Lambda can take about 6 MB in a request (a little less than that once it is base64), so a picture may be at most 4 MB
@@ -93,9 +95,16 @@ async function build(): Promise<(req: Req) => Promise<Res>> {
     limits,
     webBase: need('WEB_BASE'),
     accounts: new CognitoAccounts(new CognitoIdentityProviderClient({}), need('USER_POOL_ID')),
+    // a report goes to the alarm topic, so that it reaches the operator's e-mail
+    notify: async (text) => void (await sns.send(new PublishCommand({ TopicArn: need('ALERT_TOPIC_ARN'), Subject: 'PuzzleVidio: a puzzle was reported', Message: text }))),
   });
+  return { service, media, guests, auth: new TokenAuth(guests, accounts), db, table };
+}
+
+async function build(): Promise<(req: Req) => Promise<Res>> {
+  const { service, media, guests, auth, db, table } = await buildService();
   const limiter = new RateLimiter(new DynamoRates(db, table, systemClock), systemClock);
-  return createRouter({ service, auth: new TokenAuth(guests, accounts), media, guests, limiter });
+  return createRouter({ service, auth, media, guests, limiter });
 }
 
 let router: Promise<(req: Req) => Promise<Res>> | undefined;

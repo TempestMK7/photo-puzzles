@@ -241,6 +241,9 @@ button.small { padding: 4px 10px; font-size: 13px; }
 .onlinebar .invite .player .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .onlinebar .invite .player .here { font-size: 12px; color: var(--accent2); }
 .onlinebar .invite .player .ask { display: flex; gap: 6px; }
+.onlinebar .report .choice { display: flex; align-items: center; gap: 8px; font-size: 14px; min-height: 30px; cursor: pointer; }
+.onlinebar .report .choice input { flex: none; accent-color: var(--accent); }
+.onlinebar .report textarea { font: inherit; font-size: 13px; background: var(--bg); color: inherit; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; width: 100%; box-sizing: border-box; resize: vertical; }
 .online [hidden] { display: none; }
 .online .who { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--dim); }
 .online .who .line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

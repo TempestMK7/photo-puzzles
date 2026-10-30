@@ -1,8 +1,9 @@
 import type { OnlineApi } from '../online/api';
 import { PLAYER_COLORS } from '../online/config';
-import type { Invite } from '../online/protocol';
+import { NOTE_MAX, REPORT_REASONS, type Invite, type ReportReason } from '../online/protocol';
 import type { OnlineRoom } from '../online/room';
 import { h } from './dom';
+import { sayError } from './online';
 import { qrSvg } from './qr';
 
 /**
@@ -15,9 +16,14 @@ export class OnlineBar {
   private status = h('span', { class: 'conn' });
   private inviteBtn = h('button', { type: 'button', class: 'small', onclick: () => this.toggleInvite() }, 'Invite');
   private saveBtn = h('button', { type: 'button', class: 'small', title: 'Keep this picture in your own list', onclick: () => this.onSave() }, 'Save picture');
+  private reportBtn = h('button', { type: 'button', class: 'small', title: 'Tell the operator that this puzzle is a problem', 'aria-expanded': 'false', onclick: () => this.toggleReport() }, 'Report');
   private knocksEl = h('div', { class: 'knocks' });
   private bannerEl = h('div', { class: 'banner', role: 'status', hidden: true });
   private inviteEl = h('div', { class: 'invite', hidden: true });
+  private reportEl = h('div', { class: 'invite report', hidden: true });
+  private reason: ReportReason | '' = '';
+  private note = '';
+  private sending = false;
   private room: OnlineRoom | null = null;
   private invite: Invite | null = null;
   private bannerTimer = 0;
@@ -31,7 +37,7 @@ export class OnlineBar {
     private readonly api: OnlineApi,
     private readonly onSave: () => void,
   ) {
-    this.el = h('div', { class: 'onlinebar', hidden: true }, h('div', { class: 'row1' }, this.chips, this.status, this.inviteBtn, this.saveBtn), this.knocksEl, this.bannerEl, this.inviteEl);
+    this.el = h('div', { class: 'onlinebar', hidden: true }, h('div', { class: 'row1' }, this.chips, this.status, this.inviteBtn, this.saveBtn, this.reportBtn), this.knocksEl, this.bannerEl, this.inviteEl, this.reportEl);
   }
 
   show(room: OnlineRoom, invite: Invite | null): void {
@@ -39,6 +45,10 @@ export class OnlineBar {
     this.invite = invite;
     this.inviteBtn.hidden = room.me !== room.descriptor.owner;
     this.inviteEl.hidden = true;
+    this.reportEl.hidden = true;
+    this.reportBtn.setAttribute('aria-expanded', 'false');
+    this.reason = '';
+    this.note = '';
     this.qrShown = false;
     this.confirming = null;
     this.el.hidden = false;
@@ -212,6 +222,50 @@ export class OnlineBar {
     } else {
       this.say(res.error === 'not-found' ? `${name} has gone already.` : 'Could not send them out.');
       this.renderInvite();
+    }
+  }
+
+  /** The form for telling the operator about a puzzle: what is wrong with it, and what the player wants to add. Nothing is sent until they press Send. */
+  private toggleReport(): void {
+    this.reportEl.hidden = !this.reportEl.hidden;
+    this.reportBtn.setAttribute('aria-expanded', String(!this.reportEl.hidden));
+    this.renderReport();
+  }
+
+  private renderReport(): void {
+    if (this.reportEl.hidden) return;
+    const note = h('textarea', { rows: 3, maxLength: NOTE_MAX, placeholder: 'What should the operator know? (optional)', 'aria-label': 'What the operator should know', value: this.note, oninput: (e: Event) => (this.note = (e.target as HTMLTextAreaElement).value) });
+    this.reportEl.replaceChildren(
+      h('div', { class: 'hint' }, 'What is wrong with this puzzle? The operator is told, looks at the picture, and decides. The other players are not told.'),
+      ...REPORT_REASONS.map((r) =>
+        h('label', { class: 'choice' }, h('input', { type: 'radio', name: 'report-reason', checked: this.reason === r.id, onchange: () => ((this.reason = r.id), this.renderReport()) }), h('span', {}, r.label)),
+      ),
+      note,
+      h(
+        'div',
+        { class: 'buttons' },
+        h('button', { type: 'button', class: 'primary', disabled: !this.reason || this.sending, onclick: () => void this.sendReport() }, 'Send report'),
+        h('button', { type: 'button', onclick: () => this.toggleReport() }, 'Cancel'),
+      ),
+    );
+  }
+
+  private async sendReport(): Promise<void> {
+    const room = this.room;
+    if (!room || !this.reason || this.sending) return;
+    this.sending = true;
+    this.renderReport();
+    const res = await this.api.report(room.id, { reason: this.reason, note: this.note });
+    this.sending = false;
+    if (res.ok) {
+      this.reportEl.hidden = true;
+      this.reportBtn.setAttribute('aria-expanded', 'false');
+      this.reason = '';
+      this.note = '';
+      this.say('Thank you. The operator has been told.', 6000);
+    } else {
+      this.say(sayError(res.error, 'retryAt' in res ? res : undefined));
+      this.renderReport();
     }
   }
 

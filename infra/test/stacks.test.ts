@@ -225,6 +225,23 @@ describe('api', () => {
     expect(actionsOf(st).filter((a) => a.startsWith('secretsmanager:')).sort()).toEqual(['secretsmanager:DescribeSecret', 'secretsmanager:GetSecretValue']);
   });
 
+  it('has a function for the operator that no address reaches, and can tell only the alarm topic that a puzzle was reported', () => {
+    const functions = Object.entries(prod.findResources('AWS::Lambda::Function')) as [string, { Properties: { Environment?: { Variables?: Record<string, unknown> } } }][];
+    const admin = functions.find(([id]) => id.startsWith('Admin'));
+    expect(admin).toBeDefined();
+    // the gateway's integrations point at the Api function only: the Admin function can only be invoked with permission to invoke it
+    const targets = JSON.stringify(Object.values(prod.findResources('AWS::ApiGatewayV2::Integration')));
+    expect(targets).not.toContain(admin![0]);
+    expect(Object.values(prod.findResources('AWS::Lambda::Permission')).some((p) => JSON.stringify(p).includes(admin![0]))).toBe(false);
+    prod.hasOutput('AdminFunction', {});
+    for (const role of [/^ApiServiceRole|ApiDefaultPolicy|ApiServiceRoleDefaultPolicy/, /^AdminServiceRole|AdminDefaultPolicy|AdminServiceRoleDefaultPolicy/]) {
+      const st = statementsOf(prod, role);
+      const topic = st.filter((x) => actionsOf([x]).includes('sns:Publish'));
+      expect(topic).toHaveLength(1);
+      expect(JSON.stringify(topic[0].Resource)).toContain('puzzlevidio-alarms');
+    }
+  });
+
   it('deletes the picture of a room when the room is removed from the table, and can do nothing else to the bucket', () => {
     prod.hasResourceProperties('AWS::Lambda::EventSourceMapping', {
       BatchSize: 25,

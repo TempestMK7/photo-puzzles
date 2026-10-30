@@ -1,4 +1,4 @@
-import type { CommandRequest, CreateRoomRequest, JoinRequest, ApiError } from '../../src/online/protocol';
+import type { CommandRequest, CreateRoomRequest, JoinRequest, ApiError, ReportRequest } from '../../src/online/protocol';
 import type { RoomService } from './service';
 import { clientKey, type RateLimiter } from './ratelimit';
 import type { Auth, Player } from './types';
@@ -42,6 +42,7 @@ const STATUS: Record<ApiError, number> = {
   'no-group': 409,
   ended: 409,
   'account-required': 403,
+  banned: 403,
 };
 
 const MAX_JSON = 64 * 1024;
@@ -126,6 +127,8 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
         return body ? reply(await service.setProfile(player, body.name)) : bad;
       }
     }
+    // a player whom the operator has stopped can still see and delete what is theirs (above), and nothing else
+    if (await service.isBanned(player.id)) return { status: 403, body: { ok: false, error: 'banned' } };
     if (parts[0] === 'join' && req.method === 'POST') {
       const body = json<JoinRequest>(req);
       if (!body) return bad;
@@ -163,6 +166,13 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
           return reply(await service.leave(player, id));
         case 'close':
           return reply(await service.close(player, id));
+        case 'report': {
+          const body = json<ReportRequest>(req);
+          if (!body) return bad;
+          // a report costs the operator time: one player may send a few an hour
+          if (limiter && !(await limiter.take(`report#${player.id}`, limiter.rates.reports.perPlayer, limiter.rates.reports.windowMs))) return slow(limiter.rates.reports.windowMs);
+          return reply(await service.report(player, id, body));
+        }
         case 'invite':
           return reply(await service.regenerateInvite(player, id));
         case 'members':

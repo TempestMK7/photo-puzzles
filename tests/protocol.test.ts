@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CODE_LENGTH, inviteLink, isSecret, lockHeld, normalizeCode, parseInvite, secretFrom, topics } from '../src/online/protocol';
+import { CODE_LENGTH, NOTE_MAX, cleanNote, inviteLink, isSecret, lockHeld, normalizeCode, parseInvite, secretFrom, topics } from '../src/online/protocol';
 
 describe('codes', () => {
   it('takes five digits, however they were typed', () => {
@@ -57,5 +57,17 @@ describe('topics and locks', () => {
     expect(lockHeld(lock, 10_000, 0)).toBe(false);
     expect(lockHeld(lock, 7_000, 2_500)).toBe(true);        // the game's clock is 2.5 s behind the server's
     expect(lockHeld(lock, 7_600, 2_500)).toBe(false);
+  });
+});
+
+describe('cleanNote', () => {
+  it('keeps what a player wrote as plain text: line breaks and control characters become spaces, spaces are squeezed, and it is cut', () => {
+    expect(cleanNote('  a\nb\u0000c  d ')).toBe('a b c d');
+    expect(cleanNote('x‮y')).toBe('x y');
+    expect(Array.from(cleanNote('🎉'.repeat(NOTE_MAX + 50)))).toHaveLength(NOTE_MAX);
+  });
+
+  it('is empty when there is nothing, or when it is not text', () => {
+    for (const bad of ['', '   ', 5, null, undefined, {}]) expect(cleanNote(bad), String(bad)).toBe('');
   });
 });

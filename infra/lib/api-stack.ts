@@ -52,32 +52,43 @@ export class ApiStack extends Stack {
 
     const common = functionDefaults;
 
-    const fn = new nodejs.NodejsFunction(this, 'Api', {
-      ...common,
-      entry: repo('server/src/aws/api.ts'),
-      handler: 'handler',
-      memorySize: 512,
-      timeout: Duration.seconds(20),
-      logGroup: logGroup(this, 'ApiLogs'),
-      environment: {
-        ...common.environment,
-        TABLE_NAME: props.table.tableName,
-        MEDIA_BUCKET: props.media.bucketName,
-        SIGNING_SECRET_ARN: props.signing.secretArn,
-        USER_POOL_ID: props.pool.userPoolId,
-        CLIENT_ID: props.client.userPoolClientId,
-        API_BASE: `https://${props.domain}`,
-        WEB_BASE: `https://${props.webDomain}`,
-      },
-    });
-    props.table.grantReadWriteData(fn);
-    props.media.grantReadWrite(fn);
-    props.signing.grantRead(fn);
+    // the room service, as two functions: the API (behind the gateway) and the operator's tools (no address: only someone who may invoke it can call it)
+    const alarmTopicArn = Arn.format({ service: 'sns', resource: ALARM_TOPIC_NAME }, this);
+    const serviceFunction = (name: string, entry: string, memorySize: number, timeout: Duration) => {
+      const f = new nodejs.NodejsFunction(this, name, {
+        ...common,
+        entry: repo(entry),
+        handler: 'handler',
+        memorySize,
+        timeout,
+        logGroup: logGroup(this, `${name}Logs`),
+        environment: {
+          ...common.environment,
+          TABLE_NAME: props.table.tableName,
+          MEDIA_BUCKET: props.media.bucketName,
+          SIGNING_SECRET_ARN: props.signing.secretArn,
+          USER_POOL_ID: props.pool.userPoolId,
+          CLIENT_ID: props.client.userPoolClientId,
+          API_BASE: `https://${props.domain}`,
+          WEB_BASE: `https://${props.webDomain}`,
+          ALERT_TOPIC_ARN: alarmTopicArn,
+        },
+      });
+      props.table.grantReadWriteData(f);
+      props.media.grantReadWrite(f);
+      props.signing.grantRead(f);
+      // what the service publishes goes to the topics of the rooms, and the address of the broker is asked for when the function starts
+      f.addToRolePolicy(new iam.PolicyStatement({ actions: ['iot:Publish'], resources: [this.formatArn({ service: 'iot', resource: 'topic', resourceName: 'puzzle/*' })] }));
+      f.addToRolePolicy(new iam.PolicyStatement({ actions: ['iot:DescribeEndpoint'], resources: ['*'] }));
+      // a report of a puzzle is sent to the alarm topic, which e-mails the operator
+      f.addToRolePolicy(new iam.PolicyStatement({ actions: ['sns:Publish'], resources: [alarmTopicArn] }));
+      return f;
+    };
+    const fn = serviceFunction('Api', 'server/src/aws/api.ts', 512, Duration.seconds(20));
     // deleting an account (the player asked for it) is the one thing the function does to the user pool
     fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['cognito-idp:AdminDeleteUser'], resources: [props.pool.userPoolArn] }));
-    // what the service publishes goes to the topics of the rooms, and the address of the broker is asked for when the function starts
-    fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['iot:Publish'], resources: [this.formatArn({ service: 'iot', resource: 'topic', resourceName: 'puzzle/*' })] }));
-    fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['iot:DescribeEndpoint'], resources: ['*'] }));
+    const admin = serviceFunction('Admin', 'server/src/aws/admin.ts', 512, Duration.seconds(30));
+    new CfnOutput(this, 'AdminFunction', { value: admin.functionName, description: 'Invoke it to read reports, end a puzzle, or ban a player (infra/README.md)' });
 
     const cleanup = new nodejs.NodejsFunction(this, 'Cleanup', {
       ...common,
