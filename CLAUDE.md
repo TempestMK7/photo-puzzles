@@ -60,3 +60,8 @@ npm run server     # the online server on this machine, http://localhost:8787 (m
 
 The game is also packaged for Android as a thin WebView app that is built locally from an untracked `android/` folder; it is not part of this repository. When changing
 something the app depends on (file picking, storage, video), remember that an Android WebView differs from a desktop browser, and test there if you can.
+
+The page and the shell talk through `window.PhotoPuzzlesNative` (`src/haptics.ts` uses `haptic(kind)`, `src/store/shared.ts` uses `takeShared()`). **Sharing into the app:** the shell lists itself for `ACTION_SEND` and
+`ACTION_SEND_MULTIPLE` of `image/*` and `video/*`, serves each shared file to the page at `/shared/<number>/<name>` on the page's own address (read from the sender's `content://` address), and `takeShared()` returns
+the JSON list `[{ "url", "name", "type" }]` of what has not been taken yet (and empties it). If something is shared while the page is open, the shell fires the window event `photopuzzles-shared`; the page takes
+what is new and adds it to the library. The page fetches only `/shared/<id>/<name>` addresses and at most 50 files. iOS has no such thing yet (it would be a Share Extension in a native iOS app).
