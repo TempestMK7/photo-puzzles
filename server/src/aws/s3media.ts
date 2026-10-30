@@ -1,4 +1,4 @@
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { MediaGate } from '../router';
 import type { Signer } from '../signing';
@@ -40,5 +40,26 @@ export class S3Media implements Media, MediaGate {
 
   async delete(roomId: string): Promise<void> {
     await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: mediaKey(roomId) }));
+  }
+
+  /**
+   * A video is too large to go through the API (a Lambda takes about 6 MB in a request), so the creator PUTs it straight to the bucket. The address is signed for exactly this kind and
+   * size: the bucket turns away a file with another `Content-Type` or `Content-Length`, which is what keeps the size limit (a signed address cannot say "at most").
+   */
+  async videoUpload(roomId: string, type: string, bytes: number): Promise<{ url: string; headers: Record<string, string> }> {
+    const command = new PutObjectCommand({ Bucket: this.bucket, Key: mediaKey(roomId), ContentType: type, ContentLength: bytes, CacheControl: 'private, max-age=3600' });
+    const url = await getSignedUrl(this.s3, command, { expiresIn: 900, signableHeaders: new Set(['content-type', 'content-length', 'cache-control']) });
+    return { url, headers: { 'Content-Type': type, 'Cache-Control': 'private, max-age=3600' } };
+  }
+
+  async inspect(roomId: string, peek: number): Promise<{ bytes: number; head: Uint8Array } | undefined> {
+    try {
+      const head = await this.s3.send(new HeadObjectCommand({ Bucket: this.bucket, Key: mediaKey(roomId) }));
+      const part = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: mediaKey(roomId), Range: `bytes=0-${peek - 1}` }));
+      return { bytes: head.ContentLength ?? 0, head: (await part.Body?.transformToByteArray()) ?? new Uint8Array() };
+    } catch (e) {
+      if ((e as { name?: string }).name === 'NotFound' || (e as { name?: string }).name === 'NoSuchKey') return undefined;
+      throw e;
+    }
   }
 }

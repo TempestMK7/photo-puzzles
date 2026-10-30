@@ -93,6 +93,8 @@ The limits of the service are numbers with defaults (`DEFAULT_LIMITS` in `src/on
 - Through GitHub (what the deploy workflow reads): `gh variable set LIMITS --body '{"freeRoomsPerWeek":5}'`, then **Actions > Deploy** for the stage (about two minutes). To go back to the defaults, `gh variable delete LIMITS` and deploy.
 - A name that is not a limit, or a value that is not a number of 0 or more, stops the deployment with a message (a misspelt limit would otherwise do nothing).
 
+**Puzzles made from a video** are **off until you switch them on**: `videoRoomsPerWeek` is `0` by default (`{"videoRoomsPerWeek":1}` lets an account make one a week; they are counted apart from the picture puzzles). `videoBytes` (50 MB) and `videoMs` (60 s) are the largest and longest video. They cost storage and bandwidth (each player downloads the whole file once), and **the automatic check looks only at pictures that the maker's game sends with the video, so it can be fooled**: switch them on with that in mind, and look at what is reported (the admin page plays a video puzzle's video).
+
 **To stop the making of new puzzles** (joining and playing the ones that exist go on): `freeRoomsPerWeek` = `0`. Players who try are told "Making new online puzzles is switched off for a while", and nothing is counted against them. Put it back when it is over. *(tested in the service's tests; not run on dev)*
 
 The limits per address (new guests, puzzles made, tries at a code, reports) are `DEFAULT_RATES` in `server/src/ratelimit.ts`; they are not a deploy setting yet, so changing them is a change to the code (a pull request and a deploy).

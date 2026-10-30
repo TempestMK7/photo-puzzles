@@ -91,6 +91,11 @@ describe('api limits', () => {
     expect(set).toContain('LIMITS');
     expect(set).toContain('freeRoomsPerWeek');
   });
+  it('knows the limits of video puzzles, which are off until one is set', () => {
+    const set = JSON.stringify(stack(app({ limits: '{"videoRoomsPerWeek":1,"videoBytes":20000000,"videoMs":30000}' }), 'PuzzleVidio-dev-Api').toJSON());
+    expect(set).toContain('videoRoomsPerWeek');
+    expect(() => app({ limits: '{"videoRooms":1}' }) && stack(app({ limits: '{"videoRooms":1}' }), 'PuzzleVidio-dev-Api')).toThrow(/not a limit/);
+  });
 });
 
 describe('data', () => {

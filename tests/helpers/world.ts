@@ -6,7 +6,7 @@ import type { Accounts, Clock, Limits, Moderation, Player, Presence, Random, Sto
 
 /** A room service on memory with a clock the test moves, and the helpers to open rooms on it: shared by the tests of the server and of the game's side of a room. */
 export const DAY = 24 * 3600 * 1000;
-export const limits: Limits = { jigsawPieces: 1000, playersPerRoom: 8, activeRoomsPerPlayer: 5, freeRoomsPerWeek: 3, idleMs: DAY, solvedKeepMs: 3600 * 1000, maxAgeMs: 30 * DAY, pictureBytes: 5_000_000 };
+export const limits: Limits = { jigsawPieces: 1000, playersPerRoom: 8, activeRoomsPerPlayer: 5, freeRoomsPerWeek: 3, idleMs: DAY, solvedKeepMs: 3600 * 1000, maxAgeMs: 30 * DAY, pictureBytes: 5_000_000, videoRoomsPerWeek: 1, videoBytes: 1_000_000, videoMs: 30_000 };
 
 export const jpeg = (w: number, h: number): Uint8Array =>
   new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0, 0, 0xff, 0xc0, 0x00, 0x11, 0x08, h >> 8, h & 255, w >> 8, w & 255, 0x03, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1, 0xff, 0xd9]);

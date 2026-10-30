@@ -1,4 +1,4 @@
-import type { CommandRequest, CreateRoomRequest, JoinRequest, ApiError, ReportRequest } from '../../src/online/protocol';
+import type { CommandRequest, CreateRoomRequest, JoinRequest, ApiError, PlaybackRequest, ReportRequest, VideoDoneRequest } from '../../src/online/protocol';
 import type { RoomService } from './service';
 import { clientKey, type RateLimiter } from './ratelimit';
 import type { Auth, Player } from './types';
@@ -46,9 +46,13 @@ const STATUS: Record<ApiError, number> = {
   removed: 403,
   rejected: 422,
   paused: 503,
+  'video-off': 503,
+  'too-big': 413,
 };
 
 const MAX_JSON = 64 * 1024;
+/** The pictures that come with a video (a dozen JPEGs, as text) make a larger request than the others. */
+const MAX_FRAMES_JSON = 8 * 1024 * 1024;
 
 /** A development sign-in: `dev:<id>:<name>`. There is no password: this is for the machine it runs on. Real sign-in (Cognito) replaces it. */
 export class DevAuth implements Auth {
@@ -79,8 +83,8 @@ export interface GuestGate {
 export function createRouter(d: { service: RoomService; auth: Auth; media: MediaGate; guests?: GuestGate; limiter?: RateLimiter }): (req: Req) => Promise<Res> {
   const { service, auth, media, guests, limiter } = d;
   const reply = (r: { ok: boolean; error?: ApiError }): Res => ({ status: r.ok ? 200 : STATUS[r.error!] ?? 400, body: r });
-  const json = <T>(req: Req): T | null => {
-    if (req.body.length > MAX_JSON) return null;
+  const json = <T>(req: Req, max = MAX_JSON): T | null => {
+    if (req.body.length > max) return null;
     try {
       return JSON.parse(new TextDecoder().decode(req.body)) as T;
     } catch {
@@ -94,6 +98,11 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
     const parts = req.path.split('/').filter(Boolean).map(decodeURIComponent);
 
     // pictures: the address itself says who may (it is signed and runs out), so there is no sign-in
+    // the local server is sent a video itself; the cloud's creator sends it to the storage (`Media.videoUpload`)
+    if (parts[0] === 'media' && parts.length === 3 && parts[2] === 'video' && req.method === 'PUT') {
+      if (!(await media.allows(parts[1], 'put', req.query.get('exp'), req.query.get('sig')))) return { status: 403, body: { ok: false, error: 'unauthorized' } };
+      return reply(await service.storeVideo(parts[1], req.body));
+    }
     if (parts[0] === 'media' && parts.length === 2) {
       const [, id] = parts;
       if (req.method === 'PUT') {
@@ -162,6 +171,17 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
         case 'command': {
           const body = json<CommandRequest>(req);
           return body ? reply(await service.command(player, id, body)) : bad;
+        }
+        case 'video': {
+          const body = json<VideoDoneRequest>(req, MAX_FRAMES_JSON);
+          return body ? reply(await service.finishVideo(player, id, body)) : bad;
+        }
+        case 'playback': {
+          const body = json<PlaybackRequest>(req);
+          if (!body) return bad;
+          // the host's game says it when something changes, and now and then: not faster than that
+          if (limiter && !(await limiter.take(`playback#${player.id}`, limiter.rates.playback.perPlayer, limiter.rates.playback.windowMs))) return slow(limiter.rates.playback.windowMs);
+          return reply(await service.setPlayback(player, id, body));
         }
         case 'renew':
           return reply(await service.renew(player, id));

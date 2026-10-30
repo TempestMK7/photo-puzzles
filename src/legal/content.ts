@@ -62,6 +62,7 @@ export function privacy(): LegalPage {
         },
       },
       { p: 'The other players of a puzzle can see your display name, your colour, that you are in the puzzle and whether you are connected, which piece you hold, and the picture. They cannot see your e-mail address or your id. A profile picture from Google is shown only to you, in the round badge on your own screen, and your browser loads it from Google.' },
+      { p: 'A puzzle can also be made from a **video**. Everything on this page that is said about the picture of a puzzle holds for its video too (the player who made it sends the whole video to our server, where the other players get it), and the automatic check looks at a few pictures taken from the video.' },
       { h: 'What we do not do' },
       {
         ul: [
@@ -118,6 +119,7 @@ export function terms(v: LegalValues): LegalPage {
           'it contains no personal information of other people that they have not agreed to share.',
         ],
       },
+      { p: 'This section is about a video as much as about a picture: an online puzzle may be made from a video, which is sent to our server, shown to the people of the puzzle, and ended and deleted with it in the same way. The automatic check looks at a few pictures taken from a video.' },
       { p: 'A picture is looked at by an **automatic check** when it arrives. A picture that the check turns down is not used, and the puzzle you made for it ends. The check can be wrong in both directions: a picture that passed is not therefore allowed.' },
       { p: 'You keep your rights in the picture. You give us permission only to store it, copy it, and show it to the people of the puzzle, for as long as the puzzle exists (a puzzle ends when it is solved, when nobody has touched it for a day, or 30 days after it was made at the latest), and to let our automatic check and our operator look at it as described here.' },
       { h: '4. How you behave' },
