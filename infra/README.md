@@ -52,7 +52,7 @@ the budget, the quotas (Lambda runs 10 at a time in a new account, which is to b
    If the run stops at *Could not assume role with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity*, the repository may have **immutable subjects**: its tokens say
    `repo:owner@ownerId/name@repoId:ref:...` instead of `repo:owner/name:ref:...`. `gh api repos/<owner>/<name>/actions/oidc/customization/sub` shows the prefix (`sub_claim_prefix`, which is
    `repo:` and then what to give); deploy the Ops stack again with `-c githubSubjectPrefix=owner@ownerId/name@repoId`, and the role trusts both forms (still only `main`).
-6. Run **Actions > Deploy** for `dev`, look at https://dev.puzzlevid.io, and again for `prod`. The workflow deploys the stacks and then puts the game in the bucket.
+6. **Dev deploys itself** whenever a change is merged into `main` (tests first; a change that only touches documents is skipped). **Production is run by hand**: Actions > Deploy > Run workflow, stage `prod`, with the word `prod` typed in the box. The workflow deploys the stacks and then puts the game in the bucket; the main screen shows which build it is (`src/version.ts`).
 
 Settings that can be given with `-c name=value` (or as `PUZZLEVIDIO_NAME` in the environment): `hostedZoneId` (required), `zoneName` (default `puzzlevid.io`), `alertEmail`, `budgetUsd` (default 25),
 `githubRepo` (default this one), `githubSubjectPrefix` (see below), `githubProviderArn`, `googleClientId` and `googleSecretName`, and `limits` (a JSON object that changes the service's limits, like `{"freeRoomsPerWeek":0}` to switch the making of puzzles off: `docs/runbook.md`). **The runbook (`docs/runbook.md`) says how to run it: alarms, logs, limits, reports, bans, deploys.**

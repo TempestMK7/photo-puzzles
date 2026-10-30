@@ -6,6 +6,7 @@ import { formatAgo, formatTime, type Prefs } from '../core/prefs';
 import { fetchLink, LINK_REFUSED, parseLink } from '../store/link';
 import type { SaveRecord, SaveStore } from '../store/saves';
 import type { PhotoEntry, PhotoLibrary } from '../store/photos';
+import { appVersion, versionLabel } from '../version';
 import { h, svg } from './dom';
 import { KIND_ICONS } from './icons';
 
@@ -154,6 +155,7 @@ export class LibraryScreen {
           this.playBtn,
         ),
       ),
+      h('footer', { class: 'version', title: `Built ${appVersion().built}` }, versionLabel()),
       this.fileInput,
       this.loadingEl,
       this.progressEl,
