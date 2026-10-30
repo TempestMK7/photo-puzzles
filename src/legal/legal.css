@@ -1,0 +1,27 @@
+/* The privacy policy and the terms: plain pages that need no script, in the game's colours (not the game's own style sheet, whose page never scrolls). */
+:root { color-scheme: dark; --bg: #1b1210; --panel: #2a1b14; --line: #6b4a36; --accent2: #ffd84a; --text: #f0d9b5; --dim: #a8896a; }
+* { box-sizing: border-box; }
+html { background: var(--bg); color: var(--text); font: 16px/1.55 system-ui, sans-serif; }
+body { margin: 0; padding: 0 16px; padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+main { max-width: 860px; margin: 0 auto; padding: 24px 0; }
+h1 { font-size: 28px; margin: 8px 0 4px; }
+h2 { font-size: 19px; margin: 28px 0 8px; color: var(--accent2); }
+p, li { overflow-wrap: anywhere; }
+.updated { color: var(--dim); font-size: 14px; margin-top: 0; }
+a { color: var(--accent2); }
+ul { padding-left: 22px; }
+li { margin: 6px 0; }
+.table { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--panel); }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border: 1px solid var(--line); }
+th { color: var(--dim); font-weight: 600; }
+footer { margin-top: 36px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; }
+/* on a phone each row of a table is a small card: the column's name goes in front of each cell */
+@media (max-width: 640px) {
+  thead { display: none; }
+  table, tbody, tr, td { display: block; width: 100%; }
+  tr { margin-bottom: 12px; border: 1px solid var(--line); }
+  td { border: 0; border-bottom: 1px solid var(--line); }
+  td:last-child { border-bottom: 0; }
+  td::before { content: attr(data-label); display: block; color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+}

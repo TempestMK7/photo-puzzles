@@ -128,7 +128,7 @@ type out.json
 | `ban` (`id`, `reason`) / `unban` (`id`) / `bans` | stops a player from playing online (they leave every puzzle, the ones they made end, and every request but their own account is refused); lifts it; lists them |
 | `delete-account` (`id`) | deletes an account the way its owner can in the game (the puzzles it made end, it leaves the others, its name and records go, then the account itself). If it answers that part could not be done, run it again |
 
-The steps for a notice of copyright infringement (the draft procedure is in `docs/legal/terms-and-takedown-draft.md`; **it is a draft, not legal advice**):
+The steps for a notice of copyright infringement (the published procedure is the last section of the terms, `src/legal/content.ts`, at `/terms`; **not reviewed by a lawyer, not legal advice**):
 
 1. Find the puzzle: the notice should name its code or link; a code only works for a day, so be quick. A code maps to a puzzle only while it lives; the reports and the notice's own ids are what is left afterwards.
 2. `room` to look at it; decide.
