@@ -147,6 +147,8 @@ export interface Limits {
   freeRoomsPerWeek: number;
   idleMs: number;
   solvedKeepMs: number;
+  /** A puzzle goes this long after it was made, whatever happens to it. */
+  maxAgeMs: number;
   /** The largest picture accepted, in bytes. */
   pictureBytes: number;
 }

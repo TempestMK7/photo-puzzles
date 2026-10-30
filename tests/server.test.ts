@@ -361,6 +361,25 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       expect(w.messages(made.roomId).at(-1)).toEqual({ t: 'closed', reason: 'expired' });
     });
 
+    it('ends a puzzle that is played every day after thirty days anyway, with its picture and its code', async () => {
+      const made = await open(w);
+      const room = await joined(w, made, bob);
+      const [a] = [...new JigsawRoom(room.settings, room.state).board.game.groups.values()].filter((x) => !x.anchored);
+      const made0 = w.clock.t;
+      let days = 0;
+      for (; days < 40; days++) {
+        w.clock.t += DAY - 1000;
+        if (!(await w.service.getRoom(ann, made.roomId)).ok) break;
+        expect((await w.service.command(ann, made.roomId, { protocol: PROTOCOL_VERSION, command: { t: 'grab', piece: a.members[0] } })).ok).toBe(true);        // somebody plays: the day starts again
+        await w.service.command(ann, made.roomId, { protocol: PROTOCOL_VERSION, command: { t: 'release' } });
+      }
+      expect(w.clock.t - made0).toBeGreaterThanOrEqual(30 * DAY - DAY);                // it lasted about thirty days, not for ever
+      expect(w.clock.t - made0).toBeLessThanOrEqual(31 * DAY);
+      expect(await w.service.getRoom(ann, made.roomId)).toMatchObject({ ok: false, error: 'not-found' });
+      expect(w.media.has(made.roomId)).toBe(false);
+      expect(await w.store.roomOfCode(made.invite.code)).toBeUndefined();
+    });
+
     it('clears out expired rooms in a sweep', async () => {
       const one = await open(w, ann);
       const two = await open(w, bob);
