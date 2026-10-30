@@ -21,10 +21,11 @@ button:hover:not(:disabled) { background: #7a3b1a; }
 button:active:not(:disabled) { background: #a04f22; }
 button:disabled { opacity: 0.45; cursor: default; }
 button.primary { background: #9a4a1c; border-color: var(--accent2); font-weight: 600; }
-input[type='text'] {
+input[type='text'], input[type='email'], input[type='password'] {
   font: inherit; background: var(--bg); color: inherit; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; width: 100%; text-transform: uppercase;
   letter-spacing: 0.08em;
 }
+input[type='email'], input[type='password'] { text-transform: none; letter-spacing: normal; }
 
 .bar {
   display: flex; align-items: center; gap: 12px; padding: 8px 14px; padding-top: max(8px, env(safe-area-inset-top)); background: var(--panel);
@@ -245,8 +246,30 @@ button.small { padding: 4px 10px; font-size: 13px; }
 .onlinebar .report .choice input { flex: none; accent-color: var(--accent); }
 .onlinebar .report textarea { font: inherit; font-size: 13px; background: var(--bg); color: inherit; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; width: 100%; box-sizing: border-box; resize: vertical; }
 .online [hidden] { display: none; }
+/* the text of a button is the text colour, not the dimmer colour of the label or line that it stands in */
+.online button { color: var(--text); }
 .online .who { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--dim); }
 .online .who .line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.online .who .warn { padding: 8px 10px; border: 1px solid #c0443a; border-radius: 6px; background: var(--panel2); }
-.online .who .warn p { margin: 0 0 8px; color: var(--text); }
+.online .warn { padding: 8px 10px; border: 1px solid #c0443a; border-radius: 6px; background: var(--panel2); font-size: 13px; }
+.online .warn p { margin: 0 0 8px; color: var(--text); }
 .online .who strong { color: var(--text); }
+.online .identity { display: flex; align-items: center; gap: 14px; }
+.online .identity .who { gap: 2px; min-width: 0; }
+.online .identity .who strong { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.online .hint { margin: 0; font-size: 13px; color: var(--dim); }
+.online form.body { margin: 0; }
+.online .links { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+button.link { background: none; border: 0; padding: 4px 0; color: var(--accent2); text-decoration: underline; font-size: 13px; }
+button.link:hover:not(:disabled) { background: none; color: var(--text); }
+.online button.link { color: var(--accent2); }
+.online .rules { list-style: none; margin: -4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--dim); }
+.online .rules li.ok { color: #7dff7d; }
+/* the round badge on the main screen (the first letter of the name, or a G), and the big one in the profile */
+.avatar { flex: none; width: 34px; height: 34px; padding: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; background: var(--accent); border: 2px solid var(--accent2); color: #1b1210; }
+.avatar:hover:not(:disabled) { background: var(--accent2); }
+.avatar.guest { background: var(--panel2); border-color: var(--line); color: var(--dim); }
+.avatar.guest:hover:not(:disabled) { background: #4a3123; }
+.avatar.big { width: 56px; height: 56px; font-size: 26px; cursor: default; }
+.bar .avatar { margin-left: 4px; }
+.online .avatar { color: #1b1210; }
+.online .avatar.guest { color: var(--dim); }

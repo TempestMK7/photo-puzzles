@@ -21,22 +21,10 @@ export interface OnlineDeps {
   chosen(): PhotoEntry | undefined;
   /** A room is ready to be played (`invite` only for the one who has just made it). */
   onPlay(room: OnlineRoom, invite: Invite | null): void;
-}
-
-/** The address of the page where an account is deleted without the app (a store wants one): the game's own address with this after it. */
-export const DELETE_HASH = '#/delete-account';
-const DELETED_KEY = 'photo-puzzles/online/account-deleted';
-const DELETED_TEXT = 'Your account was deleted. The puzzles you made have ended, and you are out of the others. Your own pictures on this device are untouched.';
-
-/** Whether the page was loaded after an account was deleted (the sign-in service's sign-out page takes the player away and brings them back, so the answer waits in the session). */
-export function takeAccountDeletedNotice(): string | null {
-  try {
-    const was = window.sessionStorage.getItem(DELETED_KEY) !== null;
-    window.sessionStorage.removeItem(DELETED_KEY);
-    return was ? DELETED_TEXT : null;
-  } catch {
-    return null;
-  }
+  /** Opens the profile (the name, signing out, deleting the account). */
+  openProfile(): void;
+  /** Asks the player to sign in or make an account; true when they have. */
+  signIn(): Promise<boolean>;
 }
 
 /** How long until a time, as a short phrase for a list ("about 5 h"). The server's clock and this one may differ by a little: nothing here needs to be exact. */
@@ -101,8 +89,10 @@ export class OnlinePanel {
   private nameLabel = h('span', {}, 'Your name');
   private nameSave = h('button', { type: 'button', onclick: () => void this.saveName() }, 'Save');
   private nameField = h('label', { class: 'field' }, this.nameLabel, h('div', { class: 'row' }, this.nameInput, this.nameSave));
-  /** Who is signed in, and the way out (a player with an account). */
+  /** Who is playing, and the way to the profile. */
   private whoEl = h('div', { class: 'who' });
+  /** Stands in for everything else while the account's name is being fetched, so that nothing is drawn twice. */
+  private loadingEl = h('p', { class: 'chosen' }, 'Loading…');
   /** What stands where "Start a Jigsaw" is for a player who has no account: joining needs only a name, making a puzzle needs an account. */
   private needAccount = h(
     'section',
@@ -114,8 +104,10 @@ export class OnlinePanel {
   private startSection: HTMLElement;
   private joinSection: HTMLElement;
   private listSection: HTMLElement;
-  /** An invite link that the player came with, to go back to after signing in. */
-  private pendingHash = '';
+  /** The name box is shown (to someone who has to choose a name, or who came with an invite link and may want to change theirs). */
+  private askName = false;
+  /** The account's profile is being asked for (see `loadingEl`). */
+  private loading = false;
   private chosenEl = h('div', { class: 'chosen' });
   private consent = h('input', { type: 'checkbox', id: 'online-consent' });
   private startBtn = h('button', { type: 'button', class: 'primary', onclick: () => void this.start() }, 'Start');
@@ -124,8 +116,6 @@ export class OnlinePanel {
   private statusEl = h('div', { class: 'status', role: 'status' });
   private listEl = h('ul', { class: 'rooms' });
   private busy = false;
-  /** The player has pressed "Delete account" and has not yet said whether they mean it. */
-  private deleting = false;
   /** Bumped by Close and by a new try: an older try that is still waiting (for a knock to be answered) gives up. */
   private attempt = 0;
 
@@ -152,56 +142,46 @@ export class OnlinePanel {
         'div',
         { class: 'card' },
         h('header', {}, h('h2', {}, 'Play with friends'), h('button', { type: 'button', class: 'close', onclick: () => this.close() }, 'Close')),
-        h('div', { class: 'body' }, this.whoEl, this.nameField, this.needAccount, this.startSection, this.joinSection, this.statusEl, this.listSection),
+        h('div', { class: 'body' }, this.loadingEl, this.whoEl, this.nameField, this.needAccount, this.startSection, this.joinSection, this.statusEl, this.listSection),
       ),
     );
   }
 
   open(): void {
     this.statusEl.textContent = '';
-    this.deleting = false;
+    this.askName = false;
     this.el.hidden = false;
+    // everything that is known now is drawn now (the photo that is chosen, so that Start is right from the first moment); what has to be asked of the server is waited for first
+    this.loading = !this.deps.identity.profileLoaded();
     this.refreshAccount();
+    this.refresh();
     void this.prepare();
   }
 
-  /** Asks the server about the account (one that has no name yet is asked for one), and then shows what the player can do. */
+  /** Asks the server about the account (once for each), and then shows what the player can do. */
   private async prepare(): Promise<void> {
     const s = this.deps.identity;
-    if (s.kind() === 'account') {
+    if (this.loading) {
       await s.refreshProfile();
       if (!this.isOpen) return;
+      this.loading = false;
       this.refreshAccount();
+      this.refresh();
     }
     if (s.needsName()) {
-      if (!this.deleting) this.say('Choose the name the other players will see, and press Save.');          // (someone who came to delete their account is not asked for one)
+      this.say('Choose the name the other players will see, and press Save.');          // only when the server could not be given the name that the sign-in knows
       return;
     }
-    this.refresh();
     if (s.kind() !== 'none') void this.loadList();
   }
 
   /** Opens the panel for someone who came with an invite link and has not chosen a name: they can, and then press Join. */
   confirmJoin(text: string): void {
     this.open();
+    this.askName = true;
+    this.refreshAccount();
     this.codeInput.value = text;
     this.statusEl.textContent = 'Choose your name (or keep this one), then press Join.';
-  }
-
-  /**
-   * Opens the panel for someone who came to delete their account (from the address that a store lists, or the game's own link): signed in, the question is asked at once; otherwise they
-   * are asked to sign in, and brought back here.
-   */
-  openDeletion(): void {
-    this.pendingHash = DELETE_HASH;
-    this.open();
-    const s = this.deps.identity;
-    if (s.kind() === 'account') {
-      this.deleting = true;
-      this.refreshAccount();
-    } else {
-      this.say(s.hasAccounts ? 'To delete your account, sign in with it first.' : 'There is no account to delete in this version of the game: nothing is kept about you.');
-    }
   }
 
   /** Opens the panel with something to tell the player. */
@@ -210,41 +190,28 @@ export class OnlinePanel {
     this.statusEl.textContent = text;
   }
 
-  /** What the panel shows for who the player is: the account, the name, and what they can do (an account makes puzzles; anyone can join one). */
+  /** What the panel shows for who the player is: who is playing, and what they can do (an account makes puzzles; anyone can join one). */
   private refreshAccount(): void {
     const s = this.deps.identity;
     const kind = s.kind();
     const who = s.who();
-    const needs = s.needsName();
-    const parts: Node[] = [];
-    if (kind === 'account' && who) {
-      parts.push(
-        h(
-          'div',
-          { class: 'line' },
-          h('span', {}, 'Signed in as ', h('strong', {}, who.name)),
-          h('button', { type: 'button', class: 'small', onclick: () => this.signOut() }, 'Sign out'),
-          h('button', { type: 'button', class: 'small', 'aria-expanded': String(this.deleting), onclick: () => ((this.deleting = !this.deleting), this.refreshAccount()) }, 'Delete account…'),
-        ),
-      );
-      if (this.deleting) {
-        parts.push(
-          h(
-            'div',
-            { class: 'warn', role: 'alertdialog', 'aria-label': 'Delete your account' },
-            h('p', {}, 'This deletes your account for good. The puzzles you made end (and their pictures are deleted from the server), you are taken out of the puzzles you joined, and your name is forgotten. Your own pictures on this device stay.'),
-            h('div', { class: 'row' }, h('button', { type: 'button', class: 'small danger', onclick: () => void this.deleteAccount() }, 'Delete my account'), h('button', { type: 'button', class: 'small', onclick: () => ((this.deleting = false), this.refreshAccount()) }, 'Keep it')),
-          ),
-        );
-      }
-    }
-    this.whoEl.replaceChildren(...parts);
+    const needs = !this.loading && s.needsName();
+    const asking = needs || this.askName;
+    this.loadingEl.hidden = !this.loading;
+    this.whoEl.hidden = this.loading;
+    this.whoEl.replaceChildren(
+      ...(who && kind !== 'none' && !asking
+        ? [h('div', { class: 'line' }, h('span', {}, 'Playing as ', h('strong', {}, who.name)), h('button', { type: 'button', class: 'small', onclick: () => this.deps.openProfile() }, 'Profile'))]
+        : []),
+    );
     if (document.activeElement !== this.nameInput) this.nameInput.value = s.name();
     this.nameLabel.textContent = needs ? 'Choose a display name' : 'Your name';
-    this.needAccount.hidden = needs || s.canCreate() || !s.hasAccounts;
-    this.startSection.hidden = needs || !s.canCreate();
-    this.joinSection.hidden = needs;
-    this.listSection.hidden = needs || kind === 'none';
+    this.nameField.hidden = this.loading || !asking;
+    const wait = this.loading || needs;
+    this.needAccount.hidden = wait || s.canCreate() || !s.hasAccounts;
+    this.startSection.hidden = wait || !s.canCreate();
+    this.joinSection.hidden = wait;
+    this.listSection.hidden = wait || kind === 'none';
   }
 
   private async saveName(): Promise<void> {
@@ -258,40 +225,13 @@ export class OnlinePanel {
       return;
     }
     this.say('Saved.');
+    this.askName = false;
+    this.refreshAccount();
     if (was) void this.prepare();
   }
 
   private async signIn(): Promise<void> {
-    await this.deps.identity.signIn(this.pendingHash);
-    // a sign-in page takes the player away and brings them back; a stand-in only needs the panel to be drawn again
-    if (this.pendingHash === DELETE_HASH) this.openDeletion();
-    else this.open();
-  }
-
-  private signOut(): void {
-    this.deps.identity.signOut();
-    this.open();
-  }
-
-  private async deleteAccount(): Promise<void> {
-    if (this.busy) return;
-    this.setBusy(true, 'Deleting your account…');
-    const res = await this.deps.api.deleteAccount();
-    this.setBusy(false);
-    if (!res.ok) {
-      this.say(res.error === 'busy' ? 'Part of it could not be done. Press "Delete my account" again.' : sayError(res.error));
-      return;
-    }
-    // with Cognito the sign-out takes the page away and brings it back: the message is shown then
-    if (cloudConfig()) {
-      try {
-        window.sessionStorage.setItem(DELETED_KEY, '1');
-      } catch {
-        /* the message is only lost */
-      }
-    }
-    this.signOut();
-    this.say(DELETED_TEXT);
+    if (await this.deps.signIn()) this.open();
   }
 
   close(): void {
@@ -459,6 +399,8 @@ export class OnlinePanel {
     if (s.needsName()) {
       // an account that has no name yet is asked for one before it shows up in somebody's puzzle
       this.setBusy(false);
+      this.askName = true;
+      this.refreshAccount();
       this.codeInput.value = text;
       this.say('Choose the name the other players will see, press Save, and then press Join.');
       return;

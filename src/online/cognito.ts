@@ -1,4 +1,4 @@
-import type { Account } from './identity';
+import type { Account, AuthError, AuthResult, PasswordAccount } from './identity';
 
 /** Where the sign-in pages of the user pool are (`https://<prefix>.auth.<region>.amazoncognito.com`) and which app client the game is. */
 export interface CognitoConfig {
@@ -32,7 +32,28 @@ interface Tokens {
   /** The ID token: it says who the player is, and is what the API and the broker want. */
   id: string;
   refresh: string;
+  /** Signed in through the sign-in service's own page (so that page has a session of its own to end when signing out). */
+  hosted?: true;
 }
+
+/** What the user pool's own errors (`__type`) come to, for the sign-in and sign-up pages. */
+const AUTH_ERRORS: Record<string, AuthError> = {
+  NotAuthorizedException: 'wrong',
+  UserNotFoundException: 'wrong',
+  UserNotConfirmedException: 'unconfirmed',
+  PasswordResetRequiredException: 'reset',
+  UsernameExistsException: 'exists',
+  InvalidPasswordException: 'password',
+  InvalidParameterException: 'invalid',
+  CodeMismatchException: 'code',
+  ExpiredCodeException: 'expired',
+  TooManyRequestsException: 'limit',
+  LimitExceededException: 'limit',
+  TooManyFailedAttemptsException: 'limit',
+};
+
+/** The user pool's region, from the address of its sign-in pages (`https://<prefix>.auth.<region>.amazoncognito.com`). */
+const regionOf = (host: string): string => /\.auth\.([a-z0-9-]+)\.amazoncognito\.com/.exec(host)?.[1] ?? 'us-east-1';
 
 const b64url = (bytes: Uint8Array): string => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
@@ -54,6 +75,15 @@ const expiresAt = (token: string): number => (Number(claimsOf(token)?.exp) || 0)
 export class CognitoAccount implements Account {
   private memory: Tokens | null = null;
   private refreshing: Promise<string | null> | null = null;
+  /** The e-mail and password pages: the user pool is asked directly (a public app client has no secret to keep). */
+  readonly passwords: PasswordAccount = {
+    signInWithPassword: (email, password) => this.signInWithPassword(email, password),
+    signUp: (email, password, name) => this.signUp(email, password, name),
+    confirmSignUp: (email, code) => this.simple('ConfirmSignUp', { Username: email.trim(), ConfirmationCode: code.trim() }),
+    resendCode: (email) => this.simple('ResendConfirmationCode', { Username: email.trim() }),
+    forgotPassword: (email) => this.simple('ForgotPassword', { Username: email.trim() }),
+    resetPassword: (email, code, password) => this.simple('ConfirmForgotPassword', { Username: email.trim(), ConfirmationCode: code.trim(), Password: password }),
+  };
 
   constructor(
     private readonly config: CognitoConfig,
@@ -82,12 +112,12 @@ export class CognitoAccount implements Account {
     }
   }
 
-  who(): { id: string; name: string } | null {
+  who(): { id: string; name: string; email?: string } | null {
     const tokens = this.read();
     const claims = tokens && claimsOf(tokens.id);
     if (!claims || typeof claims.sub !== 'string') return null;
     const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
-    return { id: claims.sub, name: (text(claims.name) || text(claims.email).split('@')[0] || 'Player').slice(0, 24) };
+    return { id: claims.sub, name: (text(claims.name) || text(claims.email).split('@')[0] || 'Player').slice(0, 24), email: text(claims.email) || undefined };
   }
 
   token(): Promise<string | null> {
@@ -112,7 +142,7 @@ export class CognitoAccount implements Account {
       }
       const body = (await res.json()) as { id_token?: string };
       if (!res.ok || !body.id_token) return tokens.id;
-      this.write({ id: body.id_token, refresh: tokens.refresh });
+      this.write({ ...tokens, id: body.id_token });
       return body.id_token;
     } catch {
       // no network: the old token goes on, and whoever uses it finds out that it has run out; the player is not signed out for a bad moment
@@ -169,16 +199,65 @@ export class CognitoAccount implements Account {
       });
       const body = (await res.json()) as { id_token?: string; refresh_token?: string };
       if (!res.ok || !body.id_token || !body.refresh_token) return { handled: true, ok: false, hash };
-      this.write({ id: body.id_token, refresh: body.refresh_token });
+      this.write({ id: body.id_token, refresh: body.refresh_token, hosted: true });
       return { handled: true, ok: true, hash };
     } catch {
       return { handled: true, ok: false, hash };
     }
   }
 
-  signOut(): void {
+  /** True if this takes the page away (a player who came through the sign-in service's page has a session there, which is ended; the page comes back). */
+  signOut(): boolean {
+    const tokens = this.read();
     this.write(null);
-    // the sign-in service has its own session in the browser: ending it as well means the next "Sign in" asks again
+    if (tokens) void this.call('RevokeToken', { Token: tokens.refresh, ClientId: this.config.clientId });        // so that the refresh token cannot be used again; nothing depends on it working
+    if (!tokens?.hosted) return false;
     this.env.go(`${this.config.host}/logout?${new URLSearchParams({ client_id: this.config.clientId, logout_uri: this.env.redirect() })}`);
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- the e-mail and password pages
+
+  /** One request to the user pool's own interface (not the sign-in pages). `code` is the pool's name for what went wrong; nothing when it could not be reached. */
+  private async call(target: string, body: Record<string, unknown>): Promise<{ ok: true; body: Record<string, unknown> } | { ok: false; code: string }> {
+    try {
+      const res = await this.env.fetch(`https://cognito-idp.${regionOf(this.config.host)}.amazonaws.com/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-amz-json-1.1', 'X-Amz-Target': `AWSCognitoIdentityProviderService.${target}` },
+        body: JSON.stringify(body),
+      });
+      const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (res.ok) return { ok: true, body: json };
+      return { ok: false, code: String(json.__type ?? '').split('#').pop() ?? '' };
+    } catch {
+      return { ok: false, code: 'offline' };
+    }
+  }
+
+  private fail(code: string): AuthResult {
+    return { ok: false, error: code === 'offline' ? 'offline' : (AUTH_ERRORS[code] ?? 'failed') };
+  }
+
+  /** A step with nothing to keep from the answer: confirming an address, sending a code, choosing a new password. */
+  private async simple(target: string, body: Record<string, unknown>): Promise<AuthResult> {
+    const res = await this.call(target, { ClientId: this.config.clientId, ...body });
+    return res.ok ? { ok: true } : this.fail(res.code);
+  }
+
+  private async signInWithPassword(email: string, password: string): Promise<AuthResult> {
+    const res = await this.call('InitiateAuth', { ClientId: this.config.clientId, AuthFlow: 'USER_PASSWORD_AUTH', AuthParameters: { USERNAME: email.trim(), PASSWORD: password } });
+    if (!res.ok) return this.fail(res.code);
+    const out = res.body.AuthenticationResult as { IdToken?: string; RefreshToken?: string } | undefined;
+    // anything else is a challenge (a second step) that this pool is not set up to ask for
+    if (!out?.IdToken || !out.RefreshToken) return { ok: false, error: 'failed' };
+    this.write({ id: out.IdToken, refresh: out.RefreshToken });
+    return { ok: true };
+  }
+
+  private async signUp(email: string, password: string, name: string): Promise<AuthResult> {
+    const attributes = [{ Name: 'email', Value: email.trim() }, ...(name.trim() ? [{ Name: 'name', Value: name.trim() }] : [])];
+    const res = await this.call('SignUp', { ClientId: this.config.clientId, Username: email.trim(), Password: password, UserAttributes: attributes });
+    if (!res.ok) return this.fail(res.code);
+    return { ok: true, needsCode: res.body.UserConfirmed !== true };
   }
 }

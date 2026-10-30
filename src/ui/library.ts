@@ -17,6 +17,8 @@ export interface LibraryDeps {
   onPlay(entry: PhotoEntry): void;
   /** Playing with friends is possible in this build: this opens its window. */
   onOnline?: () => void;
+  /** The round badge for the profile, at the end of the top bar (only in a build that has online play). */
+  badge?: HTMLElement;
 }
 
 /** Resolves when the screen has been drawn (or soon anyway: a page in the background does not draw). */
@@ -128,6 +130,7 @@ export class LibraryScreen {
         h('h1', {}, 'PuzzleVidio'),
         ...(deps.onOnline ? [h('button', { type: 'button', class: 'progress-btn friends', title: 'Play a Jigsaw together over the internet', onclick: () => deps.onOnline!() }, 'Play with friends')] : []),
         this.progressBtn,
+        ...(deps.badge ? [deps.badge] : []),
       ),
       this.kindsEl,
       h(

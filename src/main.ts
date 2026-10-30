@@ -13,8 +13,10 @@ import { OnlineSession } from './online/session';
 import { SaveStore } from './store/saves';
 import type { PhotoEntry } from './store/photos';
 import { LibraryScreen } from './ui/library';
-import { DELETE_HASH, OnlinePanel, takeAccountDeletedNotice } from './ui/online';
+import { OnlinePanel } from './ui/online';
 import { PlayScreen } from './ui/play';
+import { DELETE_HASH, ProfileDialog, takeAccountDeletedNotice } from './ui/profile';
+import { SignInDialog } from './ui/signin';
 
 function storage(): Storage | null {
   try {
@@ -79,6 +81,16 @@ async function main(): Promise<void> {
     online: api ? { api } : undefined,
     photoAdded: (id) => void library.photoAdded(id),
   });
+  // the pop-ups for signing in (the game's own pages, in a build whose accounts have them) and for the profile, with the round badge on the main screen
+  const signInDialog = player.passwords ? new SignInDialog(player.passwords) : null;
+  const signIn = async (): Promise<boolean> => {
+    if (signInDialog) return signInDialog.ask();
+    await player.signIn();          // the local build's stand-in
+    return true;
+  };
+  const profile: ProfileDialog | null = api
+    ? new ProfileDialog({ identity: player, api, signIn, changed: () => profile?.refreshBadge() })
+    : null;
   const panel: OnlinePanel | null =
     api && realtime
       ? new OnlinePanel({
@@ -88,6 +100,8 @@ async function main(): Promise<void> {
           realtime,
           identity: player,
           chosen: (): PhotoEntry | undefined => library.chosenPhoto,
+          openProfile: () => profile?.open(),
+          signIn,
           onPlay: (room, invite) => {
             library.hide();
             library.el.hidden = true;
@@ -101,6 +115,7 @@ async function main(): Promise<void> {
     photos,
     saves,
     onOnline: panel ? () => panel.open() : undefined,
+    badge: profile?.badge,
     onPlay: (entry) => {
       library.hide();
       library.el.hidden = true;
@@ -111,6 +126,10 @@ async function main(): Promise<void> {
   play.el.hidden = true;
   root.append(library.el, play.el);
   if (panel) root.append(panel.el);
+  if (profile) root.append(profile.el);
+  if (signInDialog) root.append(signInDialog.el);
+  // the badge shows the account's name: ask the server for it once (the name that is kept on this device is used until it answers)
+  if (profile && player.kind() === 'account') void player.refreshProfile().then(() => profile.refreshBadge());
 
   function showLibrary(): void {
     play.el.hidden = true;
@@ -156,14 +175,14 @@ async function main(): Promise<void> {
     // someone who has not chosen a name is asked before they show up in a puzzle; anyone else (an account, or a guest who has) goes straight in
     if (player.nameChosen()) void panel.join(link);
     else panel.confirmJoin(link);
-  } else if (panel && link === DELETE_HASH && !signInFailed) {
+  } else if (profile && link === DELETE_HASH && !signInFailed) {
     history.replaceState(null, '', window.location.pathname + window.location.search);
-    panel.openDeletion();
+    void profile.openDeletion();
   } else if (panel && signInFailed) {
     panel.notice('Signing in did not work. Please try again.');
   } else {
     const deleted = takeAccountDeletedNotice();
-    if (panel && deleted) panel.notice(deleted);
+    if (profile && deleted) profile.notice(deleted);
   }
 }
 
