@@ -90,4 +90,8 @@ export const ALARM_TOPIC_NAME = 'puzzlevidio-alarms';
 export const stackName = (stage: Stage | 'shared', part: string): string => `PuzzleVidio-${stage}-${part}`;
 
 /** The role that GitHub Actions takes, by name so that the stacks can attach to it without depending on each other. */
+/** The address and name the sign-up and password-reset e-mails come from (the domain is verified in the Ops stack). */
+export const mailFrom = (zoneName: string): string => `no-reply@${zoneName}`;
+export const MAIL_FROM_NAME = 'PuzzleVidio';
+
 export const DEPLOY_ROLE_NAME = 'puzzlevidio-github-deploy';

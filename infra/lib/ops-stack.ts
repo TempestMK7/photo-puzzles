@@ -1,12 +1,17 @@
 import { CfnOutput, Duration, Stack, type StackProps } from 'aws-cdk-lib';
 import * as budgets from 'aws-cdk-lib/aws-budgets';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as route53 from 'aws-cdk-lib/aws-route53';
+import * as ses from 'aws-cdk-lib/aws-ses';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import type { Construct } from 'constructs';
 import { ALARM_TOPIC_NAME, DEPLOY_ROLE_NAME } from './config';
 
 export interface OpsStackProps extends StackProps {
+  /** The domain that e-mail is sent from, and its hosted zone (the records that prove the domain are written there). */
+  zoneName: string;
+  hostedZoneId: string;
   budgetUsd: number;
   alertEmail?: string;
   githubRepo: string;
@@ -38,6 +43,14 @@ export class OpsStack extends Stack {
         notificationsWithSubscribers: [notify('ACTUAL', 50), notify('ACTUAL', 80), notify('ACTUAL', 100), notify('FORECASTED', 100)],
       });
     }
+
+    // The domain that the sign-up and password-reset e-mails are sent from (Cognito, through SES). The records that prove it (DKIM, and a sub-domain for the envelope sender) are written into the
+    // domain's zone, which is in this account, so there is nothing to do by hand. One identity serves every stage. A new SES account can only send to addresses it has verified until AWS gives it
+    // production access (a request to AWS: see infra/README.md).
+    const zone = route53.PublicHostedZone.fromHostedZoneAttributes(this, 'Zone', { hostedZoneId: props.hostedZoneId, zoneName: props.zoneName });
+    new ses.EmailIdentity(this, 'Mail', { identity: ses.Identity.publicHostedZone(zone), mailFromDomain: `mail.${props.zoneName}` });
+    // Anyone may send as the domain only if the mail is signed by it: a message that is not goes to the spam folder or is refused.
+    new route53.TxtRecord(this, 'Dmarc', { zone, recordName: `_dmarc.${props.zoneName}`, values: ['v=DMARC1; p=quarantine'] });
 
     const provider = props.githubProviderArn
       ? iam.OpenIdConnectProvider.fromOpenIdConnectProviderArn(this, 'GitHub', props.githubProviderArn)

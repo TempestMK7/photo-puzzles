@@ -12,7 +12,7 @@ export function build(app: App): void {
   const s = settings(app.node);
   const env = { account: process.env.CDK_DEFAULT_ACCOUNT, region: REGION };
 
-  new OpsStack(app, stackName('shared', 'Ops'), { env, budgetUsd: s.budgetUsd, alertEmail: s.alertEmail, githubRepo: s.githubRepo, githubSubjectPrefix: s.githubSubjectPrefix, githubProviderArn: s.githubProviderArn });
+  new OpsStack(app, stackName('shared', 'Ops'), { env, zoneName: s.zoneName, hostedZoneId: s.hostedZoneId, budgetUsd: s.budgetUsd, alertEmail: s.alertEmail, githubRepo: s.githubRepo, githubSubjectPrefix: s.githubSubjectPrefix, githubProviderArn: s.githubProviderArn });
 
   for (const stage of STAGES) {
     const origins = siteOrigins(stage, s.zoneName);
@@ -21,6 +21,7 @@ export function build(app: App): void {
       env,
       stage,
       origins,
+      emailDomain: s.zoneName,
       google: s.googleClientId && s.googleSecretName ? { clientId: s.googleClientId, secretName: s.googleSecretName } : undefined,
     });
     new WebStack(app, stackName(stage, 'Web'), { env, stage, zoneName: s.zoneName, hostedZoneId: s.hostedZoneId, domain: siteDomain(stage, s.zoneName) });
