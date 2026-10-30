@@ -152,8 +152,12 @@ describe("the operator's function", () => {
     expect(await admin({ cmd: 'unban', id: 'ann' })).toEqual({ ok: true });
     expect(await admin({ cmd: 'bans' })).toEqual({ ok: true, bans: [] });
     const second = await open(w, bob);
-    expect(await admin({ cmd: 'remove-room', id: second.roomId })).toEqual({ ok: true });
-    expect(w.media.has(second.roomId)).toBe(false);
+    expect(await admin({ cmd: 'delete-account', id: 'bob' })).toEqual({ ok: true });                // bob's puzzles end and what is kept about him goes
+    expect(await admin({ cmd: 'room', id: second.roomId })).toMatchObject({ ok: false });
+    expect(await admin({ cmd: 'delete-account', id: 'a b' })).toMatchObject({ ok: false });
+    const third = await open(w, ann);
+    expect(await admin({ cmd: 'remove-room', id: third.roomId })).toEqual({ ok: true });
+    expect(w.media.has(third.roomId)).toBe(false);
     for (const bad of [{ cmd: 'ban', id: '../x' }, { cmd: 'room', id: '' }, { cmd: 'reports', days: 500 }, { cmd: 'nothing' }, undefined, { cmd: 'ban' }]) {
       expect(await admin(bad as never), JSON.stringify(bad)).toMatchObject({ ok: false });
     }

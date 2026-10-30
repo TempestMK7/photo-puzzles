@@ -4,6 +4,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { DEFAULT_LIMITS, topics, type RoomMessage } from '../../src/online/protocol';
 import { GuestTokens, TokenAuth } from './guest';
 import { MemoryMedia, MemoryPubSub, MemoryStore, SystemRandom, systemClock } from './memory';
+import { setActive } from './played';
 import { createRouter, DevAuth } from './router';
 import { RoomService } from './service';
 import type { Player, Presence, PubSub } from './types';
@@ -135,8 +136,10 @@ wss.on('connection', (ws, req) => {
       if (typeof m.room !== 'string') return;
       if (m.t === 'sub') {
         if (!(await service.isMember(player, m.room))) return ws.send(JSON.stringify({ t: 'refused', room: m.room }));
+        const nobody = hub.online(m.room).length === 0;
         const first = hub.join(m.room, ws, player);
         ws.send(JSON.stringify({ t: 'subscribed', room: m.room }));
+        await setActive({ store, pubsub: hub, clock: systemClock }, m.room, true, nobody);          // the count of time played starts with the first one in
         if (first) await hub.publish(topics.events(m.room), { t: 'presence', id: player.id, online: true } satisfies RoomMessage);
       } else if (m.t === 'hand' && hub.isIn(m.room, ws)) {
         // a player may only speak on their own hand topic, like the cloud's policy will make sure
@@ -145,7 +148,13 @@ wss.on('connection', (ws, req) => {
     })().catch((e) => console.error(e));
   });
   ws.on('close', () => {
-    for (const { room, player, last } of hub.leave(ws)) if (last) void hub.publish(topics.events(room), { t: 'presence', id: player.id, online: false } satisfies RoomMessage);
+    for (const { room, player, last } of hub.leave(ws)) {
+      if (!last) continue;
+      void (async () => {
+        if (!hub.online(room).length) await setActive({ store, pubsub: hub, clock: systemClock }, room, false);
+        await hub.publish(topics.events(room), { t: 'presence', id: player.id, online: false } satisfies RoomMessage);
+      })().catch((e) => console.error(e));
+    }
   });
 });
 

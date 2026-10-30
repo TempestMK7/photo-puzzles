@@ -194,6 +194,27 @@ describe('OnlineRoom', () => {
     a.room.holding(null);
   });
 
+  it("tells the time spent: from the server's count, from its own connection until the server says, and fixed once solved", async () => {
+    const { a } = await sides(w, net);
+    const near = (got: number, want: number) => expect(Math.abs(got - want)).toBeLessThan(500);          // (the fake clock moved a little while the game connected)
+    near(a.room.playedMs(), 0);
+    vi.setSystemTime(Date.now() + 3000);
+    near(a.room.playedMs(), 3000);                                     // connected, and the server has not said a count began: from its own connection
+    await w.pubsub.publish(topics.events(a.room.id), { t: 'played', ms: 10_000, since: w.clock.t - 2000 });
+    near(a.room.playedMs(), 15_000);                                   // the server's count: 10 s, and a stretch that began 5 s ago
+    await w.pubsub.publish(topics.events(a.room.id), { t: 'played', ms: 12_000, since: null });          // the server says the count stopped ...
+    net.cut('ann');                                                    // ... and this game has lost its connection (while it is connected it would count on from its own)
+    vi.setSystemTime(Date.now() + 60_000);
+    expect(a.room.playedMs()).toBe(12_000);                            // stopped: it does not run on
+  });
+
+  it('shows the time that counted once the puzzle is solved, whatever happens after', async () => {
+    const { a } = await sides(w, net);
+    await w.pubsub.publish(topics.events(a.room.id), { t: 'solved', at: 1, ms: 20_000 });
+    vi.setSystemTime(Date.now() + 60_000);
+    expect(a.room.playedMs()).toBe(20_000);
+  });
+
   it('asks for the whole board when it missed an event', async () => {
     const { a, b, loose } = await sides(w, net);
     net.lose = (player, _t, m) => player === 'bob' && (m as { t: string; v?: number }).t === 'event' && (m as { v: number }).v === 1;      // bob does not hear the first

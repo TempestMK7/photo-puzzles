@@ -19,11 +19,29 @@ describe('settings', () => {
   it('wants Google as a whole or not at all', () => {
     expect(() => new App({ context: { ...context, googleClientId: 'x' } }) && build(new App({ context: { ...context, googleClientId: 'x' } }))).toThrow(/both/);
   });
+  it('takes changes to the service\'s limits as JSON, and refuses a limit that does not exist or is not a number', () => {
+    expect(settings(new App({ context: { ...context, limits: '{"freeRoomsPerWeek":0}' } }).node).limits).toEqual({ freeRoomsPerWeek: 0 });
+    expect(settings(new App({ context: context }).node).limits).toBeUndefined();
+    expect(() => settings(new App({ context: { ...context, limits: '{"freeRoomPerWeek":0}' } }).node)).toThrow(/not a limit/);
+    expect(() => settings(new App({ context: { ...context, limits: '{"freeRoomsPerWeek":"0"}' } }).node)).toThrow(/number/);
+    expect(() => settings(new App({ context: { ...context, limits: '{"freeRoomsPerWeek":-1}' } }).node)).toThrow(/number/);
+    expect(() => settings(new App({ context: { ...context, limits: 'nope' } }).node)).toThrow(/JSON/);
+  });
   it('serves the real game at the bare domain and the others below it', () => {
     expect(siteDomain('prod', 'puzzlevid.io')).toBe('puzzlevid.io');
     expect(siteDomain('dev', 'puzzlevid.io')).toBe('dev.puzzlevid.io');
     expect(siteOrigins('prod', 'puzzlevid.io')).toEqual(['https://puzzlevid.io']);
     expect(siteOrigins('dev', 'puzzlevid.io')).toContain('http://localhost:5173');
+  });
+});
+
+describe('api limits', () => {
+  it('puts the limits in the environment of the functions, only when they are given', () => {
+    const none = JSON.stringify(stack(app(), 'PuzzleVidio-dev-Api').toJSON());
+    expect(none).not.toContain('LIMITS');
+    const set = JSON.stringify(stack(app({ limits: '{"freeRoomsPerWeek":0}' }), 'PuzzleVidio-dev-Api').toJSON());
+    expect(set).toContain('LIMITS');
+    expect(set).toContain('freeRoomsPerWeek');
   });
 });
 
@@ -267,6 +285,8 @@ describe('api', () => {
     expect(targets).not.toContain(admin![0]);
     expect(Object.values(prod.findResources('AWS::Lambda::Permission')).some((p) => JSON.stringify(p).includes(admin![0]))).toBe(false);
     prod.hasOutput('AdminFunction', {});
+    const adminPool = statementsOf(prod, /^AdminServiceRole|AdminDefaultPolicy|AdminServiceRoleDefaultPolicy/).filter((x) => actionsOf([x]).some((a) => a.startsWith('cognito-idp:')));
+    expect(adminPool.map((x) => actionsOf([x]).join())).toEqual(['cognito-idp:AdminDeleteUser']);          // it can delete an account, and do nothing else to the pool
     for (const role of [/^ApiServiceRole|ApiDefaultPolicy|ApiServiceRoleDefaultPolicy/, /^AdminServiceRole|AdminDefaultPolicy|AdminServiceRoleDefaultPolicy/]) {
       const st = statementsOf(prod, role);
       const topic = st.filter((x) => actionsOf([x]).includes('sns:Publish'));

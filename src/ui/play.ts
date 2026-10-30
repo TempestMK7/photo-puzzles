@@ -375,8 +375,8 @@ export class PlayScreen {
   // ---------------------------------------------------------------------------------------------------------------- playing with friends
 
   /**
-   * Plays a puzzle with friends: the picture comes from the server, the board is the room's, and what the player does goes to the room (see online/room.ts). There is no clock,
-   * no best time and nothing saved here: the server keeps the puzzle.
+   * Plays a puzzle with friends: the picture comes from the server, the board is the room's, and what the player does goes to the room (see online/room.ts). The time shown is the
+   * room's (only time with someone connected counts), for fun: there is no best time and nothing saved here, the server keeps the puzzle.
    */
   async startOnline(room: OnlineRoom, invite: Invite | null): Promise<void> {
     const token = ++this.token;
@@ -428,7 +428,10 @@ export class PlayScreen {
     });
     this.mount(0, false);
     this.restartBtn.hidden = true;
-    this.timeEl.hidden = true;
+    this.timeEl.hidden = false;
+    const showTime = () => (this.timeEl.textContent = formatTime(room.playedMs()));
+    showTime();
+    this.clock = window.setInterval(showTime, 500);
     room.onChange = () => this.onlineChanged();
     room.onRefused = (error, holder) => {
       if (error === 'busy') bar.say(`${room.member(holder ?? '')?.name ?? 'Someone'} is moving a piece`);
@@ -461,7 +464,7 @@ export class PlayScreen {
     if (!this.online) return;
     this.dialogEl.replaceChildren(
       h('h2', {}, 'Solved!'),
-      h('p', {}, 'You finished it together.'),
+      h('p', {}, `You finished it together in ${formatTime(this.online.room.playedMs())}.`),
       h(
         'div',
         { class: 'buttons' },
@@ -652,7 +655,7 @@ export class PlayScreen {
       if (o.room.solved || o.room.status === 'closed') void this.deps.online?.api.leave(o.room.id);
       this.online = null;
       this.restartBtn.hidden = false;
-      this.timeEl.hidden = false;
+      this.timeEl.textContent = '0:00';
     }
     this.saveNow();
     this.token++;

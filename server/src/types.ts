@@ -35,6 +35,9 @@ export interface RoomRecord {
   /** Hash of the link's secret. */
   secretHash: string;
   knocks: Knock[];
+  /** The time spent on the puzzle while someone was connected (see `played.ts`); `solvedMs` is the total once it is solved. */
+  played?: { ms: number; since: number | null };
+  solvedMs?: number;
   /** Players the owner sent out: they cannot join again, with the code, a new code or the link (older rooms have none). */
   removed?: string[];
   /** The picture has arrived and been checked: only then can anyone join. */

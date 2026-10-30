@@ -67,6 +67,8 @@ export function sayError(error: CallError, failure?: { retryAt?: number }): stri
       return 'Too many tries. Wait a little.';
     case 'rejected':
       return 'That picture cannot be used for an online puzzle.';
+    case 'paused':
+      return 'Making new online puzzles is switched off for a while. You can still join your friends\u2019 puzzles.';
     case 'banned':
       return 'This account has been stopped from playing online.';
     case 'knock-denied':

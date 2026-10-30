@@ -63,7 +63,7 @@ A lock's `until` is on the server's clock. The descriptor carries `serverTime`; 
 
 ## Live messages (MQTT topics)
 
-- `puzzle/{room}/events`: the server publishes `RoomMessage`s (an event, a player joined, left or was sent out (`removed`), a knock, solved, closed, and `renewed` when the holder of a piece renews the hold, so that the others' copy of it does not run out). Every member subscribes.
+- `puzzle/{room}/events`: the server publishes `RoomMessage`s (an event, a player joined, left or was sent out (`removed`), a knock, solved, closed, `renewed` when the holder of a piece renews the hold, so that the others' copy of it does not run out, and `played` when the count of time spent on the puzzle starts or stops: it counts only while at least one player is connected, `solved` carries the total). Every member subscribes.
 - `puzzle/{room}/hand/{player}`: the player in hand publishes a `HandMessage` (group, pose, a counter) about every `HAND_INTERVAL_MS` (100 ms), only while the piece moves.
   A member may publish only on their own topic and subscribe to `puzzle/{room}/#` of the rooms they belong to; the IoT authorizer builds that policy from the room's members.
   Others ignore hand messages from anyone who is not the current lock holder. Hand messages never change the board.

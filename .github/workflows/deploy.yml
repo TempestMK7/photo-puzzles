@@ -4,7 +4,7 @@ name: Deploy
 # The repository needs these variables (Settings > Secrets and variables > Actions > Variables); see infra/README.md:
 #   AWS_DEPLOY_ROLE_ARN  the role that the Ops stack made
 #   HOSTED_ZONE_ID       the hosted zone of the domain
-# and may have: ALERT_EMAIL, GOOGLE_CLIENT_ID, GOOGLE_SECRET_NAME
+# and may have: ALERT_EMAIL, GOOGLE_CLIENT_ID, GOOGLE_SECRET_NAME, LIMITS (JSON, like {"freeRoomsPerWeek":0}: see docs/runbook.md)
 on:
   workflow_dispatch:
     inputs:
@@ -49,11 +49,12 @@ jobs:
           CTX_EMAIL: ${{ vars.ALERT_EMAIL }}
           CTX_GOOGLE_ID: ${{ vars.GOOGLE_CLIENT_ID }}
           CTX_GOOGLE_SECRET: ${{ vars.GOOGLE_SECRET_NAME }}
+          CTX_LIMITS: ${{ vars.LIMITS }}
         run: |
           npm ci --prefix ..
           npm ci
           npx cdk deploy "PuzzleVidio-$STAGE-*" --require-approval never \
-            -c "hostedZoneId=$CTX_ZONE" -c "alertEmail=$CTX_EMAIL" -c "googleClientId=$CTX_GOOGLE_ID" -c "googleSecretName=$CTX_GOOGLE_SECRET"
+            -c "hostedZoneId=$CTX_ZONE" -c "alertEmail=$CTX_EMAIL" -c "googleClientId=$CTX_GOOGLE_ID" -c "googleSecretName=$CTX_GOOGLE_SECRET" -c "limits=$CTX_LIMITS"
 
       # Where everything is, from what the stacks said, goes into the build of the game (none of it is secret: it is in the page that every visitor gets).
       - name: Find where everything is
