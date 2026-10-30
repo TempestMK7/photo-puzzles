@@ -107,6 +107,9 @@ export const BUSY_ALARMS: Record<Stage, { api: number; authorizer: number }> = {
 export const liveAuthorizerName = (stage: Stage): string => `puzzlevidio-${stage}`;
 
 /** The topic that alarms are sent to (made by the Ops stack, found by name by the others). */
+/** The Cognito group whose members may use the admin page (`ADMIN_GROUP` in src/online/adminProtocol.ts: keep the two in step). */
+export const ADMIN_GROUP = 'admins';
+
 export const ALARM_TOPIC_NAME = 'puzzlevidio-alarms';
 
 export const stackName = (stage: Stage | 'shared', part: string): string => `PuzzleVidio-${stage}-${part}`;

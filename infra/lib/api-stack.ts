@@ -1,4 +1,4 @@
-import { Arn, CfnOutput, Duration, Stack, type StackProps } from 'aws-cdk-lib';
+import { Arn, ArnFormat, CfnOutput, Duration, Stack, type StackProps } from 'aws-cdk-lib';
 import * as apigw from 'aws-cdk-lib/aws-apigatewayv2';
 import * as authorizers from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
@@ -74,6 +74,7 @@ export class ApiStack extends Stack {
           API_BASE: `https://${props.domain}`,
           WEB_BASE: `https://${props.webDomain}`,
           ALERT_TOPIC_ARN: alarmTopicArn,
+          STAGE: props.stage,
           ...(props.limits ? { LIMITS: JSON.stringify(props.limits) } : {}),
         },
       });
@@ -95,6 +96,14 @@ export class ApiStack extends Stack {
     const admin = serviceFunction('Admin', 'server/src/aws/admin.ts', 512, Duration.seconds(30));
     // the operator can delete an account for someone who cannot sign in (the same one thing to the user pool)
     admin.addToRolePolicy(new iam.PolicyStatement({ actions: ['cognito-idp:AdminDeleteUser'], resources: [props.pool.userPoolArn] }));
+    // the admin page's function (https://<the game's address>/admin): the routes under /admin of the API, which the gateway only lets through with a Cognito token, and which check for
+    // the admin group again. It lists the accounts of the user pool and reads the logs of this stage's functions, and does no more than that besides what the function above may do.
+    const adminWeb = serviceFunction('AdminWeb', 'server/src/aws/adminweb.ts', 512, Duration.seconds(30));
+    adminWeb.addToRolePolicy(new iam.PolicyStatement({ actions: ['cognito-idp:ListUsers'], resources: [props.pool.userPoolArn] }));
+    adminWeb.addToRolePolicy(new iam.PolicyStatement({ actions: ['logs:DescribeLogGroups'], resources: ['*'] }));                    // (this one cannot be limited to a group)
+    adminWeb.addToRolePolicy(
+      new iam.PolicyStatement({ actions: ['logs:FilterLogEvents'], resources: [Arn.format({ service: 'logs', resource: 'log-group', resourceName: `PuzzleVidio-${props.stage}-*:*`, arnFormat: ArnFormat.COLON_RESOURCE_NAME }, this)] }),
+    );
     new CfnOutput(this, 'AdminFunction', { value: admin.functionName, description: 'Invoke it to read reports, end a puzzle, ban a player or delete an account (docs/runbook.md)' });
 
     const cleanup = new nodejs.NodejsFunction(this, 'Cleanup', {
@@ -144,6 +153,8 @@ export class ApiStack extends Stack {
       this.api.addRoutes({ path, methods: [...methods], integration });
     }
     this.api.addRoutes({ path: '/media/{id}', methods: [PUT], integration });
+    // the admin page: nothing without a Cognito ID token (the function looks for the admin group besides)
+    this.api.addRoutes({ path: '/admin/{proxy+}', methods: [GET, POST], integration: new integrations.HttpLambdaIntegration('AdminWebService', adminWeb), authorizer: jwt });
 
     // the API's own name, with a certificate
     const certificate = new acm.Certificate(this, 'Certificate', { domainName: props.domain, validation: acm.CertificateValidation.fromDns(zone) });

@@ -1,7 +1,7 @@
 import { CfnOutput, Duration, RemovalPolicy, SecretValue, Stack, type StackProps } from 'aws-cdk-lib';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import type { Construct } from 'constructs';
-import { MAIL_FROM_NAME, mailFrom, REGION, type Stage } from './config';
+import { ADMIN_GROUP, MAIL_FROM_NAME, mailFrom, REGION, type Stage } from './config';
 
 export interface AuthStackProps extends StackProps {
   stage: Stage;
@@ -43,6 +43,10 @@ export class AuthStack extends Stack {
       deletionProtection: prod,
       removalPolicy: prod ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
     });
+
+    // Whoever is in this group may use the admin page (https://<the game's address>/admin): its token says so, and the admin routes of the API check it. Put an account in it by
+    // hand: `aws cognito-idp admin-add-user-to-group --user-pool-id <id> --username <the e-mail address> --group-name admins` (docs/runbook.md).
+    new cognito.CfnUserPoolGroup(this, 'Admins', { userPoolId: this.pool.userPoolId, groupName: ADMIN_GROUP, description: 'May use the admin page' });
 
     const google = props.google
       ? new cognito.UserPoolIdentityProviderGoogle(this, 'Google', {

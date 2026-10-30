@@ -23,7 +23,7 @@ export type AdminCommand =
   | { cmd: 'delete-account'; id: string };
 
 const ID = /^[\w-]{1,128}$/;
-const isId = (id: unknown): id is string => typeof id === 'string' && ID.test(id);
+export const isId = (id: unknown): id is string => typeof id === 'string' && ID.test(id);
 
 export function makeAdmin(service: RoomService) {
   return async (event: AdminCommand): Promise<unknown> => {

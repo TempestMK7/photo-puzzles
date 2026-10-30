@@ -75,6 +75,10 @@ aws lambda invoke --function-name <AdminFunction> --cli-binary-format raw-in-bas
 
 A ban is a record of an id only: it stays when the account is deleted (a new account is a new id, so a ban stops a *player* only as far as they do not sign up again; stopping a person is a matter of the terms and of what can be done about a sign-in service account, which is not done here). The picture of a puzzle that has been reported is not kept past the puzzle's end: look quickly (a puzzle goes a day after the last move).
 
+## The admin page
+
+`https://<the game's address>/admin` lists the accounts, the puzzles, the reports and the logs for the people in the Cognito group `admins` (the Auth stack makes the group; nobody is in it). Its routes are `/admin/*` of the API (a function of its own, `AdminWeb`, behind the gateway's JWT check; it reads the user pool's accounts and the log groups named `PuzzleVidio-<stage>-*`). Put an account in the group with `aws cognito-idp admin-add-user-to-group` (`docs/runbook.md`, *The admin page*). CloudFront sends `/admin/` to `/admin`, because the page finds its files by relative addresses.
+
 ## Google sign-in
 
 1. In the Google Cloud console make an OAuth client of the type "web application". Its authorised redirect URI is
