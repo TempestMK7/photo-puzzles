@@ -21,6 +21,11 @@ export interface Settings {
   budgetUsd: number;
   /** `owner/name` of the GitHub repository whose `main` branch may deploy. */
   githubRepo: string;
+  /**
+   * What GitHub puts in front of `:ref:...` in the token of a repository with immutable subjects: `owner@ownerId/name@repoId` (the ids are in
+   * `gh api repos/<owner>/<name>/actions/oidc/customization/sub`, as `sub_claim_prefix` without its `repo:`). Such a repository's tokens no longer say `repo:owner/name`.
+   */
+  githubSubjectPrefix?: string;
   /** An OIDC provider for GitHub that the account already has (an account can only have one). */
   githubProviderArn?: string;
   /** Google sign-in: the OAuth client id and the name of the Secrets Manager secret that holds its client secret. Both, or neither. */
@@ -47,6 +52,7 @@ export function settings(node: Node): Settings {
     alertEmail: text(node, 'alertEmail'),
     budgetUsd: Number(text(node, 'budgetUsd', '25')),
     githubRepo: text(node, 'githubRepo', 'TempestMK7/photo-puzzles')!,
+    githubSubjectPrefix: text(node, 'githubSubjectPrefix'),
     githubProviderArn: text(node, 'githubProviderArn'),
     googleClientId,
     googleSecretName,

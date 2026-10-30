@@ -49,10 +49,13 @@ the budget, the quotas (Lambda runs 10 at a time in a new account, which is to b
 5. In the GitHub repository, add the variables `AWS_DEPLOY_ROLE_ARN` (the stack's output `DeployRoleArn`) and `HOSTED_ZONE_ID`, and optionally `ALERT_EMAIL`. They are **repository** variables
    (Settings > Secrets and variables > Actions > Variables): the workflow does not name an environment, so it cannot see the variables of one, and a job that does name one is not the identity that the
    deploy role trusts (the main branch).
+   If the run stops at *Could not assume role with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity*, the repository may have **immutable subjects**: its tokens say
+   `repo:owner@ownerId/name@repoId:ref:...` instead of `repo:owner/name:ref:...`. `gh api repos/<owner>/<name>/actions/oidc/customization/sub` shows the prefix (`sub_claim_prefix`, which is
+   `repo:` and then what to give); deploy the Ops stack again with `-c githubSubjectPrefix=owner@ownerId/name@repoId`, and the role trusts both forms (still only `main`).
 6. Run **Actions > Deploy** for `dev`, look at https://dev.puzzlevid.io, and again for `prod`. The workflow deploys the stacks and then puts the game in the bucket.
 
 Settings that can be given with `-c name=value` (or as `PUZZLEVIDIO_NAME` in the environment): `hostedZoneId` (required), `zoneName` (default `puzzlevid.io`), `alertEmail`, `budgetUsd` (default 25),
-`githubRepo` (default this one), `githubProviderArn`, `googleClientId` and `googleSecretName`.
+`githubRepo` (default this one), `githubSubjectPrefix` (see below), `githubProviderArn`, `googleClientId` and `googleSecretName`.
 
 ## Reports, ending a puzzle, banning a player
 
