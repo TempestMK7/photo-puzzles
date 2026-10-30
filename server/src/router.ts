@@ -45,6 +45,7 @@ const STATUS: Record<ApiError, number> = {
   banned: 403,
   removed: 403,
   rejected: 422,
+  paused: 503,
 };
 
 const MAX_JSON = 64 * 1024;

@@ -31,6 +31,27 @@ export interface Settings {
   /** Google sign-in: the OAuth client id and the name of the Secrets Manager secret that holds its client secret. Both, or neither. */
   googleClientId?: string;
   googleSecretName?: string;
+  /** Changes to the service's limits (see `Limits` in server/src/types.ts), as numbers by name: `freeRoomsPerWeek: 0` switches the making of puzzles off. */
+  limits?: Record<string, number>;
+}
+
+/** The limits that may be set, and nothing else (a misspelt one would silently do nothing). */
+export const LIMIT_NAMES = ['jigsawPieces', 'playersPerRoom', 'activeRoomsPerPlayer', 'freeRoomsPerWeek', 'idleMs', 'solvedKeepMs', 'maxAgeMs', 'pictureBytes'];
+
+function parseLimits(raw: string | undefined): Record<string, number> | undefined {
+  if (!raw) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('limits must be JSON, like {"freeRoomsPerWeek":0}');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('limits must be an object, like {"freeRoomsPerWeek":0}');
+  for (const [k, v] of Object.entries(parsed)) {
+    if (!LIMIT_NAMES.includes(k)) throw new Error(`limits: ${k} is not a limit (${LIMIT_NAMES.join(', ')})`);
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) throw new Error(`limits: ${k} must be a number, 0 or more`);
+  }
+  return Object.keys(parsed).length ? (parsed as Record<string, number>) : undefined;
 }
 
 const text = (node: Node, key: string, fallback?: string): string | undefined => {
@@ -56,6 +77,7 @@ export function settings(node: Node): Settings {
     githubProviderArn: text(node, 'githubProviderArn'),
     googleClientId,
     googleSecretName,
+    limits: parseLimits(text(node, 'limits')),
   };
 }
 

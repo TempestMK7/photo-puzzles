@@ -61,6 +61,9 @@ export interface RoomDescriptor {
   members: Member[];
   /** The ids of the members connected right now. */
   online: string[];
+  /** The time spent on the puzzle while someone was connected: `ms` was counted, and a stretch that began at `since` (the server's clock) is going on. Once solved, `solvedMs` is the total. */
+  played?: { ms: number; since: number | null };
+  solvedMs?: number;
   /** Players who knocked (joined with the code alone) and wait for a member to say yes or no: one who comes after they knocked still sees them. */
   knocks?: { id: string; name: string }[];
   state: RoomState;
@@ -99,7 +102,9 @@ export type ApiError =
   /** The operator has stopped this player from playing online. */
   | 'banned'
   /** The automatic check of the picture turned it down. */
-  | 'rejected';
+  | 'rejected'
+  /** Making new puzzles is switched off for now (the operator's limit is 0); joining and playing go on. */
+  | 'paused';
 
 export interface ApiFailure {
   ok: false;
@@ -258,7 +263,9 @@ export type RoomMessage =
   | { t: 'presence'; id: string; online: boolean }
   /** Someone asked to join with the code and a member has to say yes or no. */
   | { t: 'knock'; id: string; name: string }
-  | { t: 'solved'; at: number }
+  /** The count of time spent on the puzzle started or stopped (someone connected to a room with nobody in it, or the last one left). */
+  | { t: 'played'; ms: number; since: number | null }
+  | { t: 'solved'; at: number; ms?: number }
   /** The room is over (closed by its owner, or gone), so the game goes back to the main screen. */
   | { t: 'closed'; reason: 'owner' | 'expired' | 'solved' };
 

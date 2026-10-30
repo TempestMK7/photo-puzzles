@@ -6,8 +6,9 @@ import { DynamoPresence, DynamoStore } from '../server/src/aws/dynamo';
 import { GuestTokens } from '../server/src/guest';
 import { CognitoVerifier } from '../server/src/aws/jwt';
 import { makePresenceHandler } from '../server/src/aws/presence';
+import { playedMs, setActive } from '../server/src/played';
 import { FakeDynamo } from './helpers/fakeDynamo';
-import { ann, bob, DAY, open, world } from './helpers/world';
+import { ann, bob, DAY, open, world, joined } from './helpers/world';
 
 const ISSUER = 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_POOL';
 const CLIENT = 'client123';
@@ -201,7 +202,7 @@ describe('who is online, from the broker\'s events', () => {
     const w = world({}, (clock) => new DynamoStore(db, 'table', clock));
     const presence = new DynamoPresence(db, 'table', w.clock);
     const said: { topic: string; message: RoomMessage }[] = [];
-    const handle = makePresenceHandler({ presence, rooms: w.store as DynamoStore, pubsub: { publish: async (topic, message) => void said.push({ topic, message: message as RoomMessage }) } });
+    const handle = makePresenceHandler({ presence, rooms: w.store as DynamoStore, pubsub: { publish: async (topic, message) => void said.push({ topic, message: message as RoomMessage }) }, clock: w.clock });
     const event = (room: string, player: string, connection: string, eventType: string) => ({ clientId: liveClientId(room, player, connection), eventType });
     return { w, presence, said, handle, event };
   };
@@ -214,14 +215,64 @@ describe('who is online, from the broker\'s events', () => {
     expect(await presence.online(roomId)).toEqual(['ann']);
     await handle(event(roomId, 'ann', 'tab1', 'disconnected'));
     expect(await presence.online(roomId)).toEqual(['ann']);
-    expect(said.filter((s) => !(s.message as { online: boolean }).online)).toEqual([]);
+    expect(said.filter((s) => s.message.t === 'presence' && !s.message.online)).toEqual([]);
+    w.clock.t += 5000;
     await handle(event(roomId, 'ann', 'tab2', 'disconnected'));
     expect(await presence.online(roomId)).toEqual([]);
+    const t0 = w.clock.t - 5000;
     expect(said.map((s) => [s.topic, s.message])).toEqual([
+      [topics.events(roomId), { t: 'played', ms: 0, since: t0 }],          // the count of time begins with the first connection
       [topics.events(roomId), { t: 'presence', id: 'ann', online: true }],
       [topics.events(roomId), { t: 'presence', id: 'ann', online: true }],
+      [topics.events(roomId), { t: 'played', ms: 5000, since: null }],          // and stops with the last
       [topics.events(roomId), { t: 'presence', id: 'ann', online: false }],
     ]);
+  });
+
+  it('counts time only while at least one player is connected', async () => {
+    const { w, handle, event } = setup();
+    const made = await open(w, ann);
+    const roomId = made.roomId;
+    await joined(w, made, bob);
+    const total = async () => {
+      const got = await w.service.getRoom(ann, roomId);
+      return got.ok ? playedMs({ played: got.room.played, solvedMs: got.room.solvedMs }, w.clock.t) : -1;
+    };
+    expect(await total()).toBe(0);
+    w.clock.t += 10_000;                                                  // nobody here: not counted
+    expect(await total()).toBe(0);
+    await handle(event(roomId, 'ann', 'a', 'connected'));
+    w.clock.t += 10_000;
+    expect(await total()).toBe(10_000);
+    await handle(event(roomId, 'bob', 'b', 'connected'));                  // a second player does not start a second count
+    w.clock.t += 10_000;
+    await handle(event(roomId, 'ann', 'a', 'disconnected'));              // one is left: it goes on
+    w.clock.t += 10_000;
+    expect(await total()).toBe(30_000);
+    await handle(event(roomId, 'bob', 'b', 'disconnected'));              // the last one has gone: it stops
+    w.clock.t += 3_600_000;
+    expect(await total()).toBe(30_000);
+    await handle(event(roomId, 'bob', 'b', 'connected'));                  // and goes on from there when someone comes back
+    w.clock.t += 5_000;
+    expect(await total()).toBe(35_000);
+  });
+
+  it('does not count the stretch whose "disconnected" was lost, when the next one finds nobody connected', async () => {
+    const { w } = setup();
+    const made = await open(w, ann);
+    const d = { store: w.store, pubsub: { publish: async () => undefined }, clock: w.clock };
+    await setActive(d, made.roomId, true, true);
+    w.clock.t += 7_000;
+    await setActive(d, made.roomId, true);                                  // someone else joins: nothing changes
+    expect(((await w.store.getRoom(made.roomId))!.played)).toEqual({ ms: 0, since: w.clock.t - 7_000 });
+    w.clock.t += 100_000;
+    await setActive(d, made.roomId, true, true);                            // nobody was connected, yet a count was open: its stretch is dropped
+    expect(((await w.store.getRoom(made.roomId))!.played)).toEqual({ ms: 0, since: w.clock.t });
+    w.clock.t += 2_000;
+    await setActive(d, made.roomId, false);
+    expect(((await w.store.getRoom(made.roomId))!.played)).toEqual({ ms: 2_000, since: null });
+    await setActive(d, made.roomId, false);                                 // stopping twice changes nothing
+    expect(((await w.store.getRoom(made.roomId))!.played)).toEqual({ ms: 2_000, since: null });
   });
 
   it('keeps the players apart', async () => {

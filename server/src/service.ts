@@ -29,6 +29,7 @@ import {
   type RoomSummary,
 } from '../../src/online/protocol';
 import { sniffImage } from './image';
+import { playedMs } from './played';
 import type { Accounts, Clock, Limits, Media, Moderation, Player, Presence, PubSub, Random, Report, RoomRecord, Store } from './types';
 
 export interface Deps {
@@ -211,6 +212,11 @@ export class RoomService {
     return this.d.store.bans();
   }
 
+  /** For the operator: deletes an account as if its owner had asked to (for someone who writes and cannot sign in). A guest's id starts with `g`; an account's is the `sub` of its token. */
+  adminDeleteAccount(playerId: string): Promise<{ ok: true } | ApiFailure> {
+    return this.deleteAccount({ id: playerId, name: '', guest: playerId.startsWith('g') });
+  }
+
   /** The player as the others see them: with the name they chose, if they chose one, and otherwise the name that came with the token. */
   private async named(player: Player): Promise<Player> {
     const name = await this.d.store.getName(player.id);
@@ -223,6 +229,7 @@ export class RoomService {
     const { store, clock, random, limits } = this.d;
     // a guest may join puzzles but not make them (the cloud's gateway turns a guest's token away before it gets here; this is for any server that does not)
     if (who.guest) return fail('account-required');
+    if (limits.freeRoomsPerWeek <= 0) return fail('paused');                    // the operator has switched the making of puzzles off
     if (req?.protocol !== PROTOCOL_VERSION) return fail('update-required', { protocol: PROTOCOL_VERSION });
     if (req.consent !== true) return fail('bad-request');
     const settings = checkSettings(req.settings, limits);
@@ -401,6 +408,8 @@ export class RoomService {
       members: room.members,
       online: await this.d.presence.online(room.id),
       knocks: room.knocks.filter((k) => k.status === 'pending').map((k) => ({ id: k.id, name: k.name })),
+      played: room.played,
+      solvedMs: room.solvedMs,
       state: room.state,
       serverTime: this.d.clock.now(),
       expiresAt: room.expiresAt,
@@ -431,13 +440,14 @@ export class RoomService {
       event = res.event;
       r.state = room.state();
       r.status = room.solved ? 'solved' : 'open';
+      if (room.solved && r.solvedMs === undefined) r.solvedMs = playedMs(r, now);          // the time that counted, fixed at the last move
       r.expiresAt = this.expiry(r, now + (room.solved ? limits.solvedKeepMs : limits.idleMs));
       return r;
     });
     if ('error' in done) return done;
     if (refusal) return refusal;
     await this.publish(roomId, { t: 'event', ...event! });
-    if (event!.solved) await this.publish(roomId, { t: 'solved', at: clock.now() });
+    if (event!.solved) await this.publish(roomId, { t: 'solved', at: clock.now(), ms: done.room.solvedMs });
     return { ok: true, event: event! };
   }
 

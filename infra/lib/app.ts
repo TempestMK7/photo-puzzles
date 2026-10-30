@@ -33,6 +33,7 @@ export function build(app: App): void {
       domain: apiDomain(stage, s.zoneName),
       webDomain: siteDomain(stage, s.zoneName),
       origins,
+      limits: s.limits,
       table: data.table,
       media: data.media,
       signing: data.signingKey,

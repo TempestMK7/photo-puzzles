@@ -34,6 +34,11 @@ export class OnlineRoom {
   /** Called when the server said no to something the player did (the reason, and who holds the piece if that is why). */
   onRefused: (error: CallError, holder?: string) => void = () => undefined;
 
+  /** The time spent on the puzzle while someone was connected (the server's count; see `playedMs`). */
+  private played: { ms: number; since: number | null };
+  private solvedMs: number | null;
+  /** When this game's own connection opened (this clock): the time runs from there if the server has not said so yet. */
+  private connectedAt: number | null = null;
   private view: RoomView | null = null;
   private conn: Connection | null = null;
   private version: number;
@@ -65,6 +70,8 @@ export class OnlineRoom {
     this.members = [...descriptor.members];
     this.online = new Set(descriptor.online);
     this.knocks = (descriptor.knocks ?? []).map((k) => ({ ...k }));
+    this.played = descriptor.played ?? { ms: 0, since: null };
+    this.solvedMs = descriptor.solvedMs ?? null;
     this.version = descriptor.state.v;
     this.lock = descriptor.state.lock;
     this.solved = descriptor.status === 'solved';
@@ -82,6 +89,7 @@ export class OnlineRoom {
     this.conn = this.realtime.connect(this.id, {
       onOpen: () => {
         this.status = 'online';
+        this.connectedAt ??= Date.now();
         this.changed();
         void this.resync();                                          // whatever happened while there was no connection
       },
@@ -121,6 +129,17 @@ export class OnlineRoom {
     const l = this.lock;
     if (!l || l.holder === this.me || !lockHeld(l, Date.now(), this.offset)) return null;
     return this.members.find((m) => m.id === l.holder) ?? { id: l.holder, name: 'Someone', color: 0 };
+  }
+
+  /**
+   * The time spent on the puzzle so far, in ms: only time with at least one player connected counts. The server keeps the count (and fixes it when the puzzle is solved); a game that
+   * is connected but has not heard from the server that the count began counts from its own connection.
+   */
+  playedMs(): number {
+    if (this.solvedMs !== null) return this.solvedMs;
+    const { ms, since } = this.played;
+    if (since !== null) return ms + Math.max(0, this.serverNow - since);
+    return ms + (this.status === 'online' && this.connectedAt !== null ? Math.max(0, Date.now() - this.connectedAt) : 0);
   }
 
   member(id: string): Member | undefined {
@@ -231,8 +250,13 @@ export class OnlineRoom {
         if (!this.knocks.some((k) => k.id === m.id)) this.knocks.push({ id: m.id, name: m.name });
         this.changed();
         break;
+      case 'played':
+        this.played = { ms: m.ms, since: m.since };
+        this.changed();
+        break;
       case 'solved':
         this.solved = true;
+        if (typeof m.ms === 'number') this.solvedMs = m.ms;
         this.changed();
         break;
       case 'closed':
@@ -324,6 +348,8 @@ export class OnlineRoom {
         this.members = [...r.members];
         this.online = new Set(r.online);
         this.knocks = (r.knocks ?? []).map((k) => ({ ...k }));
+        this.played = r.played ?? { ms: 0, since: null };
+        this.solvedMs = r.solvedMs ?? null;
         this.offset = r.serverTime - Date.now();
         this.version = r.state.v;
         this.handSeen.clear();

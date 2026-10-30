@@ -55,7 +55,7 @@ the budget, the quotas (Lambda runs 10 at a time in a new account, which is to b
 6. Run **Actions > Deploy** for `dev`, look at https://dev.puzzlevid.io, and again for `prod`. The workflow deploys the stacks and then puts the game in the bucket.
 
 Settings that can be given with `-c name=value` (or as `PUZZLEVIDIO_NAME` in the environment): `hostedZoneId` (required), `zoneName` (default `puzzlevid.io`), `alertEmail`, `budgetUsd` (default 25),
-`githubRepo` (default this one), `githubSubjectPrefix` (see below), `githubProviderArn`, `googleClientId` and `googleSecretName`.
+`githubRepo` (default this one), `githubSubjectPrefix` (see below), `githubProviderArn`, `googleClientId` and `googleSecretName`, and `limits` (a JSON object that changes the service's limits, like `{"freeRoomsPerWeek":0}` to switch the making of puzzles off: `docs/runbook.md`). **The runbook (`docs/runbook.md`) says how to run it: alarms, logs, limits, reports, bans, deploys.**
 
 ## Reports, ending a puzzle, banning a player
 

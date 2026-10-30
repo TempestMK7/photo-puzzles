@@ -36,6 +36,8 @@ export interface ApiStackProps extends StackProps {
   signing: secretsmanager.ISecret;
   pool: cognito.IUserPool;
   client: cognito.IUserPoolClient;
+  /** Changes to the service's limits (the deploy setting `limits`). */
+  limits?: Record<string, number>;
 }
 
 /**
@@ -72,6 +74,7 @@ export class ApiStack extends Stack {
           API_BASE: `https://${props.domain}`,
           WEB_BASE: `https://${props.webDomain}`,
           ALERT_TOPIC_ARN: alarmTopicArn,
+          ...(props.limits ? { LIMITS: JSON.stringify(props.limits) } : {}),
         },
       });
       props.table.grantReadWriteData(f);
@@ -90,7 +93,9 @@ export class ApiStack extends Stack {
     // the picture of every puzzle is looked at (for explicit, violent, disturbing or hateful content) before anyone else can see it
     fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['rekognition:DetectModerationLabels'], resources: ['*'] }));
     const admin = serviceFunction('Admin', 'server/src/aws/admin.ts', 512, Duration.seconds(30));
-    new CfnOutput(this, 'AdminFunction', { value: admin.functionName, description: 'Invoke it to read reports, end a puzzle, or ban a player (infra/README.md)' });
+    // the operator can delete an account for someone who cannot sign in (the same one thing to the user pool)
+    admin.addToRolePolicy(new iam.PolicyStatement({ actions: ['cognito-idp:AdminDeleteUser'], resources: [props.pool.userPoolArn] }));
+    new CfnOutput(this, 'AdminFunction', { value: admin.functionName, description: 'Invoke it to read reports, end a puzzle, ban a player or delete an account (docs/runbook.md)' });
 
     const cleanup = new nodejs.NodejsFunction(this, 'Cleanup', {
       ...common,

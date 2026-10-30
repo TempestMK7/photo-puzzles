@@ -152,6 +152,13 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       expect(after.ok && after.room.knocks).toEqual([]);
     });
 
+    it('refuses to make puzzles when the operator has set the weekly number to 0', async () => {
+      const x = makeWorld({ freeRoomsPerWeek: 0 }, store);
+      expect(await x.service.createRoom(ann, request())).toMatchObject({ ok: false, error: 'paused' });
+      expect(await x.store.creationsSince('ann', 0)).toEqual([]);                      // nothing was made or counted
+      expect(x.media.has('anything')).toBe(false);
+    });
+
     it('holds eight players', async () => {
       const made = await open(w);
       for (let i = 1; i < 8; i++) await joined(w, made, { id: `p${i}`, name: `P${i}` });
@@ -238,6 +245,9 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       const room = await joined(w, made, bob);
       const players = [ann, bob];
       const copy = new JigsawRoom(room.settings, room.state).board.game;       // a game on a player's screen: it only applies what the service says
+      const rec = (await w.store.getRoom(made.roomId))!;
+      await w.store.putRoom({ ...rec, played: { ms: 60_000, since: w.clock.t }, rev: rec.rev + 1 });          // someone has been connected for a minute, and still is
+      w.clock.t += 5_000;
       // play it with the same rules a game would: take a loose group, put it right against a neighbour
       for (let step = 0; step < 400; step++) {
         const cur = await w.service.getRoom(ann, made.roomId);
@@ -267,7 +277,8 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       const done = await w.service.getRoom(ann, made.roomId);
       expect(done.ok && done.room.status).toBe('solved');
       expect(done.ok && done.room.expiresAt).toBe(w.clock.t + 3600 * 1000);
-      expect(w.messages(made.roomId).filter((m) => m.t === 'solved')).toHaveLength(1);
+      expect(done.ok && done.room.solvedMs).toBe(65_000);                    // the time that counted is fixed when the last piece goes in
+      expect(w.messages(made.roomId).filter((m) => m.t === 'solved')).toEqual([{ t: 'solved', at: w.clock.t, ms: 65_000 }]);
       expect(await cmd(w, ann, made.roomId, { t: 'grab', piece: 0 })).toMatchObject({ ok: false, error: 'ended' });
       expect(w.media.has(made.roomId)).toBe(true);
       w.clock.t += 3600 * 1000 + 1;
