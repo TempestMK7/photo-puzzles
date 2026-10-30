@@ -266,6 +266,66 @@ describe.each(stores)('the room service on %s', (_name, store) => {
     });
   });
 
+  describe('the automatic look at a picture', () => {
+    const told: string[] = [];
+    beforeEach(() => void (told.length = 0));
+    const make = (check: (bytes: Uint8Array) => Promise<{ ok: true } | { ok: false; label: string }>) =>
+      makeWorld({}, store, undefined, async (text) => void told.push(text), { check });
+    const create = async (w: World) => {
+      const made = await w.service.createRoom(ann, request());
+      if (!made.ok) throw new Error('create failed');
+      return made;
+    };
+
+    it('lets a picture that passes make the puzzle ready, after the look', async () => {
+      const seen: number[] = [];
+      const w = make(async (bytes) => (seen.push(bytes.length), { ok: true }));
+      const made = await create(w);
+      expect(await w.service.finishUpload(made.roomId, jpeg(400, 300))).toEqual({ ok: true });
+      expect(seen).toHaveLength(1);
+      expect((await w.service.getRoom(ann, made.roomId)).ok).toBe(true);
+      expect(told).toEqual([]);
+    });
+
+    it('turns a picture down: the puzzle ends with nothing kept, the creator is told it was refused, and the operator is told what was found', async () => {
+      const w = make(async () => ({ ok: false, label: 'Violence / Graphic Violence' }));
+      const made = await create(w);
+      expect(await w.service.finishUpload(made.roomId, jpeg(400, 300))).toMatchObject({ ok: false, error: 'rejected' });
+      expect(await w.store.getRoom(made.roomId)).toBeUndefined();
+      expect(w.media.has(made.roomId)).toBe(false);
+      expect(await w.store.roomOfCode(made.invite.code)).toBeUndefined();
+      expect(told).toHaveLength(1);
+      expect(told[0]).toContain('Violence / Graphic Violence');
+      expect(told[0]).toContain(made.roomId);
+      expect(await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret })).toMatchObject({ ok: false });
+    });
+
+    it('does not look at what it would turn away anyway (a picture of the wrong size or kind)', async () => {
+      const check = vi.fn(async () => ({ ok: true as const }));
+      const w = make(check);
+      const made = await create(w);
+      expect(await w.service.finishUpload(made.roomId, jpeg(401, 300))).toMatchObject({ ok: false, error: 'bad-request' });
+      expect(check).not.toHaveBeenCalled();
+    });
+
+    it('shows nothing when the look could not be made, and lets the creator send the picture again', async () => {
+      const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      let working = false;
+      const w = make(async () => {
+        if (!working) throw new Error('throttled');
+        return { ok: true };
+      });
+      const made = await create(w);
+      expect(await w.service.finishUpload(made.roomId, jpeg(400, 300))).toMatchObject({ ok: false, error: 'busy' });
+      expect(w.media.has(made.roomId)).toBe(false);                                   // the picture was not stored
+      expect(await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret })).toMatchObject({ ok: false, error: 'not-ready' });
+      working = true;
+      expect(await w.service.finishUpload(made.roomId, jpeg(400, 300))).toEqual({ ok: true });
+      expect((await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret })).ok).toBe(true);
+      log.mockRestore();
+    });
+  });
+
   describe('reports, and what the operator does about them', () => {
     const told: string[] = [];
     const worldOf = (extra = {}) => makeWorld(extra, store, undefined, async (text) => void told.push(text));

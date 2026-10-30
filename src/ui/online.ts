@@ -77,6 +77,8 @@ export function sayError(error: CallError, failure?: { retryAt?: number }): stri
         return `Too many tries from here. Wait ${minutes} minute${minutes === 1 ? '' : 's'} and try again.`;
       }
       return 'Too many tries. Wait a little.';
+    case 'rejected':
+      return 'That picture cannot be used for an online puzzle.';
     case 'banned':
       return 'This account has been stopped from playing online.';
     case 'knock-denied':
@@ -413,7 +415,13 @@ export class OnlinePanel {
       const made = await api.createRoom({ settings, sourceId: entry.id, consent: true });
       if (!made.ok) return this.fail(made);
       this.say('Sending the picture…');
-      const up = await api.upload(made.upload.url, blob);
+      let up = await api.upload(made.upload.url, blob);
+      // the server looks at the picture before it lets anyone in; if it could not (the answer is "busy") the same picture may be sent again
+      for (let again = 0; again < 2 && !up.ok && up.error === 'busy'; again++) {
+        this.say('Looking at the picture again…');
+        await new Promise((resolve) => window.setTimeout(resolve, 2500));
+        up = await api.upload(made.upload.url, blob);
+      }
       if (!up.ok) return this.fail(up);
       const got = await api.getRoom(made.roomId);
       if (!got.ok) return this.fail(got);

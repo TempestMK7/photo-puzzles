@@ -82,4 +82,4 @@ A ban is a record of an id only: it stays when the account is deleted (a new acc
 ## What it costs with nobody playing
 
 DynamoDB, S3, Cognito (the first 10,000 monthly users are free), Lambda and CloudFront charge by use; what remains is the hosted zone (about $0.50 a month for the domain's zone) and a few cents of storage.
-Cognito's built-in e-mail is limited to 50 a day: **Amazon SES** (a verified sender in the domain) is needed before a public launch.
+Each picture that is uploaded is looked at by Amazon Rekognition (moderation labels), about $0.001 a picture; a puzzle with a thousand pieces costs the same as one with six. Cognito's built-in e-mail is limited to 50 a day: **Amazon SES** (a verified sender in the domain) is needed before a public launch.
