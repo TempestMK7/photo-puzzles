@@ -35,6 +35,8 @@ export interface RoomRecord {
   /** Hash of the link's secret. */
   secretHash: string;
   knocks: Knock[];
+  /** Players the owner sent out: they cannot join again, with the code, a new code or the link (older rooms have none). */
+  removed?: string[];
   /** The picture has arrived and been checked: only then can anyone join. */
   ready: boolean;
   status: 'open' | 'solved';

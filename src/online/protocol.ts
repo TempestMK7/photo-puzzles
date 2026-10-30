@@ -61,6 +61,8 @@ export interface RoomDescriptor {
   members: Member[];
   /** The ids of the members connected right now. */
   online: string[];
+  /** Players who knocked (joined with the code alone) and wait for a member to say yes or no: one who comes after they knocked still sees them. */
+  knocks?: { id: string; name: string }[];
   state: RoomState;
   /** The server's clock when this was made, in ms: a lock's `until` is on that clock, and the game works out how far its own is off. */
   serverTime: number;
@@ -84,6 +86,8 @@ export type ApiError =
   /** Joining by code waits for a member to say yes. */
   | 'knock-pending'
   | 'knock-denied'
+  /** The owner sent this player out of the puzzle: neither the code nor the link lets them back in. */
+  | 'removed'
   /** The picture has not arrived yet. */
   | 'not-ready'
   | 'busy'
@@ -248,6 +252,8 @@ export type RoomMessage =
   | { t: 'left'; id: string }
   /** The owner sent a member out (the member's own game goes back to the main screen). */
   | { t: 'removed'; id: string }
+  /** The player who holds a piece still does: the hold now lasts until `until` (the server's clock). Without it the others would think a long hold had run out. */
+  | { t: 'renewed'; id: string; until: number }
   /** A member's game connected to the room or lost it. */
   | { t: 'presence'; id: string; online: boolean }
   /** Someone asked to join with the code and a member has to say yes or no. */

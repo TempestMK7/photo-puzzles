@@ -63,7 +63,7 @@ A lock's `until` is on the server's clock. The descriptor carries `serverTime`; 
 
 ## Live messages (MQTT topics)
 
-- `puzzle/{room}/events`: the server publishes `RoomMessage`s (an event, a player joined, left or was sent out (`removed`), a knock, solved, closed). Every member subscribes.
+- `puzzle/{room}/events`: the server publishes `RoomMessage`s (an event, a player joined, left or was sent out (`removed`), a knock, solved, closed, and `renewed` when the holder of a piece renews the hold, so that the others' copy of it does not run out). Every member subscribes.
 - `puzzle/{room}/hand/{player}`: the player in hand publishes a `HandMessage` (group, pose, a counter) about every `HAND_INTERVAL_MS` (100 ms), only while the piece moves.
   A member may publish only on their own topic and subscribe to `puzzle/{room}/#` of the rooms they belong to; the IoT authorizer builds that policy from the room's members.
   Others ignore hand messages from anyone who is not the current lock holder. Hand messages never change the board.
@@ -82,7 +82,7 @@ The token is an account's (a Cognito ID token) or a guest's. **A guest can join 
 - `POST /join` `{ code, secret? }` -> `RoomDescriptor`. With the secret (the link) the player is in at once. With only the code the room publishes a `knock` and a member answers.
 - `GET /rooms` -> the player's rooms (`RoomSummary`). `GET /rooms/{id}` -> `RoomDescriptor`.
 - `POST /rooms/{id}/command` `Command` -> `{ ok, event }` or a refusal. `POST /rooms/{id}/renew`.
-- `POST /rooms/{id}/leave`, `/close` (owner), `/invite/regenerate` (owner), `/members/{id}/remove` (owner: sends a member out, who can come back with the code or link unless the owner makes new ones), `/knock/{id}/answer`, `/report` (a member: `{ reason, note? }` with a reason of `illegal`, `adult`, `harassment`, `copyright` or `other` and a note of at most 300 characters; five an hour per player, then `429` `rate-limited`). A report is kept for 90 days with who was in the puzzle, and the operator is e-mailed (the alarm topic). Nothing happens to the puzzle by itself.
+- `POST /rooms/{id}/leave`, `/close` (owner), `/invite/regenerate` (owner), `/members/{id}/remove` (owner: sends a member out for good: that player's id is kept in the room and the code, a new code and the link all answer `403` `removed`), `/knock/{id}/answer`, `/report` (a member: `{ reason, note? }` with a reason of `illegal`, `adult`, `harassment`, `copyright` or `other` and a note of at most 300 characters; five an hour per player, then `429` `rate-limited`). A report is kept for 90 days with who was in the puzzle, and the operator is e-mailed (the alarm topic). Nothing happens to the puzzle by itself.
 - **Banned players:** the operator can stop a player (`banned`, `403`): they leave every puzzle, the ones they made end, and every request but `/me` (and deleting their account) is refused. See the operator's function in `infra/README.md`.
 
 Failures are `{ ok: false, error }` with one of the `ApiError` values.
