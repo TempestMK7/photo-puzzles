@@ -178,6 +178,22 @@ describe('OnlineRoom', () => {
     expect(b.view.hands.at(-1)).toEqual({ by: 'ann', piece: null });
   });
 
+  it('keeps a long hold alive for the others while the holder renews it (it does not run out after the lock\'s ten seconds)', async () => {
+    const { a, b, loose } = await sides(w, net);
+    const p = loose[0].members[0];
+    a.do({ t: 'grab', piece: p });
+    await a.room.whenSent();
+    a.room.holding(p);
+    a.room.hand({ piece: p, dx: 1, dy: 2, rot: 0 });
+    for (let i = 0; i < 5; i++) {
+      w.clock.t += 4000;                                              // the server's clock and the game's go on together
+      await vi.advanceTimersByTimeAsync(4000);
+    }
+    expect(b.room.holderOther()?.id).toBe('ann');                       // twenty seconds on
+    expect(b.view.hands.at(-1)?.piece).toBe(p);
+    a.room.holding(null);
+  });
+
   it('asks for the whole board when it missed an event', async () => {
     const { a, b, loose } = await sides(w, net);
     net.lose = (player, _t, m) => player === 'bob' && (m as { t: string; v?: number }).t === 'event' && (m as { v: number }).v === 1;      // bob does not hear the first
@@ -202,6 +218,15 @@ describe('OnlineRoom', () => {
     net.heal('bob');
     await vi.waitFor(() => expect(b.view.snap()).toBe(a.view.snap()));
     expect(b.room.status).toBe('online');
+  });
+
+  it('knows the players who knocked before it came, from the room it was given', async () => {
+    const made = await open(w);
+    await w.service.join({ id: 'cy', name: 'Cy' }, { protocol: PROTOCOL_VERSION, code: made.invite.code });
+    const got = await w.service.getRoom(ann, made.roomId);
+    if (!got.ok) throw new Error('no room');
+    const room = new OnlineRoom(apiFor(w, ann), net.realtime('ann'), got.room, 'ann');
+    expect(room.knocks).toEqual([{ id: 'cy', name: 'Cy' }]);
   });
 
   it('reads the players coming and going, and a knock, as they are told', async () => {

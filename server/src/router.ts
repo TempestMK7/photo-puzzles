@@ -43,6 +43,7 @@ const STATUS: Record<ApiError, number> = {
   ended: 409,
   'account-required': 403,
   banned: 403,
+  removed: 403,
   rejected: 422,
 };
 

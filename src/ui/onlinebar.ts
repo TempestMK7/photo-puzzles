@@ -38,6 +38,22 @@ export class OnlineBar {
     private readonly onSave: () => void,
   ) {
     this.el = h('div', { class: 'onlinebar', hidden: true }, h('div', { class: 'row1' }, this.chips, this.status, this.inviteBtn, this.saveBtn, this.reportBtn), this.knocksEl, this.bannerEl, this.inviteEl, this.reportEl);
+    // a press anywhere outside an open box closes it (the buttons that open them toggle them, so they are left alone); so does Escape
+    document.addEventListener('pointerdown', (e) => this.outside(e.target), true);
+    document.addEventListener('keydown', (e) => e.key === 'Escape' && this.outside(null));
+  }
+
+  private outside(target: EventTarget | null): void {
+    if (!this.room) return;
+    const inside = (el: HTMLElement, button: HTMLElement) => target instanceof Node && (el.contains(target) || button.contains(target));
+    if (!this.inviteEl.hidden && !inside(this.inviteEl, this.inviteBtn)) {
+      this.inviteEl.hidden = true;
+      this.confirming = null;
+    }
+    if (!this.reportEl.hidden && !inside(this.reportEl, this.reportBtn)) {
+      this.reportEl.hidden = true;
+      this.reportBtn.setAttribute('aria-expanded', 'false');
+    }
   }
 
   show(room: OnlineRoom, invite: Invite | null): void {
@@ -178,7 +194,7 @@ export class OnlineBar {
     return box;
   }
 
-  /** Who is in the puzzle, with a way for its owner to send one out (asking once more first: it cannot be taken back, though they can come in again with the link). */
+  /** Who is in the puzzle, with a way for its owner to send one out (asking once more first: it cannot be taken back). */
   private playersEl(room: OnlineRoom): HTMLElement {
     const owner = room.descriptor.owner === room.me;
     return h(
@@ -217,7 +233,7 @@ export class OnlineBar {
     if (res.ok) {
       room.members = room.members.filter((m) => m.id !== id);
       room.online.delete(id);
-      this.say(`${name} was sent out. If they still have the link or the code, make a new one.`, 8000);
+      this.say(`${name} was sent out and cannot come back to this puzzle.`, 6000);
       this.refresh();
     } else {
       this.say(res.error === 'not-found' ? `${name} has gone already.` : 'Could not send them out.');

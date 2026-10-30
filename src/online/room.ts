@@ -64,6 +64,7 @@ export class OnlineRoom {
     this.id = descriptor.id;
     this.members = [...descriptor.members];
     this.online = new Set(descriptor.online);
+    this.knocks = (descriptor.knocks ?? []).map((k) => ({ ...k }));
     this.version = descriptor.state.v;
     this.lock = descriptor.state.lock;
     this.solved = descriptor.status === 'solved';
@@ -217,6 +218,10 @@ export class OnlineRoom {
         }
         this.changed();
         break;
+      case 'renewed':
+        // the holder is still holding: the hold lasts longer than the others' copy of it says
+        if (this.lock?.holder === m.id && m.until > this.lock.until) this.setLock({ ...this.lock, until: m.until });
+        break;
       case 'presence':
         if (m.online) this.online.add(m.id);
         else this.online.delete(m.id);
@@ -318,6 +323,7 @@ export class OnlineRoom {
         const r = res.room;
         this.members = [...r.members];
         this.online = new Set(r.online);
+        this.knocks = (r.knocks ?? []).map((k) => ({ ...k }));
         this.offset = r.serverTime - Date.now();
         this.version = r.state.v;
         this.handSeen.clear();

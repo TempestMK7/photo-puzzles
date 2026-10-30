@@ -141,6 +141,17 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       expect((await w.service.join(cy, { ...code, secret: made.invite.secret })).ok).toBe(true);     // the link still gets in
     });
 
+    it('tells a member who comes later about the players who are waiting to be let in', async () => {
+      const made = await open(w);
+      const code = { protocol: PROTOCOL_VERSION, code: made.invite.code };
+      await w.service.join(bob, code);
+      const seen = await w.service.getRoom(ann, made.roomId);
+      expect(seen.ok && seen.room.knocks).toEqual([{ id: 'bob', name: 'Bob' }]);
+      await w.service.answerKnock(ann, made.roomId, 'bob', false);
+      const after = await w.service.getRoom(ann, made.roomId);
+      expect(after.ok && after.room.knocks).toEqual([]);
+    });
+
     it('holds eight players', async () => {
       const made = await open(w);
       for (let i = 1; i < 8; i++) await joined(w, made, { id: `p${i}`, name: `P${i}` });
@@ -203,6 +214,7 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       w.clock.t += 8000;
       const renewed = await w.service.renew(ann, made.roomId);
       expect(renewed).toEqual({ ok: true, until: w.clock.t + 10_000 });
+      expect(w.messages(made.roomId)).toContainEqual({ t: 'renewed', id: 'ann', until: w.clock.t + 10_000 });          // so that the others do not think it ran out
       w.clock.t += 9000;
       expect(await cmd(w, bob, made.roomId, { t: 'grab', piece: b.members[0] })).toMatchObject({ ok: false, error: 'busy' });
       w.clock.t += 2000;
@@ -469,7 +481,7 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       expect(w.media.has(made.roomId)).toBe(false);
     });
 
-    it('lets the owner send a player out: they lose their hold and the room, everyone is told, and they can come back with the link unless it was renewed', async () => {
+    it('lets the owner send a player out: they lose their hold and the room, everyone is told, and they cannot come back, with the code, the link or a new one', async () => {
       const made = await open(w);
       const room = await joined(w, made, bob);
       await joined(w, made, cy);
@@ -484,12 +496,13 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       expect(w.messages(made.roomId)).toContainEqual({ t: 'removed', id: 'bob' });
       expect(await w.service.getRoom(bob, made.roomId)).toMatchObject({ ok: false, error: 'not-found' });
       expect(await w.service.listRooms(bob)).toEqual({ ok: true, rooms: [] });
-      expect((await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret })).ok).toBe(true);
-      expect((await w.service.removeMember(ann, made.roomId, bob.id)).ok).toBe(true);
+      expect(await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret })).toMatchObject({ ok: false, error: 'removed' });
+      expect(await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: made.invite.code })).toMatchObject({ ok: false, error: 'removed' });          // no knock either
       const fresh = await w.service.regenerateInvite(ann, made.roomId);
       expect(fresh.ok).toBe(true);
-      expect((await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret })).ok).toBe(false);        // the old link is dead
-      if (fresh.ok) expect((await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: fresh.invite.code, secret: fresh.invite.secret })).ok).toBe(true);
+      if (fresh.ok) expect(await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: fresh.invite.code, secret: fresh.invite.secret })).toMatchObject({ ok: false, error: 'removed' });
+      expect(w.messages(made.roomId).filter((m) => m.t === 'knock')).toEqual([]);
+      expect((await w.service.join(cy, { protocol: PROTOCOL_VERSION, code: fresh.ok ? fresh.invite.code : '', secret: fresh.ok ? fresh.invite.secret : '' })).ok).toBe(true);          // anyone else still can
     });
 
     it('forgets a player who asks to go: the puzzles they made end, they leave the others, their name and quota record go, and the account is deleted last', async () => {

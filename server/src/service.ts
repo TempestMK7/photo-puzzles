@@ -310,6 +310,7 @@ export class RoomService {
     if (!room) return fail('not-found');
     if (!room.ready) return fail('not-ready');
     if (room.members.some((m) => m.id === player.id)) return { ok: true, room: await this.describe(room) };
+    if (room.removed?.includes(player.id)) return fail('removed');
     const withSecret = typeof req.secret === 'string' && req.secret !== '' && (await sha256(req.secret)) === room.secretHash;
     if (typeof req.secret === 'string' && req.secret !== '' && !withSecret) return fail('not-found');
     if (!withSecret) {
@@ -399,6 +400,7 @@ export class RoomService {
       owner: room.ownerId,
       members: room.members,
       online: await this.d.presence.online(room.id),
+      knocks: room.knocks.filter((k) => k.status === 'pending').map((k) => ({ id: k.id, name: k.name })),
       state: room.state,
       serverTime: this.d.clock.now(),
       expiresAt: room.expiresAt,
@@ -459,7 +461,9 @@ export class RoomService {
       return r;
     });
     if ('error' in done) return done;
-    return refusal ?? { ok: true, until };
+    if (refusal) return refusal;
+    await this.publish(roomId, { t: 'renewed', id: player.id, until });          // the others' copy of the hold would run out after 10 s otherwise
+    return { ok: true, until };
   }
 
   // ---------------------------------------------------------------------------------------------------------------- leaving, closing, inviting
@@ -490,8 +494,9 @@ export class RoomService {
   }
 
   /**
-   * The owner sends a player out. They can come back with the code or link, unless the owner makes new ones (the game says so). Their live connection ends within minutes, when the
-   * broker asks again whether they are a member; the message below tells their game at once.
+   * The owner sends a player out, for good: the player's id is kept in the room, and neither the code nor the link (nor a new one) lets that player back in. (A guest who clears the
+   * browser's storage is a new guest; that is the limit of what an id can do.) Their live connection ends within minutes, when the broker asks again whether they are a member; the
+   * message below tells their game at once.
    */
   async removeMember(player: Player, roomId: string, who: string): Promise<{ ok: true } | ApiFailure> {
     const before = await this.memberRoom(player, roomId);
@@ -502,6 +507,7 @@ export class RoomService {
     const done = await this.update(roomId, (r) => {
       r.members = r.members.filter((m) => m.id !== who);
       r.knocks = r.knocks.filter((k) => k.id !== who);
+      r.removed = [...new Set([...(r.removed ?? []), who])];
       this.letGo(r, who);
       return r;
     });

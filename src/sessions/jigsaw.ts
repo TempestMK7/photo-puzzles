@@ -328,10 +328,12 @@ export class JigsawSession implements PuzzleSession {
     for (const [by, hand] of this.hands) theirs.set(hand.gid, this.init.online?.colorOf(by) ?? '#fff');
     for (const id of g.z) {
       const grp = g.groups.get(id)!;
-      if (id === selId || theirs.has(id)) {                       // a glow round the selected group: drawn under it, and over again by the pieces themselves
-        ctx.shadowColor = id === selId ? (this.init.flag('light') ? '#e67300' : '#ffd84a') : theirs.get(id)!;
-        ctx.shadowBlur = 16;
-        drawGroup(lit, grp);
+      const held = theirs.get(id);
+      if (id === selId || held) {                                 // a glow round the selected group: drawn under it, and over again by the pieces themselves
+        // a piece in another player's hand shows that player's colour, whatever this player has selected, and strongly (a pale halo disappears round a small piece)
+        ctx.shadowColor = held ?? (this.init.flag('light') ? '#e67300' : '#ffd84a');
+        ctx.shadowBlur = held ? 22 : 16;
+        for (let pass = held ? 3 : 1; pass > 0; pass--) drawGroup(lit, grp);
         ctx.shadowBlur = 0;
         ctx.shadowColor = 'transparent';
       }

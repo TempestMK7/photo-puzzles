@@ -71,6 +71,8 @@ export function sayError(error: CallError, failure?: { retryAt?: number }): stri
       return 'This account has been stopped from playing online.';
     case 'knock-denied':
       return 'They did not let you in.';
+    case 'removed':
+      return 'The owner of that puzzle sent you out of it.';
     case 'not-ready':
       return 'That puzzle is not ready yet. Try again in a moment.';
     case 'knock-pending':
@@ -104,6 +106,8 @@ export class OnlinePanel {
   private startSection: HTMLElement;
   private joinSection: HTMLElement;
   private listSection: HTMLElement;
+  /** The invite link that the player came with: the box shows only its code, and the secret that goes with it waits here (pressing Join with that code uses it). */
+  private invite: { code: string; secret: string } | null = null;
   /** The name box is shown (to someone who has to choose a name, or who came with an invite link and may want to change theirs). */
   private askName = false;
   /** The account's profile is being asked for (see `loadingEl`). */
@@ -180,7 +184,9 @@ export class OnlinePanel {
     this.open();
     this.askName = true;
     this.refreshAccount();
-    this.codeInput.value = text;
+    const inv = parseInvite(text);
+    this.invite = inv?.secret ? { code: inv.code, secret: inv.secret } : null;
+    this.codeInput.value = inv?.code ?? text;                       // as if it had been typed: the five digits
     this.statusEl.textContent = 'Choose your name (or keep this one), then press Join.';
   }
 
@@ -380,11 +386,13 @@ export class OnlinePanel {
 
   /** Joins with what the player typed or a link opened the game with. A code alone knocks: this waits until a member lets the player in. Needs no account: a guest is made if there is none. */
   async join(text: string): Promise<void> {
-    const inv = parseInvite(text);
-    if (!inv) {
+    const typed = parseInvite(text);
+    if (!typed) {
       this.say('That is not a five-digit code or an invite link.');
       return;
     }
+    // the link that the player came with has its secret (it needs no one to let them in) for as long as the box still holds its code
+    const inv = !typed.secret && this.invite?.code === typed.code ? this.invite : typed;
     if (!this.isOpen) this.open();
     const mine = ++this.attempt;
     const s = this.deps.identity;
@@ -401,7 +409,7 @@ export class OnlinePanel {
       this.setBusy(false);
       this.askName = true;
       this.refreshAccount();
-      this.codeInput.value = text;
+      this.codeInput.value = inv.code;
       this.say('Choose the name the other players will see, press Save, and then press Join.');
       return;
     }
