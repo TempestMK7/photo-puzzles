@@ -1,5 +1,6 @@
-import { rotVec, type Group, type JigsawGame, type JigsawLayout, type JigsawState } from '../core/jigsaw';
-import { applyOp, buildJigsaw, SCATTER_K, TOL_MAX_K, TOL_MIN_K, type JigsawOp } from '../core/jigsawSetup';
+import { rotVec, TRAY_MAX, type Group, type JigsawGame, type JigsawLayout, type JigsawState } from '../core/jigsaw';
+import { applyOp, buildJigsaw, SCATTER_K, TOL_MAX_K, TOL_MIN_K, type PieceOp } from '../core/jigsawSetup';
+import { clampInTray, insideBox, traySize, trayView, type TrayView } from '../core/trays';
 import type { RoomEvent, RoomState } from '../core/jigsawRoom';
 import { haptic, type Haptic } from '../haptics';
 import type { HandMessage } from '../online/protocol';
@@ -16,7 +17,14 @@ interface Pose {
   dx: number;
   dy: number;
   rot: number;
+  /** The tray the group lies in (-1: the table), and so which space the pose is in. */
+  tray: number;
 }
+
+/** The bar of trays at the left of the page, the header of an open tray, and the margin inside it: in CSS pixels (the page lays out the same). */
+export const TRAY_BAR_CSS = 46;
+export const TRAY_HEADER_CSS = 34;
+const TRAY_PAD_CSS = 6;
 
 interface Drag {
   gid: number;
@@ -24,6 +32,9 @@ interface Drag {
   py: number;
   qx: number;
   qy: number;
+  /** Where the pointer is on the canvas, in canvas pixels (to tell whether it is over the open tray). */
+  cx: number;
+  cy: number;
   moved: boolean;
   lift: number;
   t0: number;
@@ -72,6 +83,8 @@ export class JigsawSession implements PuzzleSession {
   private pan: { anchor: Pt; moved: boolean; deselect: boolean } | null = null;
   private rightClick = false;                 // the right button is down and has not moved the camera: letting go turns the selected piece
   private sel = -1;                           // a piece of the selected group
+  private openTrayId = -1;                     // the tray that is open on this screen (a screen's own business: the others' are not told)
+  private trayCache: { key: string; view: TrayView } | null = null;
   private others: { by: string; name: string; piece: number }[] | null = null;       // what `chosen` found out, until the room says it changed
   private hover = 0;                          // 0, or the timer of a join that is waiting for its half second
   private fixedRes = false;
@@ -243,8 +256,16 @@ export class JigsawSession implements PuzzleSession {
       this.placeDragged();
       running = true;
     }
-    if (this.gl) this.drawGl(view, flashK > 0 ? { members: [...this.flash], k: flashK } : null);
-    else {
+    if (this.gl) {
+      this.drawGl(view, flashK > 0 ? { members: [...this.flash], k: flashK } : null);
+      const tv = this.tv();
+      if (tv) {                                                   // (the open tray's panel is drawn here, under the graphics card's canvas, which draws its pieces)
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        this.paintTrayPanel(ctx, tv, light);
+        ctx.restore();
+      }
+    } else {
       this.draw2d(ctx, view);
       if (flashK > 0) {
         ctx.fillStyle = `rgba(255,255,255,${0.35 * flashK})`;
@@ -325,22 +346,80 @@ export class JigsawSession implements PuzzleSession {
     };
     for (const grp of g.groups.values()) if (grp.anchored) drawGroup(plain, grp);
     const selId = this.selectedGroup();
-    const theirs = new Map<number, string>();                     // a glow of the colour of the player who holds it
-    for (const [by, hand] of this.hands) theirs.set(hand.gid, this.init.online?.colorOf(by) ?? '#fff');
-    for (const r of this.chosen()) if (!theirs.has(g.groupOf[r.piece])) theirs.set(g.groupOf[r.piece], this.init.online!.colorOf(r.by));         // a piece another player has chosen
-    for (const id of g.z) {
+    const theirs = this.glowing();
+    const drawLoose = (id: number, group: (atlas: HTMLCanvasElement, grp: { members: number[]; rot: number; dx: number; dy: number }) => void): void => {
       const grp = g.groups.get(id)!;
       const held = theirs.get(id);
       if (id === selId || held) {                                 // a glow round the selected group: drawn under it, and over again by the pieces themselves
         // a piece in another player's hand shows that player's colour, whatever this player has selected, and strongly (a pale halo disappears round a small piece)
         ctx.shadowColor = held ?? (this.init.flag('light') ? '#e67300' : '#ffd84a');
         ctx.shadowBlur = held ? 22 : 16;
-        for (let pass = held ? 3 : 1; pass > 0; pass--) drawGroup(lit, grp);
+        for (let pass = held ? 3 : 1; pass > 0; pass--) group(lit, grp);
         ctx.shadowBlur = 0;
         ctx.shadowColor = 'transparent';
       }
-      drawGroup(lit, grp);
+      group(lit, grp);
+    };
+    for (const id of g.z) if (g.groups.get(id)!.tray < 0) drawLoose(id, drawGroup);
+    // the open tray lies over the board: its panel, and the pieces in it (the same tiles, in the tray's own space and scale)
+    const tv = this.tv();
+    if (tv) {
+      const light = this.init.flag('light');
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      this.paintTrayPanel(ctx, tv, light);
+      ctx.beginPath();
+      ctx.rect(tv.panel.x, tv.panel.y + tv.header.h, tv.panel.w, tv.panel.h - tv.header.h);
+      ctx.clip();
+      ctx.setTransform(tv.scale, 0, 0, tv.scale, tv.ox, tv.oy);
+      ctx.imageSmoothingQuality = tv.scale < 0.6 ? 'low' : 'high';
+      const inTray = (atlas: HTMLCanvasElement, grp: { members: number[]; rot: number; dx: number; dy: number }): void => {
+        for (const m of grp.members) {
+          const c = m % l.cols;
+          const r = Math.floor(m / l.cols);
+          const [rx, ry] = rotVec(grp.rot, (c + 0.5) * l.size, (r + 0.5) * l.size);
+          const cx = grp.dx + rx;
+          const cy = grp.dy + ry;
+          const o = l.size / 2 + pad;
+          if (grp.rot === 0) ctx.drawImage(atlas, c * pitch + 1, r * pitch + 1, tile, tile, cx - o, cy - o, tile, tile);
+          else {
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate((grp.rot * Math.PI) / 2);
+            ctx.drawImage(atlas, c * pitch + 1, r * pitch + 1, tile, tile, -o, -o, tile, tile);
+            ctx.restore();
+          }
+        }
+      };
+      for (const id of g.z) if (g.groups.get(id)!.tray === this.openTrayId) drawLoose(id, inTray);
+      ctx.restore();
     }
+  }
+
+  /** The groups that other players hold or have chosen, with the colour each glows in (the pieces in their hands first: they win). */
+  private glowing(): Map<number, string> {
+    const g = this.game;
+    const theirs = new Map<number, string>();                     // a glow of the colour of the player who holds it
+    for (const [by, hand] of this.hands) theirs.set(hand.gid, this.init.online?.colorOf(by) ?? '#fff');
+    for (const r of this.chosen()) if (!theirs.has(g.groupOf[r.piece])) theirs.set(g.groupOf[r.piece], this.init.online!.colorOf(r.by));         // a piece another player has chosen
+    return theirs;
+  }
+
+  /** The tray's panel on the board's canvas: its header strip and the tray itself, in the colours of the board. */
+  private paintTrayPanel(ctx: CanvasRenderingContext2D, tv: TrayView, light: boolean): void {
+    const { panel, header, area } = tv;
+    ctx.fillStyle = light ? '#e4d7c2' : '#1b110b';
+    ctx.fillRect(panel.x, panel.y, panel.w, panel.h);
+    ctx.fillStyle = light ? '#d6c6ad' : '#2d1e15';
+    ctx.fillRect(header.x, header.y, header.w, header.h);
+    ctx.fillStyle = light ? '#efe6d6' : '#241711';
+    ctx.fillRect(area.x, area.y, area.w, area.h);
+    ctx.strokeStyle = light ? 'rgba(120,70,10,0.5)' : 'rgba(255,216,74,0.35)';
+    ctx.lineWidth = Math.max(1, (window.devicePixelRatio || 1) * 1.5);
+    ctx.strokeRect(panel.x, panel.y, panel.w, panel.h);
+    ctx.setLineDash([6, 5]);
+    ctx.strokeRect(area.x, area.y, area.w, area.h);
+    ctx.setLineDash([]);
   }
 
   /** The pieces cut from a video: drawn on the graphics card into a canvas of their own that lies over the board (copying it onto the board's canvas every frame would cost far too much on a slow GPU). */
@@ -348,8 +427,9 @@ export class JigsawSession implements PuzzleSession {
     this.adaptResolution();
     const g = this.game;
     const selId = this.selectedGroup();
+    const selGroup = selId >= 0 ? g.groups.get(selId)! : null;
     const loose: Group[] = [];
-    for (const id of g.z) if (id !== selId) loose.push(g.groups.get(id)!);
+    for (const id of g.z) if (id !== selId && g.groups.get(id)!.tray < 0) loose.push(g.groups.get(id)!);
     const anchored: Group[] = [];
     for (const grp of g.groups.values()) if (grp.anchored) anchored.push(grp);
     // the groups that other players hold or have chosen glow in their colours
@@ -357,17 +437,25 @@ export class JigsawSession implements PuzzleSession {
     for (const [by, hand] of this.hands) glows.set(hand.gid, rgbOf(this.init.online?.colorOf(by) ?? '#ffffff'));
     for (const r of this.chosen()) if (!glows.has(g.groupOf[r.piece])) glows.set(g.groupOf[r.piece], rgbOf(this.init.online!.colorOf(r.by)));
     const lit: { group: Group; rgb: [number, number, number] }[] = [];
+    const litInTray: { group: Group; rgb: [number, number, number] }[] = [];
     for (const [gid, rgb] of glows) {
       const group = g.groups.get(gid);
-      if (group && !group.anchored && gid !== selId) lit.push({ group, rgb });
+      if (!group || group.anchored || gid === selId) continue;
+      if (group.tray < 0) lit.push({ group, rgb });
+      else if (group.tray === this.openTrayId) litInTray.push({ group, rgb });
     }
+    // the open tray: its panel (drawn on the board's canvas, under this one), and the pieces in it
+    const tv = this.tv();
+    const inTray: Group[] = [];
+    if (tv) for (const id of g.z) if (g.groups.get(id)!.tray === this.openTrayId && id !== selId) inTray.push(g.groups.get(id)!);
     this.gl!.render(
       { width: this.canvasW, height: this.canvasH, scale: view.scale, ox: view.ox, oy: view.oy, frameX: this.frameX, frameY: this.frameY, light: this.init.flag('light') },
       anchored,
       loose,
-      selId >= 0 ? g.groups.get(selId)! : null,
+      selGroup && selGroup.tray < 0 ? selGroup : null,
       flash,
       lit,
+      tv ? { box: tv.panel, header: tv.header.h, scale: tv.scale, ox: tv.ox, oy: tv.oy, groups: inTray, selected: selGroup && selGroup.tray === this.openTrayId ? selGroup : null, glows: litInTray } : null,
     );
   }
 
@@ -391,6 +479,14 @@ export class JigsawSession implements PuzzleSession {
   }
 
   pointerDown(p: Pt, touch = false): void {
+    const tv = this.tv();
+    if (tv) {
+      const c = this.toCanvas(p);
+      if (insideBox(tv.panel, c.x, c.y)) {                         // on the open tray: its pieces are picked up from there, and bare tray does not move the board under it
+        this.trayDown(tv, c, p);
+        return;
+      }
+    }
     const gid = this.game.groupAt(p.x - this.frameX, p.y - this.frameY);
     if (gid < 0) {
       this.pan = { anchor: p, moved: false, deselect: true };
@@ -415,7 +511,8 @@ export class JigsawSession implements PuzzleSession {
     const q = this.world(p);
     const [px, py] = this.game.toSolved(grp, q.x - this.frameX, q.y - this.frameY);
     const dpr = window.devicePixelRatio || 1;
-    this.drag = { gid, px, py, qx: q.x - this.frameX, qy: q.y - this.frameY, moved: false, lift: touch && this.init.flag('offset') ? (LIFT_CSS * dpr) / this.cam.zoom : 0, t0: performance.now(), k: touch && this.init.flag('offset') ? 0 : 1 };
+    const here = this.toCanvas(p);
+    this.drag = { gid, px, py, qx: q.x - this.frameX, qy: q.y - this.frameY, cx: here.x, cy: here.y, moved: false, lift: touch && this.init.flag('offset') ? (LIFT_CSS * dpr) / this.cam.zoom : 0, t0: performance.now(), k: touch && this.init.flag('offset') ? 0 : 1 };
     this.buzz('grab');
     this.init.requestDraw();
   }
@@ -442,6 +539,9 @@ export class JigsawSession implements PuzzleSession {
     const q = this.world(p);
     d.qx = q.x - this.frameX;
     d.qy = q.y - this.frameY;
+    const here = this.toCanvas(p);
+    d.cx = here.x;
+    d.cy = here.y;
     this.placeDragged();
     d.moved = true;
     this.sendHand();
@@ -454,6 +554,15 @@ export class JigsawSession implements PuzzleSession {
     const d = this.drag!;
     const grp = this.game.groups.get(d.gid)!;
     const [rx, ry] = rotVec(grp.rot, d.px, d.py);
+    const tv = this.tv();
+    if (tv && insideBox(tv.panel, d.cx, d.cy)) {                 // over the open tray: it lies in the tray, held at the pointer, with its middle kept inside
+      const t = this.trayPt(tv, d.cx, d.cy);
+      const ts = traySize(this.layout_.cols, this.layout_.size);
+      const c = clampInTray(grp, this.layout_.cols, this.layout_.size, t.x - rx, t.y - ry, grp.rot, ts.w, ts.h);
+      this.game.setLocation(d.gid, this.openTrayId, c.dx, c.dy, grp.rot);
+      return;
+    }
+    if (grp.tray >= 0) grp.tray = -1;                            // taken out of the tray: on the table again
     const h = this.hold(d);
     this.game.moveTo(d.gid, h.x - rx, h.y - ry);
   }
@@ -514,7 +623,8 @@ export class JigsawSession implements PuzzleSession {
     const g = this.game;
     const d = this.drag;
     if (d && g.groups.has(d.gid)) {
-      const h = this.hold(d);
+      const tv = this.tv();
+      const h = g.groups.get(d.gid)!.tray >= 0 && tv ? this.trayPt(tv, d.cx, d.cy) : this.hold(d);
       g.rotate(d.gid, h.x, h.y);                                  // about the point it is held by, so the piece stays in hand
       const grp = g.groups.get(d.gid)!;
       [d.px, d.py] = g.toSolved(grp, h.x, h.y);
@@ -569,9 +679,10 @@ export class JigsawSession implements PuzzleSession {
    * Every change to the board that other players would have to see goes through here, as an operation (see `JigsawOp`): picking a group up, putting it down, turning it.
    * Moving a piece while it is in hand is not one: that only shows on this screen until it is put down.
    */
-  private commit(op: JigsawOp): { id: number; joins: number } {
+  private commit(op: PieceOp): { id: number; joins: number } {
     const res = applyOp(this.game, op);
     this.init.online?.send(op);
+    if (op.t === 'drop') this.init.traysChanged?.();             // (what lies in a tray is counted in the list)
     return res;
   }
 
@@ -579,13 +690,13 @@ export class JigsawSession implements PuzzleSession {
   private sendHand(): void {
     const d = this.drag;
     const g = d && this.game.groups.get(d.gid);
-    if (g) this.init.online?.hand({ piece: g.members[0], dx: g.dx, dy: g.dy, rot: g.rot });
+    if (g) this.init.online?.hand({ piece: g.members[0], dx: g.dx, dy: g.dy, rot: g.rot, ...(g.tray >= 0 ? { tray: g.tray } : {}) });
   }
 
   /** The group is put down where it lies now, joining what it lies right against when `tol` says so. */
-  private dropOp(gid: number, tol: number | null): JigsawOp {
+  private dropOp(gid: number, tol: number | null): PieceOp {
     const grp = this.game.groups.get(gid)!;
-    return { t: 'drop', piece: grp.members[0], dx: grp.dx, dy: grp.dy, rot: grp.rot, tol };
+    return { t: 'drop', piece: grp.members[0], dx: grp.dx, dy: grp.dy, rot: grp.rot, tol, ...(grp.tray >= 0 ? { tray: grp.tray } : {}) };
   }
 
   /** Lets go of a group that was in hand, where it is. */
@@ -597,12 +708,12 @@ export class JigsawSession implements PuzzleSession {
   /** Joins the group to whatever it now lies right against (turned the same way); if it was being dragged, the drag ends there. */
   private settle(gid: number): void {
     const tol = this.tolerance();
-    if (!this.game.groups.has(gid) || !this.game.canJoin(gid, tol)) return;
+    if (!this.game.groups.has(gid) || this.game.groups.get(gid)!.tray >= 0 || !this.game.canJoin(gid, tol)) return;
     this.apply(this.dropOp(gid, tol));
   }
 
   /** Commits an operation that may join groups, and gives the feedback for it: the glow, the buzz, the end of the drag. */
-  private apply(op: JigsawOp): void {
+  private apply(op: PieceOp): void {
     const g = this.game;
     const gid = g.groupOf[op.piece];
     if (!g.groups.has(gid)) return;
@@ -621,6 +732,106 @@ export class JigsawSession implements PuzzleSession {
       if (this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
     }
     this.buzz(g.solved ? 'solved' : g.anchoredCount > wasAnchored ? 'placed' : 'join');
+  }
+
+
+  // ---------------------------------------------------------------------------------------------------------------- sorting trays
+
+  /** The open tray on this canvas (nothing while none is open): where its panel lies, and how its space is fitted into it. Worked out again only when something it depends on changed. */
+  private tv(): TrayView | null {
+    if (this.openTrayId < 0 || !this.game.trays.includes(this.openTrayId) || !this.canvasW) return null;
+    const dpr = window.devicePixelRatio || 1;
+    const key = `${this.canvasW}x${this.canvasH}@${dpr}:${this.layout_.cols}:${this.layout_.size}`;
+    if (this.trayCache?.key !== key) {
+      const ts = traySize(this.layout_.cols, this.layout_.size);
+      this.trayCache = { key, view: trayView(this.canvasW, this.canvasH, ts.w, ts.h, TRAY_BAR_CSS * dpr, TRAY_HEADER_CSS * dpr, TRAY_PAD_CSS * dpr) };
+    }
+    return this.trayCache.view;
+  }
+
+  /** A board point (what the pointer events carry) as canvas pixels. */
+  private toCanvas(p: Pt): Pt {
+    return { x: (p.x - this.cam.cx) * this.cam.zoom + this.canvasW / 2, y: (p.y - this.cam.cy) * this.cam.zoom + this.canvasH / 2 };
+  }
+
+  /** A canvas pixel as a point of the open tray's space. */
+  private trayPt(tv: TrayView, cx: number, cy: number): Pt {
+    return { x: (cx - tv.ox) / tv.scale, y: (cy - tv.oy) / tv.scale };
+  }
+
+  /** A press on the open tray: the group under it is picked up (as one on the board is), bare tray does nothing. */
+  private trayDown(tv: TrayView, c: Pt, p: Pt): void {
+    this.pan = null;
+    const t = this.trayPt(tv, c.x, c.y);
+    const gid = this.game.groupAtTray(this.openTrayId, t.x, t.y);
+    if (gid < 0) return;
+    const blocked = this.init.online?.blockedBy();
+    if (blocked) {
+      this.init.online!.notify(`${blocked} is moving a piece`);
+      return;
+    }
+    const chosenBy = this.chosenBy(gid);
+    if (chosenBy) {
+      this.init.online!.notify(`${chosenBy} has chosen that piece`);
+      return;
+    }
+    const grp = this.game.groups.get(gid)!;
+    this.commit({ t: 'grab', piece: grp.members[0] });
+    this.init.online?.holding(grp.members[0]);
+    this.sel = grp.members[0];
+    const [px, py] = this.game.toSolved(grp, t.x, t.y);
+    const q = this.world(p);
+    this.drag = { gid, px, py, qx: q.x - this.frameX, qy: q.y - this.frameY, cx: c.x, cy: c.y, moved: false, lift: 0, t0: performance.now(), k: 1 };
+    this.buzz('grab');
+    this.init.requestDraw();
+  }
+
+  /** The trays have changed (one was made or taken away, or the board was replaced): a tray that is not there any more is not open, and the page's list is made again. */
+  private trayListChanged(): void {
+    if (this.openTrayId >= 0 && !this.game.trays.includes(this.openTrayId)) this.openTrayId = -1;
+    this.trayCache = null;
+    this.init.traysChanged?.();
+    this.init.requestDraw();
+  }
+
+  trays(): { id: number; pieces: number; open: boolean }[] {
+    return this.game.trays.map((id) => ({ id, pieces: this.game.piecesIn(id), open: id === this.openTrayId }));
+  }
+
+  /** Opens a tray on this screen (the one that was open closes), or closes it (-1, or the one that is open). Nobody else's screen is changed. */
+  openTray(id: number): void {
+    this.openTrayId = id >= 0 && this.game.trays.includes(id) && id !== this.openTrayId ? id : -1;
+    this.trayCache = null;
+    this.init.traysChanged?.();
+    this.init.requestDraw();
+  }
+
+  /** Adds a tray. With others it is the room that says which id it gets, and every screen (this one too) gets it from the room's word. */
+  addTray(): void {
+    if (this.game.trays.length >= TRAY_MAX) return;
+    if (this.init.online) this.init.online.send({ t: 'trayAdd' });
+    else {
+      applyOp(this.game, { t: 'trayAdd' });
+      this.trayListChanged();
+    }
+  }
+
+  /** Takes an empty tray away (the page offers it only for an empty one). */
+  removeTray(id: number): void {
+    if (!this.game.trays.includes(id) || this.game.piecesIn(id) > 0) return;
+    if (this.init.online) this.init.online.send({ t: 'trayRemove', tray: id });
+    else {
+      applyOp(this.game, { t: 'trayRemove', tray: id });
+      this.trayListChanged();
+    }
+  }
+
+  /** Where the open tray lies, in CSS pixels, for the page to put its title and buttons over the header. */
+  trayPanel(): { x: number; y: number; w: number; h: number; header: number; id: number; pieces: number } | null {
+    const tv = this.tv();
+    if (!tv) return null;
+    const dpr = window.devicePixelRatio || 1;
+    return { x: tv.panel.x / dpr, y: tv.panel.y / dpr, w: tv.panel.w / dpr, h: tv.panel.h / dpr, header: tv.header.h / dpr, id: this.openTrayId, pieces: this.game.piecesIn(this.openTrayId) };
   }
 
   // ---------------------------------------------------------------------------------------------------------------- other players
@@ -652,6 +863,11 @@ export class JigsawSession implements PuzzleSession {
   applyEvent(ev: RoomEvent): void {
     const op = ev.op;
     if (!op) return;                                              // a piece let go without moving: nothing changed on the board
+    if (op.t === 'trayAdd' || op.t === 'trayRemove') {          // a tray was made or taken away (by anyone: the room told us, in its own order)
+      applyOp(this.game, op);
+      this.trayListChanged();
+      return;
+    }
     const g = this.game;
     const gid = g.groupOf[op.piece];
     if (this.drag?.gid === gid) {                                 // this player was holding it, but the room says it is another's: what they did here no longer counts
@@ -667,6 +883,7 @@ export class JigsawSession implements PuzzleSession {
       this.flashStart = performance.now();
       if (this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
     }
+    this.init.traysChanged?.();
     this.init.requestDraw();
     this.init.progress?.();
   }
@@ -684,6 +901,7 @@ export class JigsawSession implements PuzzleSession {
     } catch {
       return;                                                     // (the room's board is this puzzle's: this does not happen)
     }
+    this.trayListChanged();
     if (this.sel >= 0 && this.game.groups.get(this.game.groupOf[this.sel])!.anchored) this.sel = -1;
     this.init.requestDraw();
     this.init.progress?.();
@@ -697,8 +915,9 @@ export class JigsawSession implements PuzzleSession {
   hand(by: string, pose: HandMessage | null): void {
     const had = this.hands.get(by);
     if (had && (!pose || this.game.groupOf[pose.piece] !== had.gid)) {
-      this.game.setPose(had.gid, had.truth.dx, had.truth.dy, had.truth.rot);
+      this.game.setLocation(had.gid, had.truth.tray, had.truth.dx, had.truth.dy, had.truth.rot);
       this.hands.delete(by);
+      this.init.traysChanged?.();
     }
     if (!pose) {
       this.init.requestDraw();
@@ -707,11 +926,11 @@ export class JigsawSession implements PuzzleSession {
     const gid = this.game.groupOf[pose.piece];
     const grp = this.game.groups.get(gid);
     if (!grp || grp.anchored) return;
-    const target = { dx: pose.dx, dy: pose.dy, rot: pose.rot };
+    const target = { dx: pose.dx, dy: pose.dy, rot: pose.rot, tray: pose.tray !== undefined && this.game.trays.includes(pose.tray) ? pose.tray : -1 };
     const mine = this.hands.get(by);
     if (mine) mine.target = target;
     else {
-      const truth = { dx: grp.dx, dy: grp.dy, rot: grp.rot };
+      const truth = { dx: grp.dx, dy: grp.dy, rot: grp.rot, tray: grp.tray };
       this.hands.set(by, { gid, truth, target, cur: { ...truth } });
     }
     this.init.requestDraw();
@@ -726,8 +945,9 @@ export class JigsawSession implements PuzzleSession {
       const gx = h.target.dx - h.cur.dx;
       const gy = h.target.dy - h.cur.dy;
       if (Math.abs(gx) + Math.abs(gy) > 0.3) moving = true;
-      h.cur = { dx: h.cur.dx + gx * k, dy: h.cur.dy + gy * k, rot: h.target.rot };
-      this.game.setPose(h.gid, h.cur.dx, h.cur.dy, h.cur.rot);
+      // (a piece that goes into a tray, or comes out of one, jumps: the two spaces are not on the same scale)
+      h.cur = h.target.tray !== h.cur.tray ? { ...h.target } : { dx: h.cur.dx + gx * k, dy: h.cur.dy + gy * k, rot: h.target.rot, tray: h.target.tray };
+      this.game.setLocation(h.gid, h.cur.tray, h.cur.dx, h.cur.dy, h.cur.rot);
     }
     return moving;
   }

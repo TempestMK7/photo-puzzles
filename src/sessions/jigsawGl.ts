@@ -7,6 +7,18 @@ import type { Masks } from './jigsawArt';
  */
 
 /** What a group looks like to the renderer. */
+/** The open sorting tray, for `render`: its panel on the canvas (and how much of its top is header), how its space is fitted in, and what lies in it. */
+export interface GlTray {
+  box: { x: number; y: number; w: number; h: number };
+  header: number;
+  scale: number;
+  ox: number;
+  oy: number;
+  groups: GlGroup[];
+  selected: GlGroup | null;
+  glows: { group: GlGroup; rgb: [number, number, number] }[];
+}
+
 export interface GlGroup {
   members: number[];
   rot: number;
@@ -290,7 +302,7 @@ export class PieceRenderer {
    * Draws the pieces into the renderer's canvas (the same size as the board's) and returns it, or null if there is nothing to show yet. `loose` is back to front; the
    * `selected` group is drawn last, with a glow. `glows` are the groups that other players have in hand or have chosen: each is drawn again over the others, with a glow of its colour.
    */
-  render(view: GlView, anchored: Iterable<GlGroup>, loose: Iterable<GlGroup>, selected: GlGroup | null, flash: { members: number[]; k: number } | null, glows: { group: GlGroup; rgb: [number, number, number] }[] = []): HTMLCanvasElement | null {
+  render(view: GlView, anchored: Iterable<GlGroup>, loose: Iterable<GlGroup>, selected: GlGroup | null, flash: { members: number[]; k: number } | null, glows: { group: GlGroup; rgb: [number, number, number] }[] = [], tray: GlTray | null = null): HTMLCanvasElement | null {
     if (this.lost) return null;
     const gl = this.gl;
     const { canvas, l, masks } = this;
@@ -312,6 +324,11 @@ export class PieceRenderer {
     if (selected) total += selected.members.length;
     for (const o of glows) total += o.group.members.length;
     if (flash) total += flash.members.length;
+    if (tray) {
+      for (const grp of tray.groups) total += grp.members.length * 2;
+      for (const o of tray.glows) total += o.group.members.length;
+      if (tray.selected) total += tray.selected.members.length;
+    }
     this.room(total);
     const x0 = -view.ox / view.scale;
     const y0 = -view.oy / view.scale;
@@ -319,7 +336,7 @@ export class PieceRenderer {
     const y1 = (view.height - view.oy) / view.scale;
     const half = masks.tile * 0.75;
     const data = this.data;
-    const push = (grp: GlGroup, plain: number): void => {
+    const push = (grp: GlGroup, plain: number, fx = view.frameX, fy = view.frameY, cull = true): void => {
       const cs = COS[grp.rot & 3];
       const sn = SIN[grp.rot & 3];
       for (const m of grp.members) {
@@ -327,9 +344,9 @@ export class PieceRenderer {
         const r = (m / l.cols) | 0;
         const px = (c + 0.5) * l.size;
         const py = (r + 0.5) * l.size;
-        const cx = view.frameX + grp.dx + px * cs - py * sn;
-        const cy = view.frameY + grp.dy + px * sn + py * cs;
-        if (cx - half > x1 || cy - half > y1 || cx + half < x0 || cy + half < y0) continue;
+        const cx = fx + grp.dx + px * cs - py * sn;
+        const cy = fy + grp.dy + px * sn + py * cs;
+        if (cull && (cx - half > x1 || cy - half > y1 || cx + half < x0 || cy + half < y0)) continue;
         const i = n * FLOATS;
         data[i] = cx;
         data[i + 1] = cy;
@@ -356,6 +373,24 @@ export class PieceRenderer {
     const flashStart = n;
     if (flash) push({ members: flash.members, rot: 0, dx: 0, dy: 0 }, 1);
     const nFlash = n - flashStart;
+    // what lies in the open tray (in the tray's own space: no frame, and nothing is left out for lying off the screen)
+    const trayStart = n;
+    const trayLit: { start: number; count: number; rgb: [number, number, number] }[] = [];
+    let nTray = 0;
+    let traySelStart = 0;
+    let nTraySel = 0;
+    if (tray) {
+      for (const grp of tray.groups) push(grp, 0, 0, 0, false);
+      nTray = n - trayStart;
+      for (const o of tray.glows) {
+        const start = n;
+        push(o.group, 0, 0, 0, false);
+        trayLit.push({ start, count: n - start, rgb: o.rgb });
+      }
+      traySelStart = n;
+      if (tray.selected) push(tray.selected, 0, 0, 0, false);
+      nTraySel = n - traySelStart;
+    }
 
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clearColor(0, 0, 0, 0);
@@ -373,10 +408,10 @@ export class PieceRenderer {
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, this.overlayTex);
 
-    const shared = (p: Program): void => {
+    const shared = (p: Program, sc = view.scale, ox = view.ox, oy = view.oy): void => {
       gl.useProgram(p.prog);
       gl.uniform2f(p.u.u_res, canvas.width, canvas.height);
-      gl.uniform3f(p.u.u_xf, view.scale * k, view.ox * k, view.oy * k);
+      gl.uniform3f(p.u.u_xf, sc * k, ox * k, oy * k);
       gl.uniform1f(p.u.u_tile, masks.tile);
       gl.uniform1f(p.u.u_o, l.size / 2 + masks.pad);
       gl.uniform1i(p.u.u_cover, 1);
@@ -429,6 +464,40 @@ export class PieceRenderer {
       shared(f);
       gl.uniform1f(f.u.u_k, 0.35 * flash.k);
       draw(flashStart, nFlash);
+    }
+    if (tray) {
+      // the tray lies over the board: what is behind its panel is wiped out (the panel itself is drawn under this canvas), and its pieces are drawn in its own space and scale
+      const b = tray.box;
+      gl.enable(gl.SCISSOR_TEST);
+      gl.scissor(Math.round(b.x * k), Math.round(canvas.height - (b.y + b.h) * k), Math.round(b.w * k), Math.round(b.h * k));
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.scissor(Math.round(b.x * k), Math.round(canvas.height - (b.y + b.h) * k), Math.round(b.w * k), Math.round((b.h - tray.header) * k));
+      shared(p, tray.scale, tray.ox, tray.oy);
+      gl.uniform1f(p.u.u_outline, Math.min(1, Math.max(0, (l.size * tray.scale - 10) / 20)));
+      gl.uniform1f(p.u.u_blur, tray.scale < 1 ? 0.5 / tray.scale : 0);
+      draw(trayStart, nTray);
+      for (const o of trayLit) {
+        const g = this.glow;
+        shared(g, tray.scale, tray.ox, tray.oy);
+        gl.uniform1f(g.u.u_r, Math.min(GLOW_PX / tray.scale, masks.pad - 1));
+        gl.uniform3f(g.u.u_glow, o.rgb[0], o.rgb[1], o.rgb[2]);
+        draw(o.start, o.count);
+        draw(o.start, o.count);
+        gl.useProgram(p.prog);
+        draw(o.start, o.count);
+      }
+      if (nTraySel) {
+        const g = this.glow;
+        shared(g, tray.scale, tray.ox, tray.oy);
+        gl.uniform1f(g.u.u_r, Math.min(GLOW_PX / tray.scale, masks.pad - 1));
+        if (view.light) gl.uniform3f(g.u.u_glow, 0.9, 0.45, 0);
+        else gl.uniform3f(g.u.u_glow, 1, 0.847, 0.29);
+        draw(traySelStart, nTraySel);
+        gl.useProgram(p.prog);
+        draw(traySelStart, nTraySel);
+      }
+      gl.disable(gl.SCISSOR_TEST);
     }
     return canvas;
   }
