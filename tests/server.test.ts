@@ -253,7 +253,9 @@ describe.each(stores)('the room service on %s', (_name, store) => {
         const cur = await w.service.getRoom(ann, made.roomId);
         if (!cur.ok || cur.room.status === 'solved') break;
         const game = new JigsawRoom(room.settings, cur.room.state).board.game;
-        const a = [...game.groups.values()].find((x) => !x.anchored)!;
+        const who0 = players[step % 2];
+        const taken = new Set((cur.room.state.reserved ?? []).filter((r) => r.holder !== who0.id).map((r) => game.groupOf[r.piece]));       // what the other player touched last is theirs for a while
+        const a = [...game.groups.values()].find((x) => !x.anchored && !taken.has(x.id))!;
         let pose: { dx: number; dy: number; rot: number } | undefined;
         for (const m of a.members) {
           const c = m % game.cols;

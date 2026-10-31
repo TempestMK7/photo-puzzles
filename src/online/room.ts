@@ -1,4 +1,4 @@
-import type { Command, Lock, RoomEvent, RoomState } from '../core/jigsawRoom';
+import type { Command, Lock, Reservation, RoomEvent, RoomState } from '../core/jigsawRoom';
 import type { CallError, RoomApi } from './api';
 import { HAND_INTERVAL_MS, lockHeld, RENEW_INTERVAL_MS, type HandMessage, type Member, type Playback, type RoomDescriptor, type RoomMessage } from './protocol';
 import type { Connection, Realtime } from './realtime';
@@ -12,6 +12,8 @@ export interface RoomView {
   /** Where the piece another player holds is now, or `null` when it is let go (it goes back to where the board has it). */
   hand(by: string, pose: HandMessage | null): void;
   groupCount(): number;
+  /** The pieces that other players have chosen (and so nobody else may take) changed, or one ran out: draw them again. */
+  reservations?(): void;
 }
 
 export type RoomStatus = 'connecting' | 'online' | 'reconnecting' | 'closed' | 'refused';
@@ -48,6 +50,8 @@ export class OnlineRoom {
   private conn: Connection | null = null;
   private version: number;
   private lock: Lock | null;
+  /** The pieces that players have picked up or clicked on, as the room last said (see `Reservation`). */
+  private reserved: Reservation[];
   /** The server's clock minus this one's. */
   private offset: number;
   private queue: Promise<void> = Promise.resolve();
@@ -79,6 +83,7 @@ export class OnlineRoom {
     this.solvedMs = descriptor.solvedMs ?? null;
     this.version = descriptor.state.v;
     this.lock = descriptor.state.lock;
+    this.reserved = descriptor.state.reserved ?? [];
     this.solved = descriptor.status === 'solved';
     this.offset = descriptor.serverTime - Date.now();
     this.descriptor = descriptor;
@@ -158,6 +163,12 @@ export class OnlineRoom {
     if (!p || (this.playback && p.at < this.playback.at)) return false;
     this.playback = p;
     return true;
+  }
+
+  /** The pieces that other players have chosen (a piece of each group), now: nobody else may pick one up or turn it. */
+  othersReserved(): { by: string; piece: number }[] {
+    const now = this.serverNow;
+    return this.reserved.filter((r) => r.holder !== this.me && r.until > now).map((r) => ({ by: r.holder, piece: r.piece }));
   }
 
   /** The player who holds a piece (not this player), if any: while someone does, nothing can be picked up. */
@@ -330,7 +341,9 @@ export class OnlineRoom {
       this.dropHand();
       this.view?.applyEvent(ev);                                      // (this player's own are applied already)
     }
+    this.reserved = ev.reserved ?? [];
     this.setLock(ev.lock);
+    this.view?.reservations?.();
     if (ev.solved) this.solved = true;
     // the board here and the board there have drifted apart (but while this player's own moves are on their way the board here is ahead, which is not that)
     if (this.view && this.pending === 0 && this.view.groupCount() !== ev.groups) void this.resync();
@@ -348,17 +361,23 @@ export class OnlineRoom {
     this.armExpiry();
   }
 
-  /** A hold that runs out on its own sends no message: when it does, the piece goes back to where the board has it. */
+  /**
+   * A hold, or a reservation, that runs out on its own sends no message: when it does, a piece in another's hand goes back to where the board has it, and one that was reserved is
+   * drawn as any other.
+   */
   private armExpiry(): void {
     if (this.expiryTimer) clearTimeout(this.expiryTimer);
+    if (this.ended) return;
     const l = this.lock;
-    if (!l || this.ended) return;
+    const now = this.serverNow;
+    const times = [...(l && l.holder !== this.me && l.until > now ? [l.until] : []), ...this.reserved.filter((r) => r.holder !== this.me && r.until > now).map((r) => r.until)];
+    if (!times.length) return;
     this.expiryTimer = setTimeout(() => {
-      if (this.lock === l && l.holder !== this.me) {
-        this.dropHand();
-        this.changed();
-      }
-    }, Math.max(0, l.until - this.serverNow) + 50);
+      if (this.lock === l && l && l.holder !== this.me && l.until <= this.serverNow + 50) this.dropHand();
+      this.view?.reservations?.();
+      this.changed();
+      this.armExpiry();
+    }, Math.max(0, Math.min(...times) - now) + 50);
   }
 
   /** Asks the server for the whole board and starts again from it. */
@@ -399,9 +418,11 @@ export class OnlineRoom {
         this.version = r.state.v;
         this.handSeen.clear();
         this.handBy = null;
+        this.reserved = r.state.reserved ?? [];
         this.setLock(r.state.lock);
         this.solved = r.status === 'solved';
         this.view?.resync(r.state);
+        this.view?.reservations?.();
         this.changed();
       } while (this.resyncAgain);
     } finally {

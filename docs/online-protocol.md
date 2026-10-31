@@ -50,6 +50,10 @@ The room keeps `lock = { holder, piece, until }`.
   anyone grabbed may still drop. Presence ("client disconnected") can free the lock sooner but is not needed for correctness.
 - When someone else's `grab` event arrives, a screen forgets any hand pose it was showing for the previous holder and shows the group where the board has it.
 
+### The piece a player has chosen
+
+Besides the hand, every player may have **one piece reserved** (`reserved: [{ holder, piece, until }]` in the room's state, and the whole current list in every event, which a screen takes in place of what it had). It is the piece that a player picked up last or clicked on, and it is theirs until they click somewhere else (`unselect`), pick up another piece, or `RESERVE_MS` (15 s) pass since they last touched it; nobody has to renew it. While it is reserved no other player can `grab`, `select` or `rotate` it (`busy`, with the holder); the others see it in the holder's colour. `select` `{ piece }` reserves a piece without picking it up (nothing changes on the board); `release` and `drop` keep the reservation (and start the time again) unless the piece has become part of the picture; `unselect` lets it go. A player who leaves, or is sent out, loses it (no event: the others' copy runs out by itself). A room from before reservations has none. The hand is still one for the whole room.
+
 When the last piece joins, the event says `solved` and the room refuses everything else (`ended`).
 
 ## Events, order, catching up

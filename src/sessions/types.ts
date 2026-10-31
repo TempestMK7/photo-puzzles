@@ -1,5 +1,4 @@
-import type { RoomEvent, RoomState } from '../core/jigsawRoom';
-import type { JigsawOp } from '../core/jigsawSetup';
+import type { Command, RoomEvent, RoomState } from '../core/jigsawRoom';
 import type { HandMessage } from '../online/protocol';
 import type { View } from '../render';
 
@@ -18,8 +17,10 @@ export interface ToggleDef {
 export interface OnlineHooks {
   /** The name of another player who holds a piece, if one does: nothing can be picked up meanwhile. */
   blockedBy(): string | null;
-  /** The player did this to the board (already applied here): send it to the room. */
-  send(op: JigsawOp): void;
+  /** The player did this to the board (already applied here), or chose a piece, or let their choice go: send it to the room. */
+  send(op: Command): void;
+  /** The pieces that other players have chosen, with their names: nobody else may pick one up or turn it (a piece of each group). */
+  reserved(): { by: string; name: string; piece: number }[];
   /** Where the piece in hand is; the room passes it on a few times a second. */
   hand(pose: Omit<HandMessage, 'n'>): void;
   /** A piece (one of its group) is in hand, or let go: the hold has to be kept alive while it lasts. */

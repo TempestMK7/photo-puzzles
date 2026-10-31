@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { JigsawGame } from '../src/core/jigsaw';
-import { JigsawRoom, LOCK_MS, type RoomEvent } from '../src/core/jigsawRoom';
+import { JigsawRoom, LOCK_MS, RESERVE_MS, type RoomEvent } from '../src/core/jigsawRoom';
 import { applyOp, buildJigsaw, TOL_MAX_K, TOL_MIN_K, type JigsawSetup } from '../src/core/jigsawSetup';
 import { Rng } from '../src/core/rng';
 
@@ -117,9 +117,10 @@ describe('JigsawRoom: one hand', () => {
     const before = b.rot;
     expect(room.submit('bob', { t: 'rotate', piece: b.members[0], tol: null }, 0).ok).toBe(true);
     expect(b.rot).toBe((before + 1) % 4);
-    room.submit('ann', { t: 'grab', piece: a.members[0] }, 10);
-    expect(room.submit('ann', { t: 'rotate', piece: b.members[0], tol: null }, 20)).toEqual({ ok: false, reason: 'busy', holder: 'ann' });
-    expect(room.submit('ann', { t: 'rotate', piece: a.members[0], tol: null }, 20).ok).toBe(true);
+    const later = RESERVE_MS + 10;                                 // (what bob just turned is his for a while: not what this is about)
+    room.submit('ann', { t: 'grab', piece: a.members[0] }, later);
+    expect(room.submit('ann', { t: 'rotate', piece: b.members[0], tol: null }, later + 10)).toEqual({ ok: false, reason: 'busy', holder: 'ann' });
+    expect(room.submit('ann', { t: 'rotate', piece: a.members[0], tol: null }, later + 10).ok).toBe(true);
   });
 });
 
@@ -172,7 +173,7 @@ function play(opts: Record<string, number>, seed: number): { room: JigsawRoom; c
     const other = players[(players.indexOf(who) + 1 + rng.below(2)) % 3];
     const mine = loose(room);
     const a = mine[rng.below(mine.length)];
-    now += 50;
+    now += RESERVE_MS + 50;                                        // (the piece that somebody touched last is theirs for a while: here each step is long after the one before)
     const got = room.submit(who, { t: 'grab', piece: a.members[0] }, now);
     if (!got.ok) continue;
     publish(got.event);
@@ -238,7 +239,7 @@ describe('JigsawRoom: a whole game', () => {
   it('carries on from its saved state, a hold included, on another instance', () => {
     const s = setup({ turning: 1 });
     const room = new JigsawRoom(s);
-    const [a, b] = loose(room);
+    const [a, b, c] = loose(room);
     room.submit('ann', { t: 'grab', piece: a.members[0] }, 0);
     room.submit('ann', { t: 'drop', piece: a.members[0], dx: 3, dy: 4, rot: 2, tol: null }, 10);
     room.submit('bob', { t: 'grab', piece: b.members[0] }, 20);
@@ -246,7 +247,8 @@ describe('JigsawRoom: a whole game', () => {
     const again = new JigsawRoom(s, saved);
     expect(again.state()).toEqual(room.state());
     expect(again.version).toBe(3);
-    expect(again.submit('cy', { t: 'grab', piece: a.members[0] }, 30)).toEqual({ ok: false, reason: 'busy', holder: 'bob' });
+    expect(again.submit('cy', { t: 'grab', piece: c.members[0] }, 30)).toEqual({ ok: false, reason: 'busy', holder: 'bob' });
+    expect(again.submit('cy', { t: 'grab', piece: a.members[0] }, 30)).toEqual({ ok: false, reason: 'busy', holder: 'ann' });        // and what ann had chosen is still hers
     expect(again.submit('bob', { t: 'release' }, 30).ok).toBe(true);
   });
 
@@ -255,5 +257,146 @@ describe('JigsawRoom: a whole game', () => {
     const other = new JigsawRoom({ ...setup(), opts: { pieces: 40 } }).state();
     expect(() => new JigsawRoom(setup(), other)).toThrow();
     expect(room.version).toBe(0);
+  });
+});
+
+describe('JigsawRoom: the piece a player has chosen', () => {
+  const grabbed = (turning = 0) => {
+    const room = new JigsawRoom(setup({ turning }));
+    const [a, b, c] = loose(room);
+    return { room, a, b, c };
+  };
+
+  /** A loose group that lies against a part of the picture that is in place, and the pose at which it joins it. */
+  const nextToThePicture = (room: JigsawRoom) => {
+    const g = room.board.game;
+    for (const grp of loose(room)) {
+      for (const m of grp.members) {
+        const c = m % g.cols;
+        const r = Math.floor(m / g.cols);
+        for (const [nc, nr] of [[c - 1, r], [c + 1, r], [c, r - 1], [c, r + 1]]) {
+          if (nc < 0 || nr < 0 || nc >= g.cols || nr >= g.rows) continue;
+          const o = g.groups.get(g.groupOf[nr * g.cols + nc])!;
+          if (o.anchored) return { piece: grp.members[0], dx: o.dx, dy: o.dy, rot: o.rot };
+        }
+      }
+    }
+    throw new Error('no piece next to the picture');
+  };
+
+  it('is reserved by clicking on it, and is told to everyone in the event', () => {
+    const { room, a } = grabbed();
+    const res = room.submit('ann', { t: 'select', piece: a.members[0] }, 100);
+    expect(res.ok && res.event.op).toBeUndefined();                                // nothing changes on the board
+    expect(res.ok && res.event.reserved).toEqual([{ holder: 'ann', piece: a.members[0], until: 100 + RESERVE_MS }]);
+    expect(res.ok && res.event.v).toBe(1);
+    expect(room.reservations(100)).toHaveLength(1);
+  });
+
+  it('cannot be picked up, chosen or turned by anyone else, and says whose it is', () => {
+    const { room, a } = grabbed(1);
+    room.submit('ann', { t: 'select', piece: a.members[0] }, 0);
+    const busy = { ok: false, reason: 'busy', holder: 'ann' };
+    expect(room.submit('bob', { t: 'grab', piece: a.members[0] }, 10)).toEqual(busy);
+    expect(room.submit('bob', { t: 'select', piece: a.members[0] }, 10)).toEqual(busy);
+    expect(room.submit('bob', { t: 'rotate', piece: a.members[0], tol: null }, 10)).toEqual(busy);
+    expect(room.holder(10)).toBeNull();                                           // (and no hand is on it)
+    expect(room.submit('ann', { t: 'grab', piece: a.members[0] }, 10).ok).toBe(true);        // its owner may
+    expect(room.submit('ann', { t: 'rotate', piece: a.members[0], tol: null }, 20).ok).toBe(true);
+  });
+
+  it('is only that piece: the others carry on with the rest, and may reserve a piece each', () => {
+    const { room, a, b, c } = grabbed();
+    room.submit('ann', { t: 'select', piece: a.members[0] }, 0);
+    const got = room.submit('bob', { t: 'select', piece: b.members[0] }, 5);
+    expect(got.ok && got.event.reserved.map((r) => r.holder).sort()).toEqual(['ann', 'bob']);
+    expect(room.submit('cy', { t: 'grab', piece: c.members[0] }, 10).ok).toBe(true);
+    expect(room.submit('cy', { t: 'grab', piece: a.members[0] }, 20)).toMatchObject({ ok: false, reason: 'busy' });
+  });
+
+  it('is one piece for a player: choosing or picking up another lets the first go', () => {
+    const { room, a, b } = grabbed();
+    room.submit('ann', { t: 'select', piece: a.members[0] }, 0);
+    room.submit('ann', { t: 'select', piece: b.members[0] }, 10);
+    expect(room.reservations(10).map((r) => r.piece)).toEqual([b.members[0]]);
+    expect(room.submit('bob', { t: 'grab', piece: a.members[0] }, 20).ok).toBe(true);        // free again
+    expect(room.reservations(20).map((r) => [r.holder, r.piece]).sort()).toEqual([['ann', b.members[0]], ['bob', a.members[0]]].sort());
+  });
+
+  it('runs out RESERVE_MS after the player last touched it, and every touch starts the time again', () => {
+    const { room, a } = grabbed();
+    room.submit('ann', { t: 'select', piece: a.members[0] }, 0);
+    expect(room.submit('bob', { t: 'grab', piece: a.members[0] }, RESERVE_MS - 1)).toMatchObject({ ok: false, reason: 'busy' });
+    room.submit('ann', { t: 'select', piece: a.members[0] }, RESERVE_MS - 1);                        // touched again
+    expect(room.submit('bob', { t: 'grab', piece: a.members[0] }, RESERVE_MS + 5)).toMatchObject({ ok: false, reason: 'busy' });
+    expect(room.submit('bob', { t: 'grab', piece: a.members[0] }, 2 * RESERVE_MS)).toMatchObject({ ok: true });
+    expect(room.reservations(2 * RESERVE_MS).map((r) => r.holder)).toEqual(['bob']);                  // and ann's is gone from what is told
+  });
+
+  it('is let go by clicking elsewhere (unselect), at once, and unselecting with nothing chosen is no harm', () => {
+    const { room, a } = grabbed();
+    room.submit('ann', { t: 'select', piece: a.members[0] }, 0);
+    const res = room.submit('ann', { t: 'unselect' }, 5);
+    expect(res.ok && res.event.reserved).toEqual([]);
+    expect(room.submit('bob', { t: 'grab', piece: a.members[0] }, 6).ok).toBe(true);
+    expect(room.submit('cy', { t: 'unselect' }, 7).ok).toBe(true);
+  });
+
+  it('is picked up with the hand and kept after it is let go or set down (the piece is still the one chosen)', () => {
+    const { room, a } = grabbed();
+    const grab = room.submit('ann', { t: 'grab', piece: a.members[0] }, 0);
+    expect(grab.ok && grab.event.reserved.map((r) => r.holder)).toEqual(['ann']);
+    expect(room.submit('ann', { t: 'release' }, 100).ok).toBe(true);
+    expect(room.holder(100)).toBeNull();
+    expect(room.submit('bob', { t: 'grab', piece: a.members[0] }, 200)).toMatchObject({ ok: false, reason: 'busy', holder: 'ann' });
+    room.submit('ann', { t: 'grab', piece: a.members[0] }, 300);
+    const drop = room.submit('ann', { t: 'drop', piece: a.members[0], dx: 7, dy: 8, rot: 0, tol: null }, 400);
+    expect(drop.ok && drop.event.reserved[0]).toEqual({ holder: 'ann', piece: a.members[0], until: 400 + RESERVE_MS });
+  });
+
+  it('ends when the piece joins the part of the picture that is in place', () => {
+    const { room } = grabbed();
+    const t = nextToThePicture(room);
+    room.submit('ann', { t: 'grab', piece: t.piece }, 0);
+    const done = room.submit('ann', { t: 'drop', piece: t.piece, dx: t.dx, dy: t.dy, rot: t.rot, tol: room.board.layout.size * 0.5 }, 10);
+    expect(done.ok && done.event.joins).toBeGreaterThan(0);
+    expect(done.ok && done.event.reserved).toEqual([]);
+  });
+
+  it('is gone when a player leaves (without a new event), and is kept in the state that a room carries on from, expired ones left out', () => {
+    const { room, a, b } = grabbed();
+    room.submit('ann', { t: 'select', piece: a.members[0] }, 0);
+    room.submit('bob', { t: 'select', piece: b.members[0] }, 0);
+    const v = room.version;
+    room.unreserve('ann');
+    expect(room.version).toBe(v);
+    expect(room.reservations(1).map((r) => r.holder)).toEqual(['bob']);
+    const again = new JigsawRoom(setup(), JSON.parse(JSON.stringify(room.state())));
+    expect(again.reservations(1).map((r) => r.holder)).toEqual(['bob']);
+    expect(again.submit('cy', { t: 'grab', piece: b.members[0] }, 10)).toMatchObject({ ok: false, reason: 'busy', holder: 'bob' });
+    expect(again.reservations(RESERVE_MS + 1)).toEqual([]);
+  });
+
+  it('is not there in a room from before it existed (a state without it carries on as it was)', () => {
+    const room = new JigsawRoom(setup());
+    const old = JSON.parse(JSON.stringify(room.state())) as { reserved?: unknown };
+    delete old.reserved;
+    const again = new JigsawRoom(setup(), old as ReturnType<JigsawRoom['state']>);
+    expect(again.reservations(0)).toEqual([]);
+    const [a] = loose(again);
+    expect(again.submit('ann', { t: 'select', piece: a.members[0] }, 0).ok).toBe(true);
+  });
+
+  it('is refused for a piece that is not there, or is part of the picture, or a number that makes no sense', () => {
+    const { room } = grabbed();
+    expect(room.submit('ann', { t: 'select', piece: 9999 }, 0)).toEqual({ ok: false, reason: 'bad' });
+    expect(room.submit('ann', { t: 'select', piece: 1.5 }, 0)).toEqual({ ok: false, reason: 'bad' });
+    expect(room.submit('ann', { t: 'select', piece: 0 }, 0)).toEqual({ ok: false, reason: 'no-group' });
+  });
+
+  it('is cleared when the puzzle is solved', () => {
+    const { room: solved } = play({}, 3);
+    expect(solved.solved).toBe(true);
+    expect(solved.reservations(0)).toEqual([]);
   });
 });
