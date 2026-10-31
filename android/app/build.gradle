@@ -15,6 +15,8 @@ def TEST_APP_ID = 'ca-app-pub-3940256099942544~3347511713'
 def TEST_REWARDED_UNIT = 'ca-app-pub-3940256099942544/5224354917'
 def admobAppId = (project.findProperty('admobAppId') ?: local.getProperty('admob.appId')) ?: TEST_APP_ID
 def admobRewardedUnit = (project.findProperty('admobRewardedUnit') ?: local.getProperty('admob.rewardedUnit')) ?: TEST_REWARDED_UNIT
+// the phones (and emulators) that are shown test ads even with the real ad unit, so that its own ads are never watched or clicked by the developer: a comma-separated list of the ids that the ad SDK names in the log
+def admobTestDevices = (project.findProperty('admobTestDevices') ?: local.getProperty('admob.testDevices')) ?: ''
 
 android {
     namespace "com.tempest.photopuzzles"
@@ -28,6 +30,7 @@ android {
         versionName "0.1"
         manifestPlaceholders = [admobAppId: admobAppId]
         buildConfigField 'String', 'ADMOB_REWARDED_UNIT', "\"${admobRewardedUnit}\""
+        buildConfigField 'String', 'ADMOB_TEST_DEVICES', "\"${admobTestDevices}\""
     }
     buildFeatures {
         buildConfig true

@@ -54,6 +54,16 @@ final class Ads {
     private String wantedNonce;
     private Runnable giveUp;
 
+    /** The devices that are shown test ads even with the real ad unit (BuildConfig.ADMOB_TEST_DEVICES: android/local.properties, not kept in the repository), and the emulator. */
+    private static java.util.List<String> testDevices() {
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        ids.add(AdRequest.DEVICE_ID_EMULATOR);
+        for (String id : BuildConfig.ADMOB_TEST_DEVICES.split(",")) {
+            if (!id.trim().isEmpty()) ids.add(id.trim());
+        }
+        return ids;
+    }
+
     Ads(Activity activity, String unitId, Listener listener) {
         this.activity = activity;
         this.unitId = unitId;
@@ -126,6 +136,7 @@ final class Ads {
             MobileAds.setRequestConfiguration(new RequestConfiguration.Builder()
                 // the game's terms keep adult content out of it, and the ads should not bring it in: nothing above "PG" is asked for (the categories blocked in the AdMob console come on top)
                 .setMaxAdContentRating(RequestConfiguration.MAX_AD_CONTENT_RATING_PG)
+                .setTestDeviceIds(testDevices())
                 .build());
             // (the documentation asks for the start to be off the main thread)
             new Thread(() -> MobileAds.initialize(activity, status -> main.post(this::load))).start();
