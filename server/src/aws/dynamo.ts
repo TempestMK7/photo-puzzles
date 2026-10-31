@@ -1,5 +1,5 @@
 import { BatchGetCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand, ScanCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import type { Ban, Clock, Presence, RateCounter, Report, RoomRecord, Store } from '../types';
+import type { Ban, Clock, FileRecord, Presence, RateCounter, Report, RoomRecord, Store } from '../types';
 
 /** The part of the document client that is used, so that a test can put a fake in its place. */
 export interface Sender {
@@ -14,6 +14,10 @@ export interface Sender {
  *   PLAYER#<id>   / ROOM#<id>       a player's membership
  *   PLAYER#<id>   / CREATION#<ms>   a puzzle that was made, for the quota
  *   PLAYER#<id>   / PROFILE         the display name the player chose (with a `ttl` for a guest, who may not come back)
+ *   FILE#<id>     / FILE            a kept picture or video (`body` is the record as JSON; `ttl` is when it runs out)
+ *   FILE#<id>     / USER#<player>   a player who may make a puzzle from the file (they joined a puzzle made from it)
+ *   PLAYER#<id>   / FILE#<id>       a file the player sent
+ *   FILES         / <ms>#<id>       every kept file, in the order they were sent (to list them). The last three have a `ttl` a little after the file's own, put forward each time the file is used
  *   REPORTS       / <ms>#<tag>      a report of a puzzle (with a `ttl`)
  *   BANS          / <player>        a player who may not play online (no `ttl`)
  *   RATE#<key>#<n> / COUNT          how many times something happened in one window of time (see DynamoRates)
@@ -22,6 +26,9 @@ export interface Sender {
 const roomKey = (id: string) => ({ pk: `ROOM#${id}`, sk: 'META' });
 const codeKey = (code: string) => ({ pk: `CODE#${code}`, sk: 'CODE' });
 const memberKey = (player: string, room: string) => ({ pk: `PLAYER#${player}`, sk: `ROOM#${room}` });
+const fileItem = (id: string) => ({ pk: `FILE#${id}`, sk: 'FILE' });
+const fileUserKey = (id: string, player: string) => ({ pk: `FILE#${id}`, sk: `USER#${player}` });
+const ownerFileKey = (player: string, id: string) => ({ pk: `PLAYER#${player}`, sk: `FILE#${id}` });
 const pad = (ms: number) => String(Math.max(0, ms)).padStart(15, '0');
 
 const seconds = (ms: number) => Math.ceil(ms / 1000);
@@ -32,6 +39,8 @@ const SLACK = 6 * HOUR;
 const CLAIM_MS = HOUR;
 /** The quota looks back a week; the records stay a day longer. */
 const CREATION_KEEP_MS = 8 * 24 * HOUR;
+/** What hangs on a kept file (who may use it, the lists it is in) outlives the file by this much (and is put forward when the file is used). */
+const FILE_SLACK_MS = 2 * 24 * HOUR;
 /** A report is kept this long: long enough to be looked at, and to be found again if the same puzzle or player is reported later. */
 const REPORT_KEEP_MS = 90 * 24 * HOUR;
 
@@ -283,6 +292,86 @@ export class DynamoStore implements Store {
       start = page.LastEvaluatedKey;
     } while (start);
     return found;
+  }
+
+  async getFile(id: string): Promise<FileRecord | undefined> {
+    const { Item } = await this.db.send(new GetCommand({ TableName: this.table, Key: fileItem(id), ConsistentRead: true }));
+    return Item ? (JSON.parse(Item.body as string) as FileRecord) : undefined;
+  }
+
+  async putFile(file: FileRecord): Promise<void> {
+    // what hangs on the file first: if this stops half way, the file is not there to be used, and what was written goes by itself
+    const ttl = seconds(file.expiresAt + FILE_SLACK_MS);
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { ...ownerFileKey(file.ownerId, file.id), ttl } }));
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: 'FILES', sk: `${pad(file.createdAt)}#${file.id}`, id: file.id, ttl } }));
+    // the players who may use it: their entries are put forward with the file (they would otherwise run out while the file is still kept)
+    let start: Record<string, unknown> | undefined;
+    do {
+      const page = await this.db.send(
+        new QueryCommand({ TableName: this.table, KeyConditionExpression: 'pk = :pk AND begins_with(sk, :user)', ExpressionAttributeValues: { ':pk': `FILE#${file.id}`, ':user': 'USER#' }, ExclusiveStartKey: start }),
+      );
+      for (const it of page.Items ?? []) await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: it.pk, sk: it.sk, ttl } }));
+      start = page.LastEvaluatedKey;
+    } while (start);
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { ...fileItem(file.id), body: JSON.stringify(file), expiresAt: file.expiresAt, ttl: seconds(file.expiresAt) } }));
+  }
+
+  async deleteFile(id: string): Promise<void> {
+    const file = await this.getFile(id);
+    let start: Record<string, unknown> | undefined;
+    do {
+      const page = await this.db.send(
+        new QueryCommand({ TableName: this.table, KeyConditionExpression: 'pk = :pk AND begins_with(sk, :user)', ExpressionAttributeValues: { ':pk': `FILE#${id}`, ':user': 'USER#' }, ExclusiveStartKey: start }),
+      );
+      for (const it of page.Items ?? []) await this.db.send(new DeleteCommand({ TableName: this.table, Key: { pk: it.pk, sk: it.sk } }));
+      start = page.LastEvaluatedKey;
+    } while (start);
+    if (file) {
+      await this.db.send(new DeleteCommand({ TableName: this.table, Key: ownerFileKey(file.ownerId, id) }));
+      await this.db.send(new DeleteCommand({ TableName: this.table, Key: { pk: 'FILES', sk: `${pad(file.createdAt)}#${id}` } }));
+    }
+    await this.db.send(new DeleteCommand({ TableName: this.table, Key: fileItem(id) }));
+  }
+
+  async addFileUser(fileId: string, playerId: string, until: number): Promise<void> {
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { ...fileUserKey(fileId, playerId), ttl: seconds(until) } }));
+  }
+
+  async hasFileUser(fileId: string, playerId: string): Promise<boolean> {
+    const { Item } = await this.db.send(new GetCommand({ TableName: this.table, Key: fileUserKey(fileId, playerId), ConsistentRead: true }));
+    return !!Item && !(typeof Item.ttl === 'number' && Item.ttl <= seconds(this.clock.now()));
+  }
+
+  async filesOf(playerId: string): Promise<string[]> {
+    const ids: string[] = [];
+    let start: Record<string, unknown> | undefined;
+    do {
+      const page = await this.db.send(
+        new QueryCommand({ TableName: this.table, KeyConditionExpression: 'pk = :pk AND begins_with(sk, :file)', ExpressionAttributeValues: { ':pk': `PLAYER#${playerId}`, ':file': 'FILE#' }, ExclusiveStartKey: start }),
+      );
+      for (const it of page.Items ?? []) ids.push((it.sk as string).slice('FILE#'.length));
+      start = page.LastEvaluatedKey;
+    } while (start);
+    return ids;
+  }
+
+  /** Every kept file: the list of their ids is read (it is small: an id each) and then the records, a hundred at a time. */
+  async allFiles(): Promise<FileRecord[]> {
+    const ids: string[] = [];
+    let start: Record<string, unknown> | undefined;
+    do {
+      const page = await this.db.send(
+        new QueryCommand({ TableName: this.table, KeyConditionExpression: 'pk = :pk AND sk BETWEEN :from AND :to', ExpressionAttributeValues: { ':pk': 'FILES', ':from': '0', ':to': '~' }, ExclusiveStartKey: start }),
+      );
+      for (const it of page.Items ?? []) ids.push(it.id as string);
+      start = page.LastEvaluatedKey;
+    } while (start);
+    const files: FileRecord[] = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      const got = await this.db.send(new BatchGetCommand({ RequestItems: { [this.table]: { Keys: ids.slice(i, i + 100).map(fileItem), ConsistentRead: true } } }));
+      for (const it of (got.Responses?.[this.table] as { body: string }[] | undefined) ?? []) files.push(JSON.parse(it.body) as FileRecord);
+    }
+    return files;
   }
 
   async forgetPlayer(playerId: string): Promise<void> {

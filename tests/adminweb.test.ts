@@ -50,7 +50,7 @@ describe('the admin routes', () => {
     const { w, call } = setup();
     const made = await open(w);
     for (const who of [[], ['users'], ['admin'], ['Admins']]) {
-      for (const [method, path] of [['GET', '/admin/me'], ['GET', '/admin/players'], ['GET', '/admin/rooms'], ['GET', `/admin/room/${made.roomId}`], ['POST', `/admin/room/${made.roomId}/remove`], ['GET', '/admin/reports'], ['GET', '/admin/bans'], ['POST', '/admin/ban'], ['POST', '/admin/unban'], ['GET', '/admin/logs/groups'], ['GET', '/admin/logs']]) {
+      for (const [method, path] of [['GET', '/admin/me'], ['GET', '/admin/players'], ['GET', '/admin/rooms'], ['GET', `/admin/room/${made.roomId}`], ['POST', `/admin/room/${made.roomId}/remove`], ['GET', '/admin/files'], ['POST', '/admin/file/x/remove'], ['GET', '/admin/reports'], ['GET', '/admin/bans'], ['POST', '/admin/ban'], ['POST', '/admin/unban'], ['GET', '/admin/logs/groups'], ['GET', '/admin/logs']]) {
         expect(await call(method, path, { groups: who, body: { id: 'ann' } }), `${method} ${path} as ${who}`).toEqual({ status: 403, body: { ok: false, error: 'unauthorized' } });
       }
     }
@@ -112,6 +112,25 @@ describe('the admin routes', () => {
     expect(await call('POST', `/admin/room/${made.roomId}/remove`)).toMatchObject({ status: 404 });
     expect(w.media.has(made.roomId)).toBe(false);
     expect(await call('GET', '/admin/room/..%2Fx')).toMatchObject({ status: 404 });
+  });
+
+  it('list the pictures and videos the server keeps, newest first, a page at a time, and delete one with the puzzles made from it', async () => {
+    const { w, call } = setup({ activeRoomsPerPlayer: 99 });
+    const first = await open(w);
+    w.clock.t += 1000;
+    const second = await open(w, bob);
+    const listed = (await call('GET', '/admin/files')).body as unknown as { files: { id: string; ownerId: string; url: string }[]; next: string | null };
+    expect(listed.files.map((f) => f.ownerId)).toEqual(['bob', 'ann']);
+    expect(listed.files[0].url).toMatch(/^http:\/\/media\.test\/media\//);
+    expect(listed.next).toBeNull();
+    for (const bad of ['x', '123#a', '000000001000000#a b', '000000001000000#']) expect((await call('GET', '/admin/files', { query: `before=${encodeURIComponent(bad)}` })).status, bad).toBe(400);
+    expect(((await call('GET', '/admin/files', { query: `before=${encodeURIComponent(`${String(w.clock.t - 1).padStart(15, '0')}#zzz`)}` })).body.files as unknown[]).length).toBe(1);
+    const fileId = (await w.store.getRoom(first.roomId))!.fileId!;
+    expect(await call('POST', `/admin/file/${fileId}/remove`)).toEqual({ status: 200, body: { ok: true } });
+    expect(await w.service.adminRoom(first.roomId)).toBeUndefined();            // the puzzle made from it ended with it
+    expect(await w.service.adminRoom(second.roomId)).toBeDefined();
+    expect(await call('POST', `/admin/file/${fileId}/remove`)).toMatchObject({ status: 404 });
+    expect(((await call('GET', '/admin/files')).body.files as unknown[]).length).toBe(1);
   });
 
   it('list the reports of the last days, and refuse a number of days that makes no sense', async () => {

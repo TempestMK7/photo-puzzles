@@ -1,4 +1,4 @@
-import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
+import { CopyObjectCommand, DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { MediaGate } from '../router';
 import type { Signer } from '../signing';
@@ -6,6 +6,8 @@ import type { Media } from '../types';
 
 /** Where a room's picture lives in the bucket. */
 export const mediaKey = (roomId: string): string => `rooms/${roomId}`;
+/** Where a kept file lives in the bucket (see `FileRecord`): a copy of its own, so that a puzzle ending takes nothing of it. */
+export const fileKey = (fileId: string): string => `files/${fileId}`;
 
 /**
  * Pictures in a private S3 bucket. The creator's picture goes **through the service** (to `<api>/media/<room>`, an address that the service signed): the service looks at the
@@ -50,6 +52,33 @@ export class S3Media implements Media, MediaGate {
     const command = new PutObjectCommand({ Bucket: this.bucket, Key: mediaKey(roomId), ContentType: type, ContentLength: bytes, CacheControl: 'private, max-age=3600' });
     const url = await getSignedUrl(this.s3, command, { expiresIn: 900, signableHeaders: new Set(['content-type', 'content-length', 'cache-control']) });
     return { url, headers: { 'Content-Type': type, 'Cache-Control': 'private, max-age=3600' } };
+  }
+
+  async keepFile(roomId: string, fileId: string): Promise<void> {
+    await this.copy(mediaKey(roomId), fileKey(fileId));
+  }
+
+  async useFile(fileId: string, roomId: string): Promise<boolean> {
+    try {
+      await this.copy(fileKey(fileId), mediaKey(roomId));
+      return true;
+    } catch (e) {
+      if ((e as { name?: string }).name === 'NoSuchKey' || (e as { name?: string }).name === 'NotFound') return false;
+      throw e;
+    }
+  }
+
+  async deleteFile(fileId: string): Promise<void> {
+    await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: fileKey(fileId) }));
+  }
+
+  fileUrl(fileId: string): Promise<string> {
+    return getSignedUrl(this.s3, new GetObjectCommand({ Bucket: this.bucket, Key: fileKey(fileId) }), { expiresIn: this.readSeconds });
+  }
+
+  /** Copied inside the bucket, by S3 itself (the bytes do not pass through the function, which matters for a video of 250 MB); the type and the cache header go with it. */
+  private async copy(from: string, to: string): Promise<void> {
+    await this.s3.send(new CopyObjectCommand({ Bucket: this.bucket, Key: to, CopySource: `${this.bucket}/${from}` }));
   }
 
   async inspect(roomId: string, peek: number): Promise<{ bytes: number; head: Uint8Array } | undefined> {

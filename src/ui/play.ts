@@ -643,19 +643,24 @@ export class PlayScreen {
     const o = this.online;
     if (!o) return;
     const have = o.room.descriptor.media.sourceId;
+    // the server keeps the picture for a while: a player who has it can make a puzzle of their own from it without sending it (they joined this one, which is what allows it)
+    const fileId = o.room.descriptor.media.fileId;
     if (have && (await this.deps.photos.entry(have))) {
+      if (fileId) await this.deps.photos.setServerFile(have, fileId);
       this.bar?.say('You already have this picture');
       return;
     }
     // the same picture from this puzzle (saved before, here or on another visit) is one picture, not two
-    if (await this.deps.photos.has(o.blob)) {
+    const same = await this.deps.photos.idOf(o.blob);
+    if (same) {
+      if (fileId) await this.deps.photos.setServerFile(same, fileId);
       this.bar?.say('You already have this picture');
       return;
     }
     const video = o.room.descriptor.media.type === 'video';
     const type = o.blob.type || (video ? 'video/mp4' : 'image/jpeg');
     const ext = video ? ({ 'video/webm': 'webm', 'video/quicktime': 'mov', 'video/x-matroska': 'mkv' } as Record<string, string>)[type] ?? 'mp4' : type === 'image/png' ? 'png' : 'jpg';
-    const done = await this.deps.photos.add([new File([o.blob], `Online puzzle.${ext}`, { type })]);
+    const done = await this.deps.photos.add([new File([o.blob], `Online puzzle.${ext}`, { type })], undefined, undefined, fileId);
     if (done.ids.length) {
       this.deps.photoAdded(done.ids[0]);
       this.bar?.say(video ? 'Saved to your library' : 'Saved to your pictures');

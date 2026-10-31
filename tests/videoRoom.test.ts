@@ -53,7 +53,7 @@ describe('making a puzzle from a video', () => {
     const w = world();
     const res = await w.service.createRoom(ann, videoRequest());
     if (!res.ok) throw new Error(res.error);
-    expect(res.upload.url).toContain(`/media/${res.roomId}/video`);
+    expect(res.upload?.url).toContain(`/media/${res.roomId}/video`);
     expect(await w.service.join(bob, { protocol: 1, code: res.invite.code, secret: res.invite.secret })).toEqual({ ok: false, error: 'not-ready' });
     expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: false, error: 'not-ready' });           // no file yet
     await w.media.put(res.roomId, MP4(5000), 'video/mp4');

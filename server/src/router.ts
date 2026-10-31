@@ -51,6 +51,7 @@ const STATUS: Record<ApiError, number> = {
   'too-big': 413,
   unreadable: 422,
   'stock-off': 503,
+  'file-gone': 410,
 };
 
 const MAX_JSON = 64 * 1024;

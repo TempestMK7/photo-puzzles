@@ -28,6 +28,8 @@ export const DEFAULT_LIMITS = {
   /** The largest video, in bytes, and the longest, in ms (two minutes of a phone's video is about 150 to 250 MB). */
   videoBytes: 250_000_000,
   videoMs: 120_000,
+  /** A picture or video that has been uploaded and checked is kept this long after it was last used to make a puzzle, so that its owner (and anyone who joined a puzzle made from it) can make another from it without sending it again. */
+  fileKeepMs: 7 * 24 * 3600 * 1000,
 } as const;
 
 /**
@@ -63,6 +65,8 @@ export interface Media {
   video?: { type: VideoType; ms: number; bytes: number };
   /** The id of the picture in the library of the player who made the puzzle, so that this player's game knows it already has it. */
   sourceId?: string;
+  /** The server's id of the file (see `CreateRoomRequest.fileId`): a player who keeps this picture keeps the id with it, and can make a puzzle of their own from it without sending it again. Nothing for a puzzle whose file is not kept. */
+  fileId?: string;
 }
 
 /** Everything a game needs to start playing a room, and to catch up again after it lost touch. */
@@ -145,7 +149,9 @@ export type ApiError =
   /** The automatic check could not read the video (it reads MP4 and MOV made with H.264). */
   | 'unreadable'
   /** The library of stock pictures and videos cannot be used right now (it is not set up, or its provider does not answer). */
-  | 'stock-off';
+  | 'stock-off'
+  /** The file that a puzzle was to be made from is not held any more (it was kept for a week after it was last used), or is not the size the puzzle says: send it again. */
+  | 'file-gone';
 
 // ------------------------------------------------------------------------------------------------------------------------------- stock pictures and videos
 
@@ -224,13 +230,19 @@ export interface CreateRoomRequest {
   video?: { type: VideoType; bytes: number; ms: number };
   /** The picture or video is one of the stock library's (the game says so): it gets the stricter automatic look, which also turns down nudity that is not explicit. */
   stock?: true;
+  /**
+   * Make the puzzle from a file the server holds already (the `fileId` of an earlier puzzle's picture) instead of sending one: nothing is uploaded or checked again, and the file is kept for another
+   * week. Only the player who sent the file, or one who joined a puzzle made from it, may (`unauthorized` otherwise); a file that is gone is `file-gone`, and the game then sends it as usual.
+   * `settings.width` and `height` must be the file's.
+   */
+  fileId?: string;
 }
 
 export interface CreateRoomResponse {
   ok: true;
   roomId: string;
-  /** Where to upload the picture to (a signed address), and what to send: the picture, as image/jpeg. For a video: where to PUT the file, with these headers, and nothing else (the size and type were given above). */
-  upload: { url: string; headers?: Record<string, string> };
+  /** Where to upload the picture to (a signed address), and what to send: the picture, as image/jpeg. For a video: where to PUT the file, with these headers, and nothing else (the size and type were given above). Nothing when the puzzle was made from a `fileId`: it is ready to be joined. */
+  upload?: { url: string; headers?: Record<string, string> };
   invite: Invite;
 }
 

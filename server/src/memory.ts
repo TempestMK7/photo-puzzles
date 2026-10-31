@@ -1,5 +1,5 @@
 import { Signer } from './signing';
-import type { Ban, Clock, Media, PubSub, RateCounter, Random, Report, RoomRecord, Store } from './types';
+import type { Ban, Clock, FileRecord, Media, PubSub, RateCounter, Random, Report, RoomRecord, Store } from './types';
 
 /** Everything in memory: for the tests and for the local server (which forgets it all when it stops). */
 export class MemoryStore implements Store {
@@ -9,6 +9,8 @@ export class MemoryStore implements Store {
   private names = new Map<string, string>();
   private reports: Report[] = [];
   private banned = new Map<string, Ban>();
+  private files = new Map<string, FileRecord>();
+  private fileUsers = new Map<string, Set<string>>();
 
   async getRoom(id: string): Promise<RoomRecord | undefined> {
     const r = this.rooms.get(id);
@@ -89,6 +91,37 @@ export class MemoryStore implements Store {
     return [...this.banned.values()].map((b) => ({ ...b }));
   }
 
+  async getFile(id: string): Promise<FileRecord | undefined> {
+    const f = this.files.get(id);
+    return f && { ...f, video: f.video && { ...f.video } };
+  }
+
+  async putFile(file: FileRecord): Promise<void> {
+    this.files.set(file.id, { ...file, video: file.video && { ...file.video } });
+  }
+
+  async deleteFile(id: string): Promise<void> {
+    this.files.delete(id);
+    this.fileUsers.delete(id);
+  }
+
+  async addFileUser(fileId: string, playerId: string): Promise<void> {
+    if (!this.fileUsers.has(fileId)) this.fileUsers.set(fileId, new Set());
+    this.fileUsers.get(fileId)!.add(playerId);
+  }
+
+  async hasFileUser(fileId: string, playerId: string): Promise<boolean> {
+    return this.fileUsers.get(fileId)?.has(playerId) ?? false;
+  }
+
+  async filesOf(playerId: string): Promise<string[]> {
+    return [...this.files.values()].filter((f) => f.ownerId === playerId).map((f) => f.id);
+  }
+
+  async allFiles(): Promise<FileRecord[]> {
+    return [...this.files.values()].map((f) => ({ ...f, video: f.video && { ...f.video } }));
+  }
+
   async forgetPlayer(playerId: string): Promise<void> {
     this.names.delete(playerId);
     this.creations.delete(playerId);
@@ -146,7 +179,31 @@ export class MemoryMedia implements Media {
   has(roomId: string): boolean {
     return this.files.has(roomId);
   }
+
+  /** A kept file is stored under its own name (`file~<id>`), which no room's id can be. */
+  async keepFile(roomId: string, fileId: string): Promise<void> {
+    const f = this.files.get(roomId);
+    if (!f) throw new Error('nothing stored for the room');
+    this.files.set(fileName(fileId), { bytes: f.bytes.slice(), type: f.type });
+  }
+
+  async useFile(fileId: string, roomId: string): Promise<boolean> {
+    const f = this.files.get(fileName(fileId));
+    if (!f) return false;
+    this.files.set(roomId, { bytes: f.bytes.slice(), type: f.type });
+    return true;
+  }
+
+  async deleteFile(fileId: string): Promise<void> {
+    this.files.delete(fileName(fileId));
+  }
+
+  fileUrl(fileId: string): Promise<string> {
+    return this.signer.address(this.base, fileName(fileId), 'get');
+  }
 }
+
+const fileName = (fileId: string): string => `file~${fileId}`;
 
 /** Remembers what was published and hands it to whoever listens. */
 export class MemoryPubSub implements PubSub {

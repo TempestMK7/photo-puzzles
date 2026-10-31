@@ -85,6 +85,14 @@ export function makeAdminWeb(d: { service: RoomService; directory: Directory; lo
     }
     if (post && (m = /^\/admin\/room\/([\w-]{1,128})\/remove$/.exec(path))) return (await service.adminRemoveRoom(m[1])) ? ok() : no(404, 'not-found');
 
+    // the pictures and videos that the server keeps: newest first, a page at a time (`next` of one page is `before` of the next)
+    if (get && path === '/admin/files') {
+      const before = req.query.get('before') ?? undefined;
+      if (before !== undefined && !/^\d{15}#[\w-]{1,64}$/.test(before)) return no(400, 'before');
+      return ok({ ...(await service.adminFiles(before)) });
+    }
+    if (post && (m = /^\/admin\/file\/([\w-]{1,128})\/remove$/.exec(path))) return (await service.adminRemoveFile(m[1])) ? ok() : no(404, 'not-found');
+
     if (get && path === '/admin/reports') {
       const days = Number(req.query.get('days') ?? 30);
       if (!Number.isFinite(days) || days <= 0 || days > 90) return no(400, 'days');

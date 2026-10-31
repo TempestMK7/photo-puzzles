@@ -32,9 +32,9 @@ import {
   type RoomSummary,
 } from '../../src/online/protocol';
 import { sniffImage } from './image';
-import type { AdminRoomSummary } from '../../src/online/adminProtocol';
+import type { AdminFile, AdminRoomSummary } from '../../src/online/adminProtocol';
 import { playedMs } from './played';
-import type { Accounts, Clock, Limits, Media, Moderation, Player, Presence, PubSub, Random, Report, RoomRecord, Store, VideoModeration } from './types';
+import type { Accounts, Clock, FileRecord, Limits, Media, Moderation, Player, Presence, PubSub, Random, Report, RoomRecord, Store, VideoModeration } from './types';
 
 export interface Deps {
   store: Store;
@@ -57,6 +57,11 @@ export interface Deps {
 }
 
 const WEEK = 7 * 24 * 3600 * 1000;
+const DAY = 24 * 3600 * 1000;
+/** The record of who may use a file outlives the file by this much at most (it is only looked at once the file is found). */
+const FILE_USER_SLACK_MS = 2 * DAY;
+/** A page of the operator's list of files. */
+const ADMIN_FILES_PAGE = 60;
 /** The quota of video puzzles is counted under another name than the picture puzzles' (their records are kept the same way). */
 const videoKey = (playerId: string): string => `video#${playerId}`;
 /** The largest video an administrator may send: storage takes a file of up to 5 GB in one request. */
@@ -116,6 +121,7 @@ export class RoomService {
   async deleteAccount(player: Player): Promise<{ ok: true } | ApiFailure> {
     const { store, accounts } = this.d;
     await this.releaseRooms(player);
+    await this.releaseFiles(player.id);
     await store.forgetPlayer(player.id);
     await store.forgetPlayer(videoKey(player.id));
     if (accounts && !player.guest) {
@@ -138,6 +144,11 @@ export class RoomService {
       if (room.ownerId === player.id) await this.cleanup(room, 'owner');
       else await this.leave(player, id);
     }
+  }
+
+  /** The files a player sent are deleted (what they took away with them is theirs to take away; the puzzles that were made from them end separately). */
+  private async releaseFiles(playerId: string): Promise<void> {
+    for (const id of await this.d.store.filesOf(playerId)) await this.removeFile(id);
   }
 
   // ---------------------------------------------------------------------------------------------------------------- reports, and what the operator does about them
@@ -226,6 +237,47 @@ export class RoomService {
     return out.sort((a, b) => b.expiresAt - a.expiresAt);
   }
 
+  /**
+   * For the operator: the files that are kept, newest first, `ADMIN_FILES_PAGE` at a time, each with a short-lived address to look at it by. `before` is the `next` of the page before;
+   * `next` is nothing on the last page.
+   */
+  async adminFiles(before?: string): Promise<{ files: AdminFile[]; next: string | null }> {
+    const now = this.d.clock.now();
+    const keyOf = (f: FileRecord) => `${String(f.createdAt).padStart(15, '0')}#${f.id}`;
+    const all = (await this.d.store.allFiles()).filter((f) => f.expiresAt > now).sort((a, b) => (keyOf(a) < keyOf(b) ? 1 : -1));
+    const rest = before ? all.filter((f) => keyOf(f) < before) : all;
+    const page = rest.slice(0, ADMIN_FILES_PAGE);
+    const names = new Map<string, string>();
+    for (const f of page) if (!names.has(f.ownerId)) names.set(f.ownerId, (await this.d.store.getName(f.ownerId)) ?? '');
+    const files: AdminFile[] = [];
+    for (const f of page) {
+      files.push({
+        id: f.id,
+        ownerId: f.ownerId,
+        ownerName: names.get(f.ownerId) ?? '',
+        type: f.type,
+        mime: f.mime,
+        bytes: f.bytes,
+        width: f.width,
+        height: f.height,
+        ...(f.video ? { ms: f.video.ms } : {}),
+        createdAt: f.createdAt,
+        usedAt: f.usedAt,
+        expiresAt: f.expiresAt,
+        url: await this.d.media.fileUrl(f.id),
+      });
+    }
+    return { files, next: rest.length > page.length ? keyOf(page[page.length - 1]) : null };
+  }
+
+  /** For the operator: deletes a kept file now, and ends the puzzles that were made from it (their pictures go with them). False if there is no such file. */
+  async adminRemoveFile(fileId: string): Promise<boolean> {
+    if (!(await this.d.store.getFile(fileId))) return false;
+    for (const room of await this.d.store.allRooms()) if (room.fileId === fileId) await this.cleanup(room, 'owner');
+    await this.removeFile(fileId);
+    return true;
+  }
+
   /** For the operator: the display names that players chose (a player who never did has none here). */
   async adminNames(ids: string[]): Promise<Map<string, string>> {
     const names = new Map<string, string>();
@@ -236,11 +288,15 @@ export class RoomService {
     return names;
   }
 
-  /** For the operator: ends a puzzle now, with its picture and its codes; the players are told it was closed. */
+  /**
+   * For the operator: ends a puzzle now, with its picture and its codes; the players are told it was closed. The kept copy of the picture goes too (and the other puzzles made from it):
+   * the operator ended the puzzle for what is in the picture, which must not be able to start another.
+   */
   async adminRemoveRoom(roomId: string): Promise<boolean> {
     const room = await this.d.store.getRoom(roomId);
     if (!room) return false;
     await this.cleanup(room, 'owner');
+    if (room.fileId) await this.adminRemoveFile(room.fileId);
     return true;
   }
 
@@ -248,6 +304,7 @@ export class RoomService {
   async adminBan(playerId: string, reason: string): Promise<void> {
     await this.d.store.ban({ playerId, at: this.d.clock.now(), reason: cleanNote(reason).slice(0, 100) });
     await this.releaseRooms({ id: playerId, name: '' });
+    await this.releaseFiles(playerId);
   }
 
   async adminUnban(playerId: string): Promise<void> {
@@ -282,7 +339,20 @@ export class RoomService {
     if ('ok' in settings) return settings;
     let video: RoomRecord['video'];
     let unchecked = false;
-    if (req.video !== undefined) {
+    // a file that is kept already: no picture is sent (or looked at) again. Only the player who sent it, or one who joined a puzzle made from it, may use it
+    let file: FileRecord | undefined;
+    if (req.fileId !== undefined) {
+      if (typeof req.fileId !== 'string' || !/^[\w-]{1,64}$/.test(req.fileId)) return fail('bad-request');
+      file = await this.liveFile(req.fileId);
+      if (!file) return fail('file-gone');
+      if (file.ownerId !== who.id && !(await store.hasFileUser(file.id, who.id))) return fail('unauthorized');
+      if (settings.width !== file.width || settings.height !== file.height) return fail('file-gone');          // not the picture that is held: it has to be sent
+      if (file.video) {
+        if (limits.videoRoomsPerWeek <= 0) return fail('video-off');
+        if (file.video.bytes > limits.videoBytes || file.video.ms > limits.videoMs) return fail('too-big');
+        video = { ...file.video };
+      }
+    } else if (req.video !== undefined) {
       const v = req.video;
       if (limits.videoRoomsPerWeek <= 0) return fail('video-off');
       if (!v || !(VIDEO_TYPES as readonly unknown[]).includes(v.type) || !Number.isInteger(v.bytes) || v.bytes <= 0 || typeof v.ms !== 'number' || !(v.ms > 0)) return fail('bad-request');
@@ -302,8 +372,16 @@ export class RoomService {
     if ((await store.roomsOf(player.id)).length >= limits.activeRoomsPerPlayer) return fail('limit');
 
     const id = secretFrom(random.bytes(16));
+    // the puzzle gets a copy of the file of its own, so that it ends (and its picture goes) as any other does
+    if (file && !(await this.d.media.useFile(file.id, id))) {
+      await this.removeFile(file.id);                                                          // the record outlived the file: the player sends it again
+      return fail('file-gone');
+    }
     const code = await this.newCode(id);
-    if (!code) return fail('limit');
+    if (!code) {
+      if (file) await this.d.media.delete(id);
+      return fail('limit');
+    }
     const secret = secretFrom(random.bytes(20));
     const room: RoomRecord = {
       id,
@@ -317,18 +395,73 @@ export class RoomService {
       video,
       unchecked: unchecked || undefined,
       strict: req.stock === true || undefined,
-      ready: false,
+      fileId: file?.id,
+      ready: !!file,
+      ...(file?.video ? { playback: { pos: 0, paused: false, at: now } } : {}),
       status: 'open',
       createdAt: now,
       expiresAt: Math.min(now + limits.idleMs, now + limits.maxAgeMs),
       state: new JigsawRoom(settings).state(),
       rev: 0,
     };
-    if (!(await store.putRoom(room))) return fail('limit');
+    if (!(await store.putRoom(room))) {
+      if (file) await this.d.media.delete(id);
+      return fail('limit');
+    }
     await store.addCreation(player.id, now);
     if (video) await store.addCreation(videoKey(player.id), now);
+    const invite = { code, secret, link: inviteLink(this.d.webBase, code, secret) };
+    if (file) {
+      await store.putFile({ ...file, usedAt: now, expiresAt: now + limits.fileKeepMs });          // used: it is kept another week
+      return { ok: true, roomId: id, invite };
+    }
     const upload = video ? await this.d.media.videoUpload(id, video.type, video.bytes) : { url: await this.d.media.uploadUrl(id) };
-    return { ok: true, roomId: id, upload, invite: { code, secret, link: inviteLink(this.d.webBase, code, secret) } };
+    return { ok: true, roomId: id, upload, invite };
+  }
+
+  /** The file, unless it has run out of time (then it is cleared away now: nothing waits for the table's own expiry to make a file stop being used). */
+  private async liveFile(id: string): Promise<FileRecord | undefined> {
+    const file = await this.d.store.getFile(id);
+    if (!file) return undefined;
+    const now = this.d.clock.now();
+    if (file.expiresAt <= now) {
+      await this.removeFile(id);
+      return undefined;
+    }
+    return file;
+  }
+
+  private async removeFile(id: string): Promise<void> {
+    await this.d.media.deleteFile(id);
+    await this.d.store.deleteFile(id);
+  }
+
+  /**
+   * Keeps a copy of the picture or video that has just passed the check, as a file that a puzzle can be made from again (nothing is kept for a puzzle that is not looked at, or when the
+   * operator has switched keeping off). The puzzle goes on without it if it cannot be kept: the owner just has to send it again next time. Returns the file's id.
+   */
+  private async keep(room: RoomRecord, what: Pick<FileRecord, 'type' | 'mime' | 'bytes' | 'video'>): Promise<string | undefined> {
+    const { limits, clock, random, media, store } = this.d;
+    if (room.unchecked || !(limits.fileKeepMs > 0)) return undefined;
+    const id = secretFrom(random.bytes(16));
+    const now = clock.now();
+    try {
+      await media.keepFile(room.id, id);
+      await store.putFile({
+        id,
+        ownerId: room.ownerId,
+        ...what,
+        width: room.settings.width,
+        height: room.settings.height,
+        createdAt: now,
+        usedAt: now,
+        expiresAt: now + limits.fileKeepMs,
+      });
+      return id;
+    } catch (e) {
+      console.error(e);
+      return undefined;
+    }
   }
 
   /** A free five-digit code, claimed for the room (null if they all seem to be taken). */
@@ -364,11 +497,17 @@ export class RoomService {
       }
     }
     await this.d.media.put(roomId, bytes, found.type);
+    const fileId = await this.keep(room, { type: 'image', mime: found.type, bytes: bytes.length });
     const done = await this.update(roomId, (r) => {
       r.ready = true;
+      r.fileId = fileId;
       return r;
     });
-    return 'error' in done ? done : { ok: true };
+    if ('error' in done) {
+      if (fileId) await this.removeFile(fileId);                         // the puzzle is gone: so is what was kept for it
+      return done;
+    }
+    return { ok: true };
   }
 
   /**
@@ -388,7 +527,7 @@ export class RoomService {
         await this.cleanup(room, 'owner');                                  // not the file the puzzle was made for: nothing is kept
         return fail('bad-request');
       }
-      if (!videoModeration || room.unchecked) return this.videoReady(roomId);
+      if (!videoModeration || room.unchecked) return this.videoReady(room);
       let job: Awaited<ReturnType<VideoModeration['start']>>;
       try {
         job = await videoModeration.start(roomId);
@@ -407,7 +546,7 @@ export class RoomService {
       if ('error' in started) return started;
       return { ok: true, state: 'checking' };
     }
-    if (!videoModeration || room.unchecked) return this.videoReady(roomId);
+    if (!videoModeration || room.unchecked) return this.videoReady(room);
     let verdict: Awaited<ReturnType<VideoModeration['result']>>;
     try {
       verdict = await videoModeration.result(room.checking.jobId, room.strict === true);
@@ -425,18 +564,26 @@ export class RoomService {
       await this.tell(`A video was turned down by the automatic check (${verdict.label}): room ${roomId}, made by ${room.ownerId}. The puzzle was ended.`);
       return fail('rejected');
     }
-    return this.videoReady(roomId);
+    return this.videoReady(room);
   }
 
-  /** The video has passed (or no check is made here): the room can be joined, and the video plays from the start as of now. */
-  private async videoReady(roomId: string): Promise<VideoCheckResponse | ApiFailure> {
-    const done = await this.update(roomId, (r) => {
+  /** The video has passed (or no check is made here): the room can be joined, and the video plays from the start as of now. The video is kept as a file, to make a puzzle from again. */
+  private async videoReady(room: RoomRecord): Promise<VideoCheckResponse | ApiFailure> {
+    const fileId = await this.keep(room, { type: 'video', mime: room.video!.type, bytes: room.video!.bytes, video: room.video });
+    const done = await this.update(room.id, (r) => {
+      if (r.ready) return r;                                                  // a second answer to the same question: the first one has done it
       r.ready = true;
       r.checking = undefined;
+      r.fileId = fileId;
       r.playback = { pos: 0, paused: false, at: this.d.clock.now() };
       return r;
     });
-    return 'error' in done ? done : { ok: true, state: 'ready' };
+    if ('error' in done) {
+      if (fileId) await this.removeFile(fileId);
+      return done;
+    }
+    if (fileId && done.room.fileId !== fileId) await this.removeFile(fileId);          // lost the race: the other answer's file is the one that is kept
+    return { ok: true, state: 'ready' };
   }
 
   /** A server with no storage of its own to send a video to (the local one) is sent the file itself, to the address `createRoom` gave. */
@@ -524,6 +671,8 @@ export class RoomService {
     });
     if ('error' in done) return done;
     await this.publish(roomId, { t: 'joined', member: member! });
+    // whoever is in a puzzle may make one of their own from its picture (a guest cannot make puzzles)
+    if (done.room.fileId && !player.guest) await store.addFileUser(done.room.fileId, player.id, this.d.clock.now() + limits.fileKeepMs + FILE_USER_SLACK_MS);
     return { ok: true, room: await this.describe(done.room) };
   }
 
@@ -567,7 +716,7 @@ export class RoomService {
       id: room.id,
       protocol: PROTOCOL_VERSION,
       settings: room.settings,
-      media: { url: await this.d.media.signedUrl(room.id), type: room.video ? 'video' : 'image', video: room.video, sourceId: room.sourceId },
+      media: { url: await this.d.media.signedUrl(room.id), type: room.video ? 'video' : 'image', video: room.video, sourceId: room.sourceId, fileId: room.fileId },
       owner: room.ownerId,
       members: room.members,
       online: await this.d.presence.online(room.id),
@@ -721,13 +870,19 @@ export class RoomService {
     return { ok: true, invite: { code, secret, link: inviteLink(this.d.webBase, code, secret) } };
   }
 
-  /** Clears out the rooms nobody has touched for a day (and the solved ones whose time is up). Returns how many went. */
+  /** Clears out the rooms nobody has touched for a day (and the solved ones whose time is up), and the files that have run out of time. Returns how many went. */
   async sweep(): Promise<number> {
     const now = this.d.clock.now();
     let n = 0;
     for (const room of await this.d.store.allRooms()) {
       if (room.expiresAt <= now) {
         await this.cleanup(room, room.status === 'solved' ? 'solved' : 'expired');
+        n++;
+      }
+    }
+    for (const file of await this.d.store.allFiles()) {
+      if (file.expiresAt <= now) {
+        await this.removeFile(file.id);
         n++;
       }
     }

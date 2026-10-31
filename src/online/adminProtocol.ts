@@ -47,6 +47,28 @@ export interface AdminRoomDetail {
   video?: { type: string; ms: number; bytes: number };
 }
 
+/** A picture or video that the server keeps (so that a puzzle can be made from it again), as the admin page lists it. */
+export interface AdminFile {
+  id: string;
+  ownerId: string;
+  /** The display name the owner chose (empty if they never did). */
+  ownerName: string;
+  type: 'image' | 'video';
+  mime: string;
+  bytes: number;
+  width: number;
+  height: number;
+  /** A video's length. */
+  ms?: number;
+  createdAt: number;
+  /** When a puzzle was last made from it. */
+  usedAt: number;
+  /** When it goes if no puzzle is made from it. */
+  expiresAt: number;
+  /** A short-lived address of the file itself, to look at. */
+  url: string;
+}
+
 export interface AdminReport {
   id: string;
   at: number;
