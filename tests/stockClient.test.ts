@@ -44,6 +44,14 @@ describe('what the page trusts of the stock library', () => {
     expect(v).toMatchObject({ title: 'Video by Ada', fileType: 'video/mp4', duration: 12 });
   });
 
+  it('keeps the word that an AI made it, with the item and with its credit, and takes only a plain yes', () => {
+    expect(trustedItem(item())?.ai).toBeUndefined();
+    expect(trustedItem(item({ ai: true }))?.ai).toBe(true);
+    for (const odd of ['true', 1, 'yes', null]) expect(trustedItem(item({ ai: odd }))?.ai, String(odd)).toBeUndefined();
+    expect(stockCredit(trustedItem(item({ ai: true })) as StockItem)).toMatchObject({ ai: true });
+    expect('ai' in stockCredit(trustedItem(item()) as StockItem)).toBe(false);
+  });
+
   it('keeps the credit that Pexels asks for with a picture', () => {
     expect(stockCredit(trustedItem(item()) as StockItem)).toEqual({ source: 'pexels', id: '417074', by: 'Ada', byUrl: 'https://www.pexels.com/@ada', url: 'https://www.pexels.com/photo/lake-417074/' });
   });

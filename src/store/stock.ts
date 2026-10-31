@@ -10,6 +10,8 @@ export interface StockCredit {
   /** The photographer's page and the picture's own page on its site. */
   byUrl: string;
   url: string;
+  /** The site says that an AI made it: the picture is shown with a badge wherever it is. */
+  ai?: true;
 }
 
 export type StockResult = { ok: true; items: StockItem[]; page: number; more: boolean; source: StockSite; sources: StockSite[] } | { ok: false; error: 'offline' | 'busy' | 'unavailable' };
@@ -24,10 +26,10 @@ export function trustedItem(v: unknown): StockItem | null {
   const [thumb, preview, file, url, byUrl] = [o.thumb, o.preview, o.file, o.url, o.byUrl].map((a) => stockUrl(site, a));
   if (!thumb || !preview || !file || !url || !byUrl || (o.type !== 'photo' && o.type !== 'video') || typeof o.id !== 'string' || !o.id || !text(o.by, 80)) return null;
   const n = (x: unknown): number => (typeof x === 'number' && Number.isFinite(x) ? x : 0);
-  return { id: o.id.slice(0, 20), source: site, type: o.type, title: text(o.title, 120) || `${o.type === 'video' ? 'Video' : 'Photo'} by ${text(o.by, 80)}`, by: text(o.by, 80), byUrl, url, thumb, preview, file, fileType: o.type === 'video' ? 'video/mp4' : 'image/jpeg', width: n(o.width), height: n(o.height), duration: n(o.duration) };
+  return { id: o.id.slice(0, 20), source: site, type: o.type, title: text(o.title, 120) || `${o.type === 'video' ? 'Video' : 'Photo'} by ${text(o.by, 80)}`, by: text(o.by, 80), byUrl, url, thumb, preview, file, fileType: o.type === 'video' ? 'video/mp4' : 'image/jpeg', width: n(o.width), height: n(o.height), duration: n(o.duration), ...(o.ai === true ? { ai: true as const } : {}) };
 }
 
-export const stockCredit = (item: StockItem): StockCredit => ({ source: item.source, id: item.id, by: item.by, byUrl: item.byUrl, url: item.url });
+export const stockCredit = (item: StockItem): StockCredit => ({ source: item.source, id: item.id, by: item.by, byUrl: item.byUrl, url: item.url, ...(item.ai ? { ai: true as const } : {}) });
 
 /** One page of the stock library, from the game's own server (an empty `query` shows what is popular; no `source`: the server's first site). */
 export async function searchStock(base: string, query: string, type: StockType, page: number, source?: StockSite, signal?: AbortSignal): Promise<StockResult> {

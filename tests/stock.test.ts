@@ -278,6 +278,17 @@ describe('the stock library: Pixabay', () => {
     expect([p.get('key'), p.get('q'), p.get('safesearch'), p.get('image_type'), p.get('page')]).toEqual(['KEY', 'tree', 'true', 'photo', '1']);
   });
 
+  it('marks what an AI made (the site says so, and tags it so too), and nothing else', async () => {
+    const flagged = fakePexels(() => ({ totalHits: 9, hits: [hit(1), hit(2, { isAiGenerated: true }), hit(3, { tags: 'dog, ai generated, pet' }), hit(4, { tags: 'Ai-Generated' }), hit(5, { tags: 'plain, maid generated', isAiGenerated: false }), hit(6, { tags: 'airplane, generated' })] }));
+    const res = await new PixabayStock('K', { fetch: flagged.fetcher }).search('dog', 'photo', 1);
+    if (typeof res !== 'object' || !res) throw new Error('no result');
+    expect(res.items.map((i) => [i.id, i.ai])).toEqual([['1', undefined], ['2', true], ['3', true], ['4', true], ['5', undefined], ['6', undefined]]);
+    const videos = fakePexels(() => ({ totalHits: 2, hits: [vhit(7, { isAiGenerated: true }), vhit(8)] }));
+    const v = await new PixabayStock('K', { fetch: videos.fetcher }).search('sea', 'video', 1);
+    if (typeof v !== 'object' || !v) throw new Error('no result');
+    expect(v.items.map((i) => [i.id, i.ai])).toEqual([['7', true], ['8', undefined]]);
+  });
+
   it('knows there is no more at the end of the hits, and asks the video endpoint for videos', async () => {
     const pex = fakePexels(() => ({ totalHits: 5, hits: [vhit(9)] }));
     const stock = new PixabayStock('KEY', { fetch: pex.fetcher });
