@@ -108,6 +108,11 @@ export class OnlineSession implements Account {
     return a?.signInWithGoogle && a.hasGoogle ? () => a.signInWithGoogle!() : undefined;
   }
 
+  /** The account is in the administrators' group (it may try a video of any size, which is not looked at). Only the account of a sign-in that says so. */
+  isAdmin(): boolean {
+    return this.account?.who()?.admin === true;
+  }
+
   /** The address of the account's profile picture, if the sign-in service has one (a Google sign-in does). */
   picture(): string | null {
     return this.account?.who()?.picture ?? null;

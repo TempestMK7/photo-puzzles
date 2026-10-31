@@ -17,7 +17,7 @@ class MemoryStorage implements Storage {
 
 /** An account that can be signed in and out, with the name its sign-in knows. */
 class FakeAccount implements Account {
-  user: { id: string; name: string; email?: string; picture?: string } | null = null;
+  user: { id: string; name: string; email?: string; picture?: string; admin?: true } | null = null;
   who() { return this.user; }
   async token() { return this.user ? `account-token-${this.user.id}` : null; }
   async signIn() { this.user = { id: 'acc1', name: 'ann.lee', email: 'ann.lee@example.com' }; }
@@ -258,6 +258,18 @@ describe('signing in with Google', () => {
     expect(new OnlineSession(Object.assign(new FakeAccount(), { hasGoogle: false, async signInWithGoogle() {} }), guest, new MemoryStorage()).google).toBeUndefined();
     expect(setup().session.google).toBeUndefined();                      // an account that has no Google at all
     expect(setup({ account: false }).session.google).toBeUndefined();
+  });
+});
+
+describe('an administrator', () => {
+  it('is the account whose sign-in says so', () => {
+    const t = setup();
+    expect(t.session.isAdmin()).toBe(false);
+    (t.account as FakeAccount).user = { id: 'acc1', name: 'Ann', admin: true };
+    expect(t.session.isAdmin()).toBe(true);
+    (t.account as FakeAccount).user = { id: 'acc1', name: 'Ann' };
+    expect(t.session.isAdmin()).toBe(false);
+    expect(setup({ account: false }).session.isAdmin()).toBe(false);
   });
 });
 

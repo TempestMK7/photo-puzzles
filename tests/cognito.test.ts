@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { CognitoAccount, pictureOf, type CognitoEnv } from '../src/online/cognito';
+import { CognitoAccount, inAdminGroup, pictureOf, type CognitoEnv } from '../src/online/cognito';
 
 class MemoryStorage implements Storage {
   private m = new Map<string, string>();
@@ -129,6 +129,17 @@ describe('who the player is', () => {
     expect((await withClaims({ sub: 'u1', picture: 'http://example.com/a.png' }))!.picture).toBeUndefined();
     expect((await withClaims({ sub: 'u1', picture: 'javascript:alert(1)' }))!.picture).toBeUndefined();
     expect((await withClaims({ sub: 'u1', picture: 7 }))!.picture).toBeUndefined();
+  });
+  it('knows an administrator by the group in the token (a list, or the gateway string), and no one else', async () => {
+    expect((await withClaims({ sub: 'u1', 'cognito:groups': ['admins'] }))!.admin).toBe(true);
+    expect((await withClaims({ sub: 'u1', 'cognito:groups': '[admins]' }))!.admin).toBe(true);
+    expect((await withClaims({ sub: 'u1', 'cognito:groups': ['editors', 'admins'] }))!.admin).toBe(true);
+    expect((await withClaims({ sub: 'u1' }))!.admin).toBeUndefined();
+    expect((await withClaims({ sub: 'u1', 'cognito:groups': ['administrators'] }))!.admin).toBeUndefined();
+    expect(inAdminGroup('[editors admins]')).toBe(true);
+    expect(inAdminGroup('admins,editors')).toBe(true);
+    expect(inAdminGroup('[not-admins]')).toBe(false);
+    expect(inAdminGroup(undefined)).toBe(false);
   });
   it('takes no picture that is not an address, or is absurdly long', () => {
     expect(pictureOf('not a url')).toBeUndefined();

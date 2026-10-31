@@ -1,3 +1,4 @@
+import { ADMIN_GROUP } from './adminProtocol';
 import type { Account, AuthError, AuthResult, PasswordAccount } from './identity';
 
 /** Where the sign-in pages of the user pool are (`https://<prefix>.auth.<region>.amazoncognito.com`) and which app client the game is. */
@@ -68,6 +69,12 @@ function claimsOf(token: string): Record<string, unknown> | null {
   }
 }
 
+/** Whether the token's `cognito:groups` has the administrators' group (a list, or a string like "[admins]"). Only for what the page shows: the server looks at the token itself. */
+export function inAdminGroup(groups: unknown): boolean {
+  const list = Array.isArray(groups) ? groups : typeof groups === 'string' ? groups.split(/[\s,[\]]+/) : [];
+  return list.includes(ADMIN_GROUP);
+}
+
 /** The address of the profile picture that the sign-in service knows (Google's, for a Google sign-in): a secure address, or nothing. */
 export function pictureOf(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.length > 500) return undefined;
@@ -125,12 +132,12 @@ export class CognitoAccount implements Account {
     }
   }
 
-  who(): { id: string; name: string; email?: string; picture?: string } | null {
+  who(): { id: string; name: string; email?: string; picture?: string; admin?: true } | null {
     const tokens = this.read();
     const claims = tokens && claimsOf(tokens.id);
     if (!claims || typeof claims.sub !== 'string') return null;
     const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
-    return { id: claims.sub, name: (text(claims.name) || text(claims.email).split('@')[0] || 'Player').slice(0, 24), email: text(claims.email) || undefined, picture: pictureOf(claims.picture) };
+    return { id: claims.sub, name: (text(claims.name) || text(claims.email).split('@')[0] || 'Player').slice(0, 24), email: text(claims.email) || undefined, picture: pictureOf(claims.picture), ...(inAdminGroup(claims['cognito:groups']) ? { admin: true as const } : {}) };
   }
 
   token(): Promise<string | null> {
