@@ -32,7 +32,7 @@ describe('kinds', () => {
     expect(recordKey(focus, 'p1', { 'focus.grid': 0, 'focus.animate': 0 })).toBe(a);        // how it is shown is not a difficulty
   });
 
-  it('Focus Point steps by ten pieces from 10 to 300, and Overlap by ten cells from 50 to 500; every slider starts on one of its steps', () => {
+  it('Tile Swap steps by ten pieces from 10 to 300, and Overlap by ten cells from 50 to 500; every slider starts on one of its steps', () => {
     const range = (kind: string, key: string) => findKind(kind)!.options.find((o) => o.key === key)!;
     expect(range('focus', 'pieces')).toMatchObject({ min: 10, max: 300, step: 10 });
     expect(range('overlap', 'total')).toMatchObject({ min: 50, max: 500, step: 10 });
@@ -84,6 +84,18 @@ describe('prefs', () => {
     p.save();
     expect(new Prefs(st).data.sort).toBe('name');
     expect(new Prefs(memoryStorage({ 'photo-puzzles/v1': JSON.stringify({ sort: 'size' }) })).data.sort).toBe('added');
+  });
+
+  it('keeps the sound effects switch apart from the video sound, on unless it was turned off', () => {
+    const st = memoryStorage();
+    const p = new Prefs(st);
+    expect(p.data.sfx).toBe(true);
+    p.data.sfx = false;
+    p.save();
+    const q = new Prefs(st);
+    expect(q.data.sfx).toBe(false);
+    expect(q.data.muted).toBe(false);
+    expect(new Prefs(memoryStorage({ 'photo-puzzles/v1': JSON.stringify({ sfx: 'no' }) })).data.sfx).toBe(true);
   });
 
   it('ignores damaged storage and types that cannot be played', () => {

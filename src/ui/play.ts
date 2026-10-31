@@ -12,7 +12,10 @@ import { needsStill, startSession, type PuzzleSession } from '../sessions';
 import type { OnlineHooks } from '../sessions/types';
 import { openVideo, type PhotoEntry, type PhotoLibrary, type PlaySource } from '../store/photos';
 import type { SaveRecord, SaveStore } from '../store/saves';
+import { playEffect } from '../sounds';
+import { launchConfetti } from './confetti';
 import { h, svg } from './dom';
+import { effectsButton } from './effects';
 import { sayError } from './online';
 import { OnlineBar } from './onlinebar';
 import { RefWindow } from './refwindow';
@@ -115,6 +118,7 @@ export class PlayScreen {
         this.titleEl,
         h('div', { class: 'stats' }, this.timeEl, this.statusEl),
         this.togglesEl,
+        effectsButton(deps.prefs),
         this.refBtn,
         this.rotateBtn,
         this.restartBtn,
@@ -618,6 +622,7 @@ export class PlayScreen {
 
   private showOnlineDialog(): void {
     if (!this.online) return;
+    this.celebrate();
     this.dialogEl.replaceChildren(
       h('h2', {}, 'Solved!'),
       h('p', {}, `You finished it together in ${formatTime(this.online.room.playedMs())}.`),
@@ -1096,6 +1101,7 @@ export class PlayScreen {
 
   private showDialog(isBest: boolean, best: number): void {
     if (!this.session) return;
+    this.celebrate();
     this.dialogEl.replaceChildren(
       h('h2', {}, 'Solved!'),
       h('p', {}, `Time ${formatTime(this.elapsed)} · ${this.session.status()}`),
@@ -1110,6 +1116,12 @@ export class PlayScreen {
       ),
     );
     this.dialogEl.hidden = false;
+  }
+
+  /** The end of a puzzle: the party blower and the confetti, as the dialog comes up. */
+  private celebrate(): void {
+    playEffect('solved');
+    launchConfetti();
   }
 
   /** Looking at the finished picture: the dialog steps aside and a bar brings it back. */

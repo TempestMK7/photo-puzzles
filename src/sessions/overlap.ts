@@ -1,6 +1,7 @@
-import { generateOverlap, OverlapGame, overlapGrid, STACKS, type OverlapState } from '../core/overlap';
+import { generateOverlap, OverlapGame, overlapGrid, stackCount, type OverlapState } from '../core/overlap';
 import { Rng } from '../core/rng';
 import { makePattern } from './patterns';
+import { Ripples } from './ripple';
 import { beginFrame, drawSlice, type View } from '../render';
 import { buzz, hapticToggles, startLift, type Lift } from './feedback';
 import type { Pt, PuzzleSession, SessionInit } from './types';
@@ -15,7 +16,6 @@ const SLOT_PAD = 4;
 /** Bumped when pieces changed what they are: a puzzle that was saved with older ones starts again. */
 const LAYOUT = 2;
 const TAP = 6;                 // a press that moves less than this is a tap (it turns the piece)
-const FLASH_MS = 500;
 const WRONG_MS = 350;
 
 interface Slot {
@@ -56,12 +56,15 @@ export class OverlapSession implements PuzzleSession {
   private lastView: View = { scale: 1, ox: 0, oy: 0 };
   private hoverStack = -1;
   private activeStack = 0;
-  private flash = new Map<number, number>();
+  private ripples = new Ripples();
+  /** How many stacks the pieces wait in: more for a bigger puzzle. */
+  private readonly stackN: number;
   private wrong: { cells: { x: number; y: number }[]; at: number } | null = null;
 
   constructor(private readonly init: SessionInit) {
     ({ cols: this.cols, rows: this.rows } = overlapGrid(init.opts.total, init.width, init.height));
-    const setup = generateOverlap(new Rng(init.seed), { cols: this.cols, rows: this.rows, turned: init.opts.turned === 1, placed: init.opts.placed, windows: init.opts.windows === 1 });
+    this.stackN = stackCount(init.opts.total);
+    const setup = generateOverlap(new Rng(init.seed), { cols: this.cols, rows: this.rows, turned: init.opts.turned === 1, placed: init.opts.placed, windows: init.opts.windows === 1, stacks: this.stackN });
     this.pattern = makePattern(new Rng((init.seed + 0x9e3779b9) >>> 0), this.cols * CELL * 2, this.rows * CELL * 2);
     this.game = new OverlapGame(setup);
     // the picture is cropped to the grid's proportions
@@ -89,8 +92,8 @@ export class OverlapSession implements PuzzleSession {
   private sizeFor(mode: 'side' | 'top'): { width: number; height: number } {
     const gw = this.cols * CELL;
     const gh = this.rows * CELL;
-    if (mode === 'side') return { width: SLOT_W + GAP + gw, height: Math.max(gh, STACKS * SLOT_H + (STACKS - 1) * 10) };
-    return { width: Math.max(gw, STACKS * SLOT_W + (STACKS - 1) * 10), height: SLOT_H + GAP + gh };
+    if (mode === 'side') return { width: SLOT_W + GAP + gw, height: Math.max(gh, this.stackN * SLOT_H + (this.stackN - 1) * 10) };
+    return { width: Math.max(gw, this.stackN * SLOT_W + (this.stackN - 1) * 10), height: SLOT_H + GAP + gh };
   }
 
   /** Puts the stacks beside the grid on a wide canvas and above it on a tall one - whichever lets the board be bigger. */
@@ -112,15 +115,15 @@ export class OverlapSession implements PuzzleSession {
     if (mode === 'side') {
       this.gridX = SLOT_W + GAP;
       this.gridY = (size.height - gh) / 2;
-      const total = STACKS * SLOT_H + (STACKS - 1) * 10;
+      const total = this.stackN * SLOT_H + (this.stackN - 1) * 10;
       const y0 = (size.height - total) / 2;
-      for (let i = 0; i < STACKS; i++) this.slots.push({ x: 0, y: y0 + i * (SLOT_H + 10) });
+      for (let i = 0; i < this.stackN; i++) this.slots.push({ x: 0, y: y0 + i * (SLOT_H + 10) });
     } else {
       this.gridX = (size.width - gw) / 2;
       this.gridY = SLOT_H + GAP;
-      const total = STACKS * SLOT_W + (STACKS - 1) * 10;
+      const total = this.stackN * SLOT_W + (this.stackN - 1) * 10;
       const x0 = (size.width - total) / 2;
-      for (let i = 0; i < STACKS; i++) this.slots.push({ x: x0 + i * (SLOT_W + 10), y: 0 });
+      for (let i = 0; i < this.stackN; i++) this.slots.push({ x: x0 + i * (SLOT_W + 10), y: 0 });
     }
   }
 
@@ -189,15 +192,6 @@ export class OverlapSession implements PuzzleSession {
         const y = this.gridY + cy * CELL;
         if (g.revealed[i] || g.solved) {
           this.cellImage(ctx, cx, cy, x, y, CELL);
-          const t = this.flash.get(i);
-          if (t !== undefined) {
-            const k = 1 - (now - t) / FLASH_MS;
-            if (k > 0) {
-              ctx.fillStyle = `rgba(255,255,255,${0.55 * k})`;
-              ctx.fillRect(x, y, CELL, CELL);
-              running = true;
-            } else this.flash.delete(i);
-          }
         }
       }
     }
@@ -218,6 +212,7 @@ export class OverlapSession implements PuzzleSession {
     ctx.strokeStyle = '#6b4a36';
     ctx.lineWidth = 3;
     ctx.strokeRect(this.gridX - 1.5, this.gridY - 1.5, gw + 3, gh + 3);
+    if (this.ripples.draw(ctx, now)) running = true;
     if (this.wrong) {
       const k = 1 - (now - this.wrong.at) / WRONG_MS;
       if (k > 0) {
@@ -228,7 +223,7 @@ export class OverlapSession implements PuzzleSession {
     }
     // the stacks
     if (!g.solved) {
-      for (let s = 0; s < STACKS; s++) this.drawSlot(ctx, s);
+      for (let s = 0; s < this.stackN; s++) this.drawSlot(ctx, s);
       if (this.held) {
         this.drawHeld(ctx, now);
         if (this.held.lift && !this.held.lift.done(now)) running = true;           // a piece a finger has picked up is still rising
@@ -386,12 +381,8 @@ export class OverlapSession implements PuzzleSession {
         this.activeStack = drawer;
         buzz(this.init, 'drop');
       } else if (box.cell) {
-        const before = [...g.revealed];
         if (g.drop(h.id, box.cell.x, box.cell.y) === 'placed') {
-          const now = performance.now();
-          g.revealed.forEach((r, i) => {
-            if (r && !before[i]) this.flash.set(i, now);
-          });
+          this.ripples.add(g.cellsNow(h.id).map((c) => ({ x: this.gridX + (box.cell!.x + c.x) * CELL, y: this.gridY + (box.cell!.y + c.y) * CELL, w: CELL, h: CELL })), performance.now());
           buzz(this.init, g.solved ? 'solved' : 'placed');
         } else {
           const cell = box.cell;

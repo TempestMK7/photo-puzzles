@@ -2,12 +2,12 @@ import { Rng } from '../core/rng';
 import { boxOf, generateStrips, MARGIN, pictureSize, StripsGame, type StripsState } from '../core/strips';
 import { beginFrame, drawSlice, type View } from '../render';
 import { buzz, hapticToggles, startLift, type Lift } from './feedback';
+import { Ripples } from './ripple';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const S = 30;                  // one cell, in board units
 const DWELL_MS = 600;          // a dragged strip that rests on a tab goes to it
 const TAP = 5;
-const FLASH_MS = 600;
 
 /** The strip in hand: the cell it was grabbed by, where the pointer is, whether it has moved (else a tap), and - for a finger - the lift that holds it above the finger. */
 interface Drag {
@@ -37,7 +37,7 @@ export class StripsSession implements PuzzleSession {
   private selected = -1;
   private drag: Drag | null = null;
   private lastView: View = { scale: 1, ox: 0, oy: 0 };
-  private flash = new Map<number, number>();
+  private ripples = new Ripples();
   private tab = 0;
   private overTab = -1;
   private dwell = 0;
@@ -112,15 +112,6 @@ export class StripsSession implements PuzzleSession {
         const y = (MARGIN + r) * S;
         if (g.solved || owners.length === 0 || owners.some((id) => g.state[id].locked)) {
           this.cellImage(ctx, c, r, x, y);
-          const t = this.flash.get(i);
-          if (t !== undefined) {
-            const k = 1 - (now - t) / FLASH_MS;
-            if (k > 0) {
-              ctx.fillStyle = `rgba(255,255,255,${0.6 * k})`;
-              ctx.fillRect(x, y, S, S);
-              running = true;
-            } else this.flash.delete(i);
-          }
         } else {
           ctx.fillStyle = '#1d120d';
           ctx.fillRect(x, y, S, S);
@@ -149,6 +140,7 @@ export class StripsSession implements PuzzleSession {
         if (!s.locked && s.tab === this.tab) this.drawStrip(ctx, id, id === this.selected);
       }
     }
+    if (this.ripples.draw(ctx, now)) running = true;
     return running;
   }
 
@@ -258,8 +250,7 @@ export class StripsSession implements PuzzleSession {
   private locked(id: number): void {
     const d = this.game.defs[id];
     const b = boxOf(d, 0);
-    const now = performance.now();
-    for (let dy = 0; dy < b.h; dy++) for (let dx = 0; dx < b.w; dx++) this.flash.set((d.hy - MARGIN + dy) * this.picCols + d.hx - MARGIN + dx, now);
+    this.ripples.add([{ x: d.hx * S, y: d.hy * S, w: b.w * S, h: b.h * S }], performance.now());
     if (this.selected === id) this.selected = -1;
     this.game.moves++;
     buzz(this.init, this.game.solved ? 'solved' : 'placed');

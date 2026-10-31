@@ -153,7 +153,7 @@ in vec2 v_cell;
 in float v_plain;
 out vec4 o;
 void main() {
-  float cov = texture(u_cover, (v_cell * u_pitch + vec2(1.0) + v_tile) / u_atlas).a * u_k;
+  float cov = texture(u_cover, (v_cell * u_pitch + vec2(1.0) + v_tile) / u_atlas).a * u_k * v_plain;
   o = vec4(vec3(cov), cov);
 }`;
 
@@ -302,7 +302,7 @@ export class PieceRenderer {
    * Draws the pieces into the renderer's canvas (the same size as the board's) and returns it, or null if there is nothing to show yet. `loose` is back to front; the
    * `selected` group is drawn last, with a glow. `glows` are the groups that other players have in hand or have chosen: each is drawn again over the others, with a glow of its colour.
    */
-  render(view: GlView, anchored: Iterable<GlGroup>, loose: Iterable<GlGroup>, selected: GlGroup | null, flash: { members: number[]; k: number } | null, glows: { group: GlGroup; rgb: [number, number, number] }[] = [], tray: GlTray | null = null): HTMLCanvasElement | null {
+  render(view: GlView, anchored: Iterable<GlGroup>, loose: Iterable<GlGroup>, selected: GlGroup | null, flash: { group: GlGroup; ks: ArrayLike<number> } | null, glows: { group: GlGroup; rgb: [number, number, number] }[] = [], tray: GlTray | null = null): HTMLCanvasElement | null {
     if (this.lost) return null;
     const gl = this.gl;
     const { canvas, l, masks } = this;
@@ -323,7 +323,7 @@ export class PieceRenderer {
     for (const grp of loose) total += grp.members.length;
     if (selected) total += selected.members.length;
     for (const o of glows) total += o.group.members.length;
-    if (flash) total += flash.members.length;
+    if (flash) total += flash.group.members.length;
     if (tray) {
       for (const grp of tray.groups) total += grp.members.length * 2;
       for (const o of tray.glows) total += o.group.members.length;
@@ -336,10 +336,11 @@ export class PieceRenderer {
     const y1 = (view.height - view.oy) / view.scale;
     const half = masks.tile * 0.75;
     const data = this.data;
-    const push = (grp: GlGroup, plain: number, fx = view.frameX, fy = view.frameY, cull = true): void => {
+    const push = (grp: GlGroup, plain: number, fx = view.frameX, fy = view.frameY, cull = true, ks?: ArrayLike<number>): void => {
       const cs = COS[grp.rot & 3];
       const sn = SIN[grp.rot & 3];
-      for (const m of grp.members) {
+      for (let j = 0; j < grp.members.length; j++) {
+        const m = grp.members[j];
         const c = m % l.cols;
         const r = (m / l.cols) | 0;
         const px = (c + 0.5) * l.size;
@@ -354,7 +355,7 @@ export class PieceRenderer {
         data[i + 3] = sn;
         data[i + 4] = c;
         data[i + 5] = r;
-        data[i + 6] = plain;
+        data[i + 6] = ks ? ks[j] : plain;
         n++;
       }
     };
@@ -371,7 +372,7 @@ export class PieceRenderer {
     if (selected) push(selected, 0);
     const nSel = n - selStart;
     const flashStart = n;
-    if (flash) push({ members: flash.members, rot: 0, dx: 0, dy: 0 }, 1);
+    if (flash) push(flash.group, 1, view.frameX, view.frameY, true, flash.ks);          // (each piece's own brightness goes where `plain` goes: the flash does not use it otherwise)
     const nFlash = n - flashStart;
     // what lies in the open tray (in the tray's own space: no frame, and nothing is left out for lying off the screen)
     const trayStart = n;
@@ -459,10 +460,10 @@ export class PieceRenderer {
       gl.useProgram(p.prog);
       draw(selStart, nSel);                                         // ... then its pieces over it
     }
-    if (nFlash && flash) {                                          // pieces that have just joined the picture light up for a moment
+    if (nFlash && flash) {                                          // pieces that have just locked together light up as the ripple passes them
       const f = this.flashProg;
       shared(f);
-      gl.uniform1f(f.u.u_k, 0.35 * flash.k);
+      gl.uniform1f(f.u.u_k, 0.4);
       draw(flashStart, nFlash);
     }
     if (tray) {

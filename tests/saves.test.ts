@@ -9,7 +9,7 @@ import { SaveStore, type SaveRecord } from '../src/store/saves';
 /** What is written to storage and read back. */
 const viaJson = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
-describe('Focus Point state', () => {
+describe('Tile Swap state', () => {
   const make = () => new FocusGame(1200, 800, { seed: 5, pieces: 16, irregular: true });
 
   it('comes back as it was left', () => {

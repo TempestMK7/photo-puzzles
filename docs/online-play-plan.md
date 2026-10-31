@@ -14,7 +14,7 @@ Local play stays exactly as it is: free, unlimited, no account, nothing leaves t
 
 ## Decisions already made
 
-- **Puzzle types:** Jigsaw only at first. The turn-based types (Sliding Tiles, Focus Point) come next, the layout-sensitive ones (Strips, Overlap, Rotascope) last. Limits are per type and can differ.
+- **Puzzle types:** Jigsaw only at first. The turn-based types (Sliding Tiles, Tile Swap) come next, the layout-sensitive ones (Strips, Overlap, Rotascope) last. Limits are per type and can differ.
 - **Jigsaw size online:** at most 1,000 pieces. Everything else stays as it is locally.
 - **Accounts:** local play needs none. **Joining** an online puzzle needs none (a guest: an id the server makes, and a name the player chooses). **Making** one needs an account. Sign-in with Google and with e-mail at launch; Apple and Facebook later.
 - **Free tier:** 3 online puzzles *created* per week. More puzzles, video puzzles and bigger limits are for a paid tier (payments are not part of this plan, but the limits come from configuration so a tier can change them). Joining does not count.
@@ -149,7 +149,7 @@ The Lambda code uses the same `src/core` rules as the game, so the server decide
 - [x] Runbook (PR for this): **`docs/runbook.md`**: how to see errors (the alarms and what each means, the logs), shut off creation (the limit `freeRoomsPerWeek` = 0 answers `paused`; the limits are a deploy setting, `limits`, or the GitHub variable `LIMITS`), stop things at once, handle a report or a takedown notice, ban, delete an account for someone who cannot sign in (a new Admin command, `delete-account`), the sign-up e-mail and the SES sandbox, deploy and go back, quotas. Commands that were run against dev are marked; the emergency ones (reserved concurrency 0) were **not run** on dev.
 
 ### Later
-- Sliding Tiles and Focus Point online, then the other types.
+- Sliding Tiles and Tile Swap online, then the other types.
 - Video puzzles: **built** (server: PR for part 1; game: PR for part 2) and **off until the operator sets `videoRoomsPerWeek`**. Still to do: streaming from CloudFront instead of fetching the whole file (the Android app cannot stream from another address as it stands), and a video's own cost in the plan below.
 - Payments (Stripe on the web, Play Billing in the Android app, entitlements in DynamoDB), Apple and Facebook sign-in.
 
