@@ -288,9 +288,9 @@ export class PieceRenderer {
 
   /**
    * Draws the pieces into the renderer's canvas (the same size as the board's) and returns it, or null if there is nothing to show yet. `loose` is back to front; the
-   * `selected` group is drawn last, with a glow.
+   * `selected` group is drawn last, with a glow. `glows` are the groups that other players have in hand or have chosen: each is drawn again over the others, with a glow of its colour.
    */
-  render(view: GlView, anchored: Iterable<GlGroup>, loose: Iterable<GlGroup>, selected: GlGroup | null, flash: { members: number[]; k: number } | null): HTMLCanvasElement | null {
+  render(view: GlView, anchored: Iterable<GlGroup>, loose: Iterable<GlGroup>, selected: GlGroup | null, flash: { members: number[]; k: number } | null, glows: { group: GlGroup; rgb: [number, number, number] }[] = []): HTMLCanvasElement | null {
     if (this.lost) return null;
     const gl = this.gl;
     const { canvas, l, masks } = this;
@@ -310,6 +310,7 @@ export class PieceRenderer {
     for (const grp of anchored) total += grp.members.length;
     for (const grp of loose) total += grp.members.length;
     if (selected) total += selected.members.length;
+    for (const o of glows) total += o.group.members.length;
     if (flash) total += flash.members.length;
     this.room(total);
     const x0 = -view.ox / view.scale;
@@ -343,10 +344,18 @@ export class PieceRenderer {
     for (const grp of anchored) push(grp, 1);
     for (const grp of loose) push(grp, 0);
     const nBack = n;
+    const lit: { start: number; count: number; rgb: [number, number, number] }[] = [];
+    for (const o of glows) {
+      const start = n;
+      push(o.group, 0);
+      lit.push({ start, count: n - start, rgb: o.rgb });
+    }
+    const selStart = n;
     if (selected) push(selected, 0);
-    const nSel = n - nBack;
+    const nSel = n - selStart;
+    const flashStart = n;
     if (flash) push({ members: flash.members, rot: 0, dx: 0, dy: 0 }, 1);
-    const nFlash = n - nBack - nSel;
+    const nFlash = n - flashStart;
 
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clearColor(0, 0, 0, 0);
@@ -394,21 +403,32 @@ export class PieceRenderer {
     gl.uniform1f(p.u.u_outline, Math.min(1, Math.max(0, (l.size * view.scale - 10) / 20)));      // lines between tiny pieces only make noise
     gl.uniform1f(p.u.u_blur, view.scale < 1 ? 0.5 / view.scale : 0);
     draw(0, nBack);
+    // a group in another player's hand, or chosen by them, glows in their colour (twice as strongly: a pale halo disappears round a small piece)
+    for (const o of lit) {
+      const g = this.glow;
+      shared(g);
+      gl.uniform1f(g.u.u_r, Math.min(GLOW_PX / view.scale, masks.pad - 1));
+      gl.uniform3f(g.u.u_glow, o.rgb[0], o.rgb[1], o.rgb[2]);
+      draw(o.start, o.count);
+      draw(o.start, o.count);
+      gl.useProgram(p.prog);
+      draw(o.start, o.count);
+    }
     if (nSel) {
       const g = this.glow;
       shared(g);
       gl.uniform1f(g.u.u_r, Math.min(GLOW_PX / view.scale, masks.pad - 1));
       if (view.light) gl.uniform3f(g.u.u_glow, 0.9, 0.45, 0);
       else gl.uniform3f(g.u.u_glow, 1, 0.847, 0.29);
-      draw(nBack, nSel);                                            // the glow of the whole group first ...
+      draw(selStart, nSel);                                         // the glow of the whole group first ...
       gl.useProgram(p.prog);
-      draw(nBack, nSel);                                            // ... then its pieces over it
+      draw(selStart, nSel);                                         // ... then its pieces over it
     }
     if (nFlash && flash) {                                          // pieces that have just joined the picture light up for a moment
       const f = this.flashProg;
       shared(f);
       gl.uniform1f(f.u.u_k, 0.35 * flash.k);
-      draw(nBack + nSel, nFlash);
+      draw(flashStart, nFlash);
     }
     return canvas;
   }

@@ -496,6 +496,7 @@ export class PlayScreen {
     const bar = this.bar!;
     const hooks: OnlineHooks = {
       blockedBy: () => room.holderOther()?.name ?? null,
+      reserved: () => room.othersReserved().map((r) => ({ ...r, name: room.member(r.by)?.name ?? 'Someone' })),
       send: (op) => room.send(op),
       hand: (pose) => room.hand(pose),
       holding: (piece) => room.holding(piece),

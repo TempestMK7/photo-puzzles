@@ -652,13 +652,12 @@ export class RoomService {
     return { ok: true };
   }
 
-  /** A player who goes (or is sent) out of the room does not keep a piece in their hand. */
+  /** A player who goes (or is sent) out of the room does not keep a piece in their hand, or the piece they had chosen. */
   private letGo(r: RoomRecord, id: string): void {
     const room = new JigsawRoom(r.settings, r.state);
-    if (room.holder(this.d.clock.now())?.holder === id) {
-      room.submit(id, { t: 'release' }, this.d.clock.now());
-      r.state = room.state();
-    }
+    if (room.holder(this.d.clock.now())?.holder === id) room.submit(id, { t: 'release' }, this.d.clock.now());
+    room.unreserve(id);
+    r.state = room.state();
   }
 
   /**

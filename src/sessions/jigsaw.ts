@@ -72,6 +72,7 @@ export class JigsawSession implements PuzzleSession {
   private pan: { anchor: Pt; moved: boolean; deselect: boolean } | null = null;
   private rightClick = false;                 // the right button is down and has not moved the camera: letting go turns the selected piece
   private sel = -1;                           // a piece of the selected group
+  private others: { by: string; name: string; piece: number }[] | null = null;       // what `chosen` found out, until the room says it changed
   private hover = 0;                          // 0, or the timer of a join that is waiting for its half second
   private fixedRes = false;
   private adapt = { t0: 0, decoded0: 0, renders: 0 };
@@ -326,6 +327,7 @@ export class JigsawSession implements PuzzleSession {
     const selId = this.selectedGroup();
     const theirs = new Map<number, string>();                     // a glow of the colour of the player who holds it
     for (const [by, hand] of this.hands) theirs.set(hand.gid, this.init.online?.colorOf(by) ?? '#fff');
+    for (const r of this.chosen()) if (!theirs.has(g.groupOf[r.piece])) theirs.set(g.groupOf[r.piece], this.init.online!.colorOf(r.by));         // a piece another player has chosen
     for (const id of g.z) {
       const grp = g.groups.get(id)!;
       const held = theirs.get(id);
@@ -350,12 +352,22 @@ export class JigsawSession implements PuzzleSession {
     for (const id of g.z) if (id !== selId) loose.push(g.groups.get(id)!);
     const anchored: Group[] = [];
     for (const grp of g.groups.values()) if (grp.anchored) anchored.push(grp);
+    // the groups that other players hold or have chosen glow in their colours
+    const glows = new Map<number, [number, number, number]>();
+    for (const [by, hand] of this.hands) glows.set(hand.gid, rgbOf(this.init.online?.colorOf(by) ?? '#ffffff'));
+    for (const r of this.chosen()) if (!glows.has(g.groupOf[r.piece])) glows.set(g.groupOf[r.piece], rgbOf(this.init.online!.colorOf(r.by)));
+    const lit: { group: Group; rgb: [number, number, number] }[] = [];
+    for (const [gid, rgb] of glows) {
+      const group = g.groups.get(gid);
+      if (group && !group.anchored && gid !== selId) lit.push({ group, rgb });
+    }
     this.gl!.render(
       { width: this.canvasW, height: this.canvasH, scale: view.scale, ox: view.ox, oy: view.oy, frameX: this.frameX, frameY: this.frameY, light: this.init.flag('light') },
       anchored,
       loose,
       selId >= 0 ? g.groups.get(selId)! : null,
       flash,
+      lit,
     );
   }
 
@@ -387,6 +399,12 @@ export class JigsawSession implements PuzzleSession {
     const blocked = this.init.online?.blockedBy();
     if (blocked) {                                                // another player has a piece in hand: this one can be looked at, but not picked up
       this.init.online!.notify(`${blocked} is moving a piece`);
+      this.pan = { anchor: p, moved: false, deselect: false };
+      return;
+    }
+    const chosenBy = this.chosenBy(gid);
+    if (chosenBy) {                                               // another player has chosen this piece: it is theirs for a while
+      this.init.online!.notify(`${chosenBy} has chosen that piece`);
       this.pan = { anchor: p, moved: false, deselect: false };
       return;
     }
@@ -450,7 +468,7 @@ export class JigsawSession implements PuzzleSession {
     if (d && d.moved && this.snap !== SNAP_DRAG) this.settle(d.gid);        // let go with pieces together: they join, whatever was left of the wait
     if (d && d.moved && this.drag === d) this.buzz('drop');                 // set down without joining anything
     if (d && this.drag === d) this.release(d.gid);
-    if (this.pan?.deselect && !this.pan.moved) this.sel = -1;      // a click on bare ground
+    if (this.pan?.deselect && !this.pan.moved) this.deselect();     // a click on bare ground
     this.drag = null;
     this.pan = null;
     this.init.requestDraw();
@@ -510,6 +528,11 @@ export class JigsawSession implements PuzzleSession {
       const blocked = this.init.online?.blockedBy();
       if (blocked) {
         this.init.online!.notify(`${blocked} is moving a piece`);
+        return;
+      }
+      const chosenBy = this.chosenBy(id);
+      if (chosenBy) {
+        this.init.online!.notify(`${chosenBy} has chosen that piece`);
         return;
       }
       this.buzz('turn');
@@ -601,6 +624,29 @@ export class JigsawSession implements PuzzleSession {
   }
 
   // ---------------------------------------------------------------------------------------------------------------- other players
+
+  /** The name of the player who has chosen this group (clicked on it, or picked it up last), if it is not this player: it is theirs for a while. */
+  private chosenBy(gid: number): string | null {
+    for (const r of this.chosen()) if (this.game.groupOf[r.piece] === gid) return r.name;
+    return null;
+  }
+
+  /** The pieces that other players have chosen: asked of the room when it says they changed (not for every picture drawn). */
+  private chosen(): { by: string; name: string; piece: number }[] {
+    return (this.others ??= this.init.online?.reserved() ?? []);
+  }
+
+  /** Lets go of the chosen piece: the others may take it now. */
+  private deselect(): void {
+    if (this.sel >= 0) this.init.online?.send({ t: 'unselect' });
+    this.sel = -1;
+  }
+
+  /** The pieces that other players have chosen changed (or one ran out): the glows are drawn again. */
+  reservations(): void {
+    this.others = null;
+    this.init.requestDraw();
+  }
 
   /** Another player's operation (the room checked it and put it in order): applied as it is, with the glow when it finished part of the picture. */
   applyEvent(ev: RoomEvent): void {
@@ -700,4 +746,10 @@ export class JigsawSession implements PuzzleSession {
   }
 
   settingsChanged(): void {}
+}
+
+/** `#rrggbb` as three numbers from 0 to 1 (white for anything else). */
+function rgbOf(css: string): [number, number, number] {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(css);
+  return m ? [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255] : [1, 1, 1];
 }
