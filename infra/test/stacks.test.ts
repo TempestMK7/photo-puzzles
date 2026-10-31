@@ -199,6 +199,11 @@ describe('web', () => {
     const actions = statements.flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
     expect(actions.sort()).toEqual(['cloudfront:CreateInvalidation', 's3:DeleteObject', 's3:ListBucket', 's3:PutObject']);
   });
+  it('names that policy for its stage, because the deploy role is one role for both (the same name in two stacks is refused when the second is deployed)', () => {
+    const names = (name: string) => Object.values(stack(app(), name).findResources('AWS::IAM::Policy')).map((p) => (p as { Properties: { PolicyName: string } }).Properties.PolicyName);
+    expect(names('PuzzleVidio-prod-Web')).toEqual(['PuzzleVidio-prod-Web']);
+    expect(names('PuzzleVidio-dev-Web')).toEqual(['PuzzleVidio-dev-Web']);
+  });
 });
 
 describe('ops', () => {
