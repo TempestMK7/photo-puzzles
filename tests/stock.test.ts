@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MemoryRates } from '../server/src/memory';
 import { DEFAULT_RATES, RateLimiter, type Rates } from '../server/src/ratelimit';
 import { createRouter, DevAuth } from '../server/src/router';
-import { PexelsStock, pexelsUrl } from '../server/src/stock';
+import { PexelsStock, PixabayStock, pexelsUrl, pixabayUrl } from '../server/src/stock';
 import { GuestTokens, TokenAuth } from '../server/src/guest';
 import { world } from './helpers/world';
 
@@ -171,14 +171,14 @@ describe('the stock library: keeping answers and sharing the provider’s limit'
 
 describe('the stock library on the API', () => {
   const KEY = new Uint8Array(32).fill(7);
-  const rates: Rates = { ...DEFAULT_RATES, stockSearch: { perIp: 3, windowMs: 3_600_000 }, stockUpstream: { total: 2, windowMs: 3_600_000 } };
+  const rates: Rates = { ...DEFAULT_RATES, stockSearch: { perIp: 3, windowMs: 3_600_000 }, stockUpstream: { pexels: { total: 2, windowMs: 3_600_000 }, pixabay: { total: 2, windowMs: 3_600_000 } } };
 
   function setup(withStock = true) {
     const w = world();
     const guests = new GuestTokens(KEY, w.clock);
     const pex = fakePexels(() => ({ photos: [photo(1)] }));
     const limiter = new RateLimiter(new MemoryRates(w.clock), w.clock, rates);
-    const route = createRouter({ service: w.service, auth: new TokenAuth(guests, new DevAuth()), media: w.media, guests, limiter, ...(withStock ? { stock: new PexelsStock('KEY', { fetch: pex.fetcher, now: () => w.clock.t }) } : {}) });
+    const route = createRouter({ service: w.service, auth: new TokenAuth(guests, new DevAuth()), media: w.media, guests, limiter, ...(withStock ? { stock: { pexels: new PexelsStock('KEY', { fetch: pex.fetcher, now: () => w.clock.t }) } } : {}) });
     const call = async (query: string, ip = '198.51.100.1') => {
       const res = await route({ method: 'GET', path: '/stock/search', query: new URLSearchParams(query), ip, body: new Uint8Array() });
       return { status: res.status, body: res.body as Record<string, any> };
@@ -190,7 +190,8 @@ describe('the stock library on the API', () => {
     const { call } = setup();
     const res = await call('q=lake&type=photo');
     expect(res.status).toBe(200);
-    expect(res.body.items[0]).toMatchObject({ id: '1', type: 'photo' });
+    expect(res.body.items[0]).toMatchObject({ id: '1', type: 'photo', source: 'pexels' });
+    expect(res.body).toMatchObject({ source: 'pexels', sources: ['pexels'] });
   });
 
   it('is off (503) in a deployment that has no key, and when Pexels does not answer', async () => {
@@ -198,7 +199,7 @@ describe('the stock library on the API', () => {
     const w = world();
     const guests = new GuestTokens(KEY, w.clock);
     const down = fakePexels(() => ({}), 500);
-    const route = createRouter({ service: w.service, auth: new TokenAuth(guests, new DevAuth()), media: w.media, guests, stock: new PexelsStock('KEY', { fetch: down.fetcher }) });
+    const route = createRouter({ service: w.service, auth: new TokenAuth(guests, new DevAuth()), media: w.media, guests, stock: { pexels: new PexelsStock('KEY', { fetch: down.fetcher }) } });
     const res = await route({ method: 'GET', path: '/stock/search', query: new URLSearchParams('q=a'), body: new Uint8Array() });
     expect(res.status).toBe(503);
   });
@@ -221,5 +222,150 @@ describe('the stock library on the API', () => {
     await call('q=a&type=video&page=3');
     expect(pex.asked[0].path).toBe('/videos/search');
     expect(pex.asked[0].params.get('page')).toBe('3');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------- Pixabay
+
+const hit = (id: number, extra: Record<string, unknown> = {}) => ({
+  id,
+  pageURL: `https://pixabay.com/photos/tree-nature-${id}/`,
+  type: 'photo',
+  tags: 'tree, nature, landscape, sky',
+  previewURL: `https://cdn.pixabay.com/photo/2015/04/23/22/00/tree-${id}_150.jpg`,
+  webformatURL: `https://pixabay.com/get/g1234_640.jpg`,
+  largeImageURL: `https://pixabay.com/get/g1234_1280.jpg`,
+  imageWidth: 5000,
+  imageHeight: 3333,
+  user_id: 77,
+  user: 'Some User',
+  ...extra,
+});
+
+const vsize = (width: number, size = 5_000_000) => ({ url: `https://cdn.pixabay.com/video/2020/01/01/5-${width}.mp4`, width, height: Math.round((width * 9) / 16), size, thumbnail: `https://cdn.pixabay.com/video/2020/01/01/5-${width}.jpg` });
+const vhit = (id: number, extra: Record<string, unknown> = {}) => ({
+  id,
+  pageURL: `https://pixabay.com/videos/waves-sea-${id}/`,
+  type: 'film',
+  tags: 'waves, sea',
+  duration: 15,
+  videos: { large: vsize(3840, 90_000_000), medium: vsize(1920), small: vsize(1280), tiny: vsize(960, 2_000_000) },
+  user_id: 8,
+  user: 'Wave Maker',
+  ...extra,
+});
+
+describe('the stock library: Pixabay', () => {
+  it('lets through only https addresses on pixabay.com and below it', () => {
+    expect(pixabayUrl('https://cdn.pixabay.com/photo/a.jpg')).toBe('https://cdn.pixabay.com/photo/a.jpg');
+    expect(pixabayUrl('https://pixabay.com/photos/x/')).toBe('https://pixabay.com/photos/x/');
+    for (const bad of ['http://cdn.pixabay.com/a.jpg', 'https://evilpixabay.com/a', 'https://pixabay.com.evil.example/a', 'https://images.pexels.com/a.jpg']) expect(pixabayUrl(bad)).toBeNull();
+    expect(pexelsUrl('https://cdn.pixabay.com/a.jpg')).toBeNull();
+  });
+
+  it('turns pictures into items: the tags as a title, the largest size to keep, the small one for the list, the user page', async () => {
+    const pex = fakePexels(() => ({ total: 500, totalHits: 400, hits: [hit(1), hit(2, { tags: '' })] }));
+    const res = await new PixabayStock('KEY', { fetch: pex.fetcher }).search('tree', 'photo', 1);
+    if (typeof res !== 'object' || !res) throw new Error('no result');
+    expect(res).toMatchObject({ ok: true, page: 1, more: true });
+    expect(res.items[0]).toMatchObject({ id: '1', source: 'pixabay', type: 'photo', title: 'Tree, nature, landscape', by: 'Some User', byUrl: 'https://pixabay.com/users/Some%20User-77/', fileType: 'image/jpeg', width: 5000, height: 3333 });
+    expect(res.items[0].file).toContain('1280');
+    expect(res.items[0].thumb).toContain('150');
+    expect(res.items[1].title).toBe('Photo by Some User');
+    // what was asked: the key, the query, safe search on, and a photo
+    expect(pex.asked[0].path).toBe('/api/');
+    const p = pex.asked[0].params;
+    expect([p.get('key'), p.get('q'), p.get('safesearch'), p.get('image_type'), p.get('page')]).toEqual(['KEY', 'tree', 'true', 'photo', '1']);
+  });
+
+  it('knows there is no more at the end of the hits, and asks the video endpoint for videos', async () => {
+    const pex = fakePexels(() => ({ totalHits: 5, hits: [vhit(9)] }));
+    const stock = new PixabayStock('KEY', { fetch: pex.fetcher });
+    const res = await stock.search('', 'video', 1);
+    expect(res).toMatchObject({ more: false });
+    expect(pex.asked[0].path).toBe('/api/videos/');
+    expect(pex.asked[0].params.has('q')).toBe(false);
+    expect(pex.asked[0].params.get('safesearch')).toBe('true');
+  });
+
+  it('picks a video file of a good size, a smaller one to preview, and a picture from the file it keeps', async () => {
+    const res = await new PixabayStock('KEY', { fetch: fakePexels(() => ({ totalHits: 1, hits: [vhit(9)] })).fetcher }).search('', 'video', 1);
+    if (typeof res !== 'object' || !res) throw new Error('no result');
+    const [item] = res.items;
+    expect(item).toMatchObject({ id: '9', source: 'pixabay', type: 'video', title: 'Waves, sea', duration: 15, width: 1280 });
+    expect(item.file).toContain('-1280.mp4');
+    expect(item.preview).toContain('-960.mp4');
+    expect(item.thumb).toContain('-1280.jpg');
+  });
+
+  it('leaves out a clip that is too long, one with no usable file, and (when its length is not told) one that is a huge file', async () => {
+    const noLength = (id: number, size: number) => vhit(id, { duration: undefined, videos: { small: vsize(1280, size) } });
+    const pex = fakePexels(() => ({ totalHits: 9, hits: [vhit(1), vhit(2, { duration: 600 }), vhit(3, { videos: {} }), noLength(4, 5_000_000), noLength(5, 200_000_000), vhit(6, { videos: { small: { ...vsize(1280), url: 'https://evil.example/a.mp4' } } })] }));
+    const res = await new PixabayStock('KEY', { fetch: pex.fetcher }).search('', 'video', 1);
+    if (typeof res !== 'object' || !res) throw new Error('no result');
+    expect(res.items.map((i) => i.id)).toEqual(['1', '4']);
+  });
+
+  it('keeps an answer for a day (the site asks for that), and not a minute less', async () => {
+    const pex = fakePexels(() => ({ totalHits: 1, hits: [hit(1)] }));
+    let now = 0;
+    const stock = new PixabayStock('KEY', { fetch: pex.fetcher, now: () => now });
+    await stock.search('a', 'photo', 1);
+    now = 23 * 3_600_000;
+    await stock.search('a', 'photo', 1);
+    expect(pex.asked).toHaveLength(1);
+    now = 24 * 3_600_000 + 1;
+    await stock.search('a', 'photo', 1);
+    expect(pex.asked).toHaveLength(2);
+  });
+
+  it('gives null when the site does not answer properly', async () => {
+    expect(await new PixabayStock('KEY', { fetch: fakePexels(() => 'nope', 429).fetcher }).search('a', 'photo', 1)).toBeNull();
+    expect(await new PixabayStock('KEY', { fetch: fakePexels(() => ({ hits: 'x' })).fetcher }).search('a', 'photo', 1)).toBeNull();
+  });
+});
+
+describe('the stock library with two sites', () => {
+  const KEY = new Uint8Array(32).fill(7);
+
+  function setup() {
+    const w = world();
+    const guests = new GuestTokens(KEY, w.clock);
+    const px = fakePexels(() => ({ photos: [photo(1)] }));
+    const pb = fakePexels(() => ({ totalHits: 1, hits: [hit(2)] }));
+    const limiter = new RateLimiter(new MemoryRates(w.clock), w.clock, { ...DEFAULT_RATES, stockUpstream: { pexels: { total: 1, windowMs: 3_600_000 }, pixabay: { total: 5, windowMs: 3_600_000 } } });
+    const stock = { pexels: new PexelsStock('A', { fetch: px.fetcher }), pixabay: new PixabayStock('B', { fetch: pb.fetcher }) };
+    const route = createRouter({ service: w.service, auth: new TokenAuth(guests, new DevAuth()), media: w.media, guests, limiter, stock });
+    const call = async (query: string) => {
+      const res = await route({ method: 'GET', path: '/stock/search', query: new URLSearchParams(query), ip: '198.51.100.1', body: new Uint8Array() });
+      return { status: res.status, body: res.body as Record<string, any> };
+    };
+    return { call, px, pb };
+  }
+
+  it('asks the site the page names, the first one there is when it names none or one that is not there, and says which sites there are', async () => {
+    const { call, px, pb } = setup();
+    expect((await call('q=a&source=pixabay')).body).toMatchObject({ source: 'pixabay', sources: ['pexels', 'pixabay'], items: [{ id: '2', source: 'pixabay' }] });
+    expect((await call('q=b')).body).toMatchObject({ source: 'pexels', items: [{ id: '1', source: 'pexels' }] });
+    expect([px.asked.length, pb.asked.length]).toEqual([1, 1]);
+    expect((await call('q=c&source=nowhere')).status).toBe(429);          // (it asked Pexels, whose one allowed request is used up)
+  });
+
+  it('counts each site’s own limit apart', async () => {
+    const { call } = setup();
+    expect((await call('q=a')).status).toBe(200);                          // Pexels: its one
+    expect((await call('q=b')).status).toBe(429);                          // Pexels is used up...
+    expect((await call('q=b&source=pixabay')).status).toBe(200);          // ...and Pixabay is not
+  });
+
+  it('works with only Pixabay, which is then the one that is asked, and with none (off)', async () => {
+    const w = world();
+    const guests = new GuestTokens(KEY, w.clock);
+    const pb = fakePexels(() => ({ totalHits: 1, hits: [hit(2)] }));
+    const mk = (stock: object) => createRouter({ service: w.service, auth: new TokenAuth(guests, new DevAuth()), media: w.media, guests, stock });
+    const only = await mk({ pixabay: new PixabayStock('B', { fetch: pb.fetcher }) })({ method: 'GET', path: '/stock/search', query: new URLSearchParams('q=a&source=pexels'), body: new Uint8Array() });
+    expect(only.body).toMatchObject({ source: 'pixabay', sources: ['pixabay'] });
+    const none = await mk({})({ method: 'GET', path: '/stock/search', query: new URLSearchParams('q=a'), body: new Uint8Array() });
+    expect(none).toMatchObject({ status: 503, body: { error: 'stock-off' } });
   });
 });

@@ -151,12 +151,20 @@ export type ApiError =
 
 export type StockType = 'photo' | 'video';
 
-/** One picture or video of the stock library (Pexels), as the server found it. Every address is one of Pexels' own (the page checks that before it fetches anything). */
+/** The sites that the stock library takes pictures and videos from. */
+export type StockSite = 'pexels' | 'pixabay';
+export const STOCK_SITES: readonly StockSite[] = ['pexels', 'pixabay'];
+export const STOCK_NAMES: Record<StockSite, string> = { pexels: 'Pexels', pixabay: 'Pixabay' };
+export const STOCK_HOMES: Record<StockSite, string> = { pexels: 'https://www.pexels.com/', pixabay: 'https://pixabay.com/' };
+
+/** One picture or video of the stock library, as the server found it. Every address is one of its site's own (the page checks that before it fetches anything). */
 export interface StockItem {
   id: string;
+  /** Which site it is from (its id is that site's). */
+  source: StockSite;
   type: StockType;
   title: string;
-  /** Who made it, and where to see them and the picture on Pexels (shown with the picture: the library asks for that). */
+  /** Who made it, and where to see them and the picture on its site (shown with the picture: the sites ask for that). */
   by: string;
   byUrl: string;
   url: string;
@@ -177,18 +185,25 @@ export interface StockResponse {
   page: number;
   /** There is a next page. */
   more: boolean;
+  /** The site these come from, and the sites that this server can search (the page offers a choice when there are two). */
+  source: StockSite;
+  sources: StockSite[];
 }
 
-/** An address on Pexels' own servers (https, a host that is pexels.com or below it): nothing else is passed on to the game. */
-export function pexelsUrl(v: unknown): string | null {
+/** An address on a stock site's own servers (https, a host that is the site's domain or below it): nothing else is passed on to the game. */
+export function stockUrl(site: StockSite, v: unknown): string | null {
   if (typeof v !== 'string' || v.length > 600) return null;
+  const domain = `${site}.com`;
   try {
     const u = new URL(v);
-    return u.protocol === 'https:' && !u.username && !u.password && (u.hostname === 'pexels.com' || u.hostname.endsWith('.pexels.com')) ? u.href : null;
+    return u.protocol === 'https:' && !u.username && !u.password && (u.hostname === domain || u.hostname.endsWith(`.${domain}`)) ? u.href : null;
   } catch {
     return null;
   }
 }
+
+export const pexelsUrl = (v: unknown): string | null => stockUrl('pexels', v);
+export const pixabayUrl = (v: unknown): string | null => stockUrl('pixabay', v);
 
 export interface ApiFailure {
   ok: false;

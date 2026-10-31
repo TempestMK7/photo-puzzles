@@ -81,6 +81,7 @@ input[type='email'], input[type='password'] { text-transform: none; letter-spaci
 .ptabs button { flex: 1; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--dim); padding: 9px 6px; }
 .ptabs button.on { color: var(--text); border-bottom-color: var(--accent2); background: var(--panel); }
 .stockbar { flex: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border-bottom: 1px solid var(--line); }
+.stockbar .sitemark { display: flex; }
 .stockbar .sfield { flex: 1 1 100%; display: flex; align-items: center; gap: 8px; padding: 0 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
 .stockbar input[type='search'] { flex: 1; min-width: 0; font: inherit; color: inherit; background: transparent; border: 0; outline: none; padding: 7px 0; }
 .stockbar select { flex: 1; font: inherit; padding: 5px 8px; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; }

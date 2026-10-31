@@ -89,15 +89,18 @@ The sign-in and sign-up pop-ups of the game show a **Sign in with Google** butto
 3. Keep the client secret in Secrets Manager, not in a file of the repository: `aws secretsmanager create-secret --name puzzlevidio/google --secret-string <secret>` (with the secret put in from a file or a variable, so that it does not stay in the shell's history).
 4. Set the repository variables `GOOGLE_CLIENT_ID` (the client id; it is not secret) and `GOOGLE_SECRET_NAME` (`puzzlevidio/google`), or deploy by hand with `-c googleClientId=<id> -c googleSecretName=puzzlevidio/google`. The next deploy of the Auth stack adds the provider to the user pool and lists it on the app client; the build after it shows the button.
 
-## The stock library (Pexels)
-
-The **Stock Files** tab of the game's photo panel searches Pexels for pictures and videos (they are downloaded straight from Pexels' own servers when someone presses Play; the API only does the searching, so the key stays secret and answers are kept for ten minutes). The tab is there when the build has an API (`VITE_ONLINE_URL`); a deployment without a key answers `stock-off` and the tab says the library is not available.
-
-1. Make a free account at pexels.com and ask for an API key (pexels.com/api). Its terms ask for a visible link to Pexels wherever its pictures are shown (the game does that), and give a key 200 requests an hour and 20,000 a month (the server keeps its own count: `stockUpstream` in `server/src/ratelimit.ts` stops at 150 an hour; ask Pexels to raise the limit when the game has players, they do it for free for credited use).
-2. Keep the key in Secrets Manager: `aws secretsmanager create-secret --name puzzlevidio/pexels --secret-string <key>` (put in from a file or a variable, so that it does not stay in the shell's history).
-3. Set the repository variable `PEXELS_SECRET_NAME` (`puzzlevidio/pexels`), or deploy by hand with `-c pexelsSecretName=puzzlevidio/pexels`. Only the API function may read the secret. On a developer's machine, `PEXELS_API_KEY=<key> npm run server` turns the library on for the local server.
-
 An account made with Google is a **separate account** from one made with an e-mail address and password for the same address: Cognito does not join them by itself (see the plan: linking them is the next step).
+
+## The stock library (Pixabay and Pexels)
+
+The **Stock Files** tab of the game's photo panel searches Pixabay and Pexels for pictures and videos. The API only does the searching (so the keys stay secret, and answers are kept: ten minutes for Pexels, a day for Pixabay, which asks for that); a picture or video is downloaded by the browser straight from the site's own servers when someone presses Play, with no referrer (Pixabay's image server turns away a picture asked for by another site's page). The tab is there when the build has an API (`VITE_ONLINE_URL`); a deployment with no key at all answers `stock-off` and the tab says the library is not available; with keys for both sites the tab offers a choice between them. Each site is optional.
+
+**Pixabay** (photos and videos; the safe search is always on):
+1. Make a free account at pixabay.com and copy the API key from the API documentation page (pixabay.com/api/docs) while logged in. Its terms ask that results say where they are from (the game does that), that answers are kept for 24 hours (the server does that), and that its pictures are downloaded rather than hotlinked for good (the game keeps what is played in the player's own library). A key may make 100 requests a minute; the server stops at 1500 an hour (`stockUpstream` in `server/src/ratelimit.ts`).
+2. Keep the key in Secrets Manager: `aws secretsmanager create-secret --name puzzlevidio/pixabay --secret-string <key>` (put in from a file or a variable, so that it does not stay in the shell's history).
+3. Set the repository variable `PIXABAY_SECRET_NAME` (`puzzlevidio/pixabay`), or deploy by hand with `-c pixabaySecretName=puzzlevidio/pixabay`. Only the API function may read the secret. On a developer's machine, `PIXABAY_API_KEY=<key> npm run server` turns it on for the local server.
+
+**Pexels** works the same way (secret `puzzlevidio/pexels`, variable `PEXELS_SECRET_NAME`, `-c pexelsSecretName=...`, `PEXELS_API_KEY` for the local server). Pexels was not giving out new API keys when this was written (a banner on pexels.com/api said issuance was paused), so the game runs on Pixabay alone until a Pexels key can be had. Its terms ask for a visible link to Pexels wherever its pictures are shown (the game does that) and give a key 200 requests an hour and 20,000 a month (the server stops at 150 an hour; ask Pexels to raise the limit when the game has players).
 
 ## What it costs with nobody playing
 

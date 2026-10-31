@@ -35,6 +35,7 @@ export function build(app: App): void {
       origins,
       limits: s.limits,
       pexelsSecretName: s.pexelsSecretName,
+      pixabaySecretName: s.pixabaySecretName,
       table: data.table,
       media: data.media,
       signing: data.signingKey,

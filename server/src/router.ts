@@ -1,7 +1,7 @@
 import type { CommandRequest, CreateRoomRequest, JoinRequest, ApiError, PlaybackRequest, ReportRequest } from '../../src/online/protocol';
 import type { RoomService } from './service';
 import { clientKey, type RateLimiter } from './ratelimit';
-import type { StockSource } from './stock';
+import { stockSitesOf, type StockProviders } from './stock';
 import type { Auth, Player } from './types';
 
 /** One request, in the terms of any web server (a Node one now, API Gateway and Lambda later). */
@@ -81,7 +81,7 @@ export interface GuestGate {
   verify(token: string): Promise<string | null>;
 }
 
-export function createRouter(d: { service: RoomService; auth: Auth; media: MediaGate; guests?: GuestGate; limiter?: RateLimiter; stock?: StockSource }): (req: Req) => Promise<Res> {
+export function createRouter(d: { service: RoomService; auth: Auth; media: MediaGate; guests?: GuestGate; limiter?: RateLimiter; stock?: StockProviders }): (req: Req) => Promise<Res> {
   const { service, auth, media, guests, limiter, stock } = d;
   const reply = (r: { ok: boolean; error?: ApiError }): Res => ({ status: r.ok ? 200 : STATUS[r.error!] ?? 400, body: r });
   const json = <T>(req: Req): T | null => {
@@ -120,12 +120,14 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
 
     // the library of stock pictures and videos: open to everyone (the game's single-player side has no sign-in), so how often an address may ask is limited, and the provider's own limit is shared by all
     if (parts[0] === 'stock' && parts[1] === 'search' && parts.length === 2 && req.method === 'GET') {
-      if (!stock) return { status: 503, body: { ok: false, error: 'stock-off' } };
+      const sites = stock ? stockSitesOf(stock) : [];
+      if (!stock || !sites.length) return { status: 503, body: { ok: false, error: 'stock-off' } };
       if (limiter && !(await limiter.take(`stock#${clientKey(req.ip)}`, limiter.rates.stockSearch.perIp, limiter.rates.stockSearch.windowMs))) return slow(limiter.rates.stockSearch.windowMs);
-      const up = limiter?.rates.stockUpstream;
-      const found = await stock.search(req.query.get('q') ?? '', req.query.get('type') === 'video' ? 'video' : 'photo', Number(req.query.get('page') ?? 1), up ? () => limiter!.take('stock#upstream', up.total, up.windowMs) : undefined);
-      if (found === 'busy') return slow(limiter!.rates.stockUpstream.windowMs);
-      return found ? { status: 200, body: found } : { status: 503, body: { ok: false, error: 'stock-off' } };
+      const site = sites.find((s) => s === req.query.get('source')) ?? sites[0];        // (one that is not here is not an error: the first one that is is used)
+      const up = limiter?.rates.stockUpstream[site];
+      const found = await stock[site]!.search(req.query.get('q') ?? '', req.query.get('type') === 'video' ? 'video' : 'photo', Number(req.query.get('page') ?? 1), up ? () => limiter!.take(`stock#upstream#${site}`, up.total, up.windowMs) : undefined);
+      if (found === 'busy') return slow(up!.windowMs);
+      return found ? { status: 200, body: { ...found, source: site, sources: sites } } : { status: 503, body: { ok: false, error: 'stock-off' } };
     }
 
     // a guest token, for someone with no account (and, with a token that is still good, a fresh one for the same guest)

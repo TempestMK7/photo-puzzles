@@ -447,8 +447,12 @@ describe('the stock library', () => {
     }
   });
 
-  it('gives only the API function the name of the key and the right to read it, when a secret is named', () => {
-    expect(apiEnvironment(stack(app(), 'PuzzleVidio-dev-Api')).PEXELS_SECRET_ID).toBeUndefined();
+  it('gives only the API function the name of each key and the right to read it, when a secret is named', () => {
+    const plain = apiEnvironment(stack(app(), 'PuzzleVidio-dev-Api'));
+    expect([plain.PEXELS_SECRET_ID, plain.PIXABAY_SECRET_ID]).toEqual([undefined, undefined]);
+    const pixabay = stack(app({ pixabaySecretName: 'puzzlevidio/pixabay' }), 'PuzzleVidio-dev-Api');
+    expect([apiEnvironment(pixabay).PEXELS_SECRET_ID, apiEnvironment(pixabay).PIXABAY_SECRET_ID]).toEqual([undefined, 'puzzlevidio/pixabay']);
+    expect(Object.entries(pixabay.findResources('AWS::IAM::Policy')).filter(([, p]) => JSON.stringify(p).includes('puzzlevidio/pixabay')).map(([id]) => id)).toEqual([expect.stringMatching(/^Api/)]);
     const t = stack(app({ pexelsSecretName: 'puzzlevidio/pexels' }), 'PuzzleVidio-dev-Api');
     expect(apiEnvironment(t).PEXELS_SECRET_ID).toBe('puzzlevidio/pexels');
     const policies = Object.entries(t.findResources('AWS::IAM::Policy')) as [string, { Properties: { PolicyDocument: { Statement: Statement[] } } }][];

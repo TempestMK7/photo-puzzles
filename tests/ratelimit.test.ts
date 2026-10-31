@@ -70,7 +70,7 @@ describe('the limits on the API', () => {
     playback: { perPlayer: 2, windowMs: MIN },
     videoCheck: { perPlayer: 2, windowMs: MIN },
     stockSearch: { perIp: 2, windowMs: HOUR },
-    stockUpstream: { total: 2, windowMs: HOUR },
+    stockUpstream: { pexels: { total: 2, windowMs: HOUR }, pixabay: { total: 2, windowMs: HOUR } },
   };
   const KEY = new Uint8Array(32).fill(9);
 
