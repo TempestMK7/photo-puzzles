@@ -316,6 +316,7 @@ export class RoomService {
       knocks: [],
       video,
       unchecked: unchecked || undefined,
+      strict: req.stock === true || undefined,
       ready: false,
       status: 'open',
       createdAt: now,
@@ -351,7 +352,7 @@ export class RoomService {
     if (this.d.moderation) {
       let verdict: Awaited<ReturnType<Moderation['check']>>;
       try {
-        verdict = await this.d.moderation.check(bytes, found.type);
+        verdict = await this.d.moderation.check(bytes, found.type, room.strict === true);
       } catch (e) {
         console.error(e);
         return fail('busy');                                      // not looked at: nothing is shown, and the creator may send it again
@@ -409,7 +410,7 @@ export class RoomService {
     if (!videoModeration || room.unchecked) return this.videoReady(roomId);
     let verdict: Awaited<ReturnType<VideoModeration['result']>>;
     try {
-      verdict = await videoModeration.result(room.checking.jobId);
+      verdict = await videoModeration.result(room.checking.jobId, room.strict === true);
     } catch (e) {
       console.error(e);
       return fail('busy');

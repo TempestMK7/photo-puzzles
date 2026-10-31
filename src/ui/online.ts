@@ -381,7 +381,7 @@ export class OnlinePanel {
       opts.pieces = Math.min(opts.pieces, DEFAULT_LIMITS.jigsawPieces);
       const settings: RoomSettings = { kind: 'jigsaw', seed: seedFromText(puzzleSeedText(prefs.data.seed, entry.id, 'jigsaw')), width: src.width, height: src.height, opts };
       this.say('Making the puzzle…');
-      const made = await api.createRoom({ settings, sourceId: entry.id, consent: true });
+      const made = await api.createRoom({ settings, sourceId: entry.id, consent: true, ...(entry.credit ? { stock: true } : {}) });
       if (!made.ok) return this.fail(made);
       this.say('Sending the picture…');
       let up = await api.upload(made.upload.url, blob);
@@ -425,7 +425,7 @@ export class OnlinePanel {
       opts.pieces = Math.min(opts.pieces, DEFAULT_LIMITS.jigsawPieces);
       const settings: RoomSettings = { kind: 'jigsaw', seed: seedFromText(puzzleSeedText(prefs.data.seed, entry.id, 'jigsaw')), width: src.width, height: src.height, opts };
       this.say('Making the puzzle…');
-      const made = await api.createRoom({ settings, sourceId: entry.id, consent: true, video: { type: type as (typeof VIDEO_TYPES)[number], bytes: file.size, ms: Math.round(seconds * 1000) } });
+      const made = await api.createRoom({ settings, sourceId: entry.id, consent: true, ...(entry.credit ? { stock: true } : {}), video: { type: type as (typeof VIDEO_TYPES)[number], bytes: file.size, ms: Math.round(seconds * 1000) } });
       if (!made.ok) return this.fail(made);
       const sent = await api.uploadVideo(made.upload.url, made.upload.headers ?? {}, file, (f) => this.say(`Sending the video… ${Math.round(f * 100)}%`));
       if (!sent.ok) return this.fail(sent);

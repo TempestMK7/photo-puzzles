@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MemoryRates } from '../server/src/memory';
 import { DEFAULT_RATES, RateLimiter, type Rates } from '../server/src/ratelimit';
 import { createRouter, DevAuth } from '../server/src/router';
-import { PexelsStock, PixabayStock, pexelsUrl, pixabayUrl } from '../server/src/stock';
+import { PexelsStock, PixabayStock, loadStockProviders, pexelsUrl, pixabayUrl, stockSitesOf } from '../server/src/stock';
 import { GuestTokens, TokenAuth } from '../server/src/guest';
 import { world } from './helpers/world';
 
@@ -367,5 +367,35 @@ describe('the stock library with two sites', () => {
     expect(only.body).toMatchObject({ source: 'pixabay', sources: ['pixabay'] });
     const none = await mk({})({ method: 'GET', path: '/stock/search', query: new URLSearchParams('q=a'), body: new Uint8Array() });
     expect(none).toMatchObject({ status: 503, body: { error: 'stock-off' } });
+  });
+});
+
+describe('the stock library: which sites have a key', () => {
+  const names = { pexels: 'puzzlevidio/pexels', pixabay: 'puzzlevidio/pixabay' };
+
+  it('offers only the sites whose key is there: no secret, an empty one, and one that cannot be read leave a site out', async () => {
+    const logged: unknown[] = [];
+    const read = (keys: Record<string, string | undefined | Error>) => async (name: string) => {
+      const k = keys[name];
+      if (k instanceof Error) throw k;
+      return k;
+    };
+    const both = await loadStockProviders(names, read({ 'puzzlevidio/pexels': 'A', 'puzzlevidio/pixabay': ' B \n' }), (e) => logged.push(e));
+    expect(Object.keys(both)).toEqual(['pexels', 'pixabay']);
+    const onlyPixabay = await loadStockProviders(names, read({ 'puzzlevidio/pixabay': 'B' }), (e) => logged.push(e));          // (no secret for Pexels: it was never made)
+    expect(Object.keys(onlyPixabay)).toEqual(['pixabay']);
+    expect(Object.keys(await loadStockProviders(names, read({ 'puzzlevidio/pexels': '  ', 'puzzlevidio/pixabay': '' }), (e) => logged.push(e)))).toEqual([]);
+    expect(logged).toEqual([]);                                                                              // none of that is a fault
+    const broken = await loadStockProviders(names, read({ 'puzzlevidio/pexels': new Error('AccessDenied'), 'puzzlevidio/pixabay': 'B' }), (e) => logged.push(e));
+    expect(Object.keys(broken)).toEqual(['pixabay']);
+    expect(logged).toHaveLength(1);                                                                          // (a secret that cannot be read is)
+  });
+
+  it('asks only for the sites that have a name, and the router then offers just those', async () => {
+    const asked: string[] = [];
+    const providers = await loadStockProviders({ pixabay: 'puzzlevidio/pixabay' }, async (name) => (asked.push(name), 'B'));
+    expect(asked).toEqual(['puzzlevidio/pixabay']);
+    expect(stockSitesOf(providers)).toEqual(['pixabay']);
+    expect(stockSitesOf({})).toEqual([]);
   });
 });

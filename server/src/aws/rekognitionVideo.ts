@@ -1,6 +1,6 @@
 import { GetContentModerationCommand, StartContentModerationCommand, type RekognitionClient } from '@aws-sdk/client-rekognition';
 import type { VideoModeration } from '../types';
-import { blockedLabel, MIN_CONFIDENCE } from './rekognition';
+import { BLOCKED, blockedLabel, MIN_CONFIDENCE } from './rekognition';
 import { mediaKey } from './s3media';
 
 /** What Rekognition says when it will not take a video at all (as opposed to being busy): too large, or a request it cannot make sense of. */
@@ -28,13 +28,13 @@ export class RekognitionVideoModeration implements VideoModeration {
     }
   }
 
-  async result(jobId: string) {
+  async result(jobId: string, strict = false) {
     let next: string | undefined;
     do {
       const out = await this.client.send(new GetContentModerationCommand({ JobId: jobId, MaxResults: 1000, NextToken: next }));
       if (out.JobStatus === 'IN_PROGRESS') return { state: 'working' } as const;
       if (out.JobStatus !== 'SUCCEEDED') return { state: 'unreadable' } as const;                // FAILED: the service could not read the file (H.264 in MP4 or MOV is what it reads)
-      const label = blockedLabel((out.ModerationLabels ?? []).map((d) => d.ModerationLabel).filter((l) => !!l) as never);
+      const label = blockedLabel((out.ModerationLabels ?? []).map((d) => d.ModerationLabel).filter((l) => !!l) as never, BLOCKED, strict);
       if (label) return { state: 'done', ok: false, label } as const;
       next = out.NextToken;
     } while (next);

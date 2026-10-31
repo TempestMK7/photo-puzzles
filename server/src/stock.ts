@@ -1,5 +1,7 @@
 import { pexelsUrl, pixabayUrl, STOCK_SITES, type StockItem, type StockSite, type StockType } from '../../src/online/protocol';
 
+import { adultText, pathOf } from './stockFilter';
+
 export { pexelsUrl, pixabayUrl };
 
 /**
@@ -86,6 +88,7 @@ abstract class CachedStock implements StockProvider {
   async search(query: string, type: StockType, page: number, allow?: () => Promise<boolean>): Promise<StockPage | 'busy' | null> {
     const q = query.replace(/\s+/g, ' ').trim().slice(0, 80);
     const p = Math.min(MAX_PAGE, Math.max(1, Math.floor(page) || 1));
+    if (adultText(q)) return { ok: true, items: [], page: p, more: false };          // a search for adult pictures finds none (and is not sent to the site)
     const id = `${type}|${q.toLowerCase()}|${p}`;
     const had = this.kept.get(id);
     if (had && this.now() - had.at < this.keepMs) return had.res;
@@ -106,6 +109,24 @@ abstract class CachedStock implements StockProvider {
     while (this.kept.size > KEPT) this.kept.delete(this.kept.keys().next().value as string);
     return res;
   }
+}
+
+/**
+ * The providers for the sites whose key can be read. `names` says where each site's key is kept; `read` gives the key, or nothing when there is none (no such secret, or an empty
+ * one). A site with no key, or whose key cannot be read, is left out without a fuss, so that the game does not offer it.
+ */
+export async function loadStockProviders(names: Partial<Record<StockSite, string>>, read: (name: string) => Promise<string | undefined>, log: (e: unknown) => void = console.error): Promise<StockProviders> {
+  const key = async (name: string | undefined): Promise<string | undefined> => {
+    if (!name) return undefined;
+    try {
+      return (await read(name))?.trim() || undefined;
+    } catch (e) {
+      log(e);
+      return undefined;
+    }
+  };
+  const [pexels, pixabay] = await Promise.all([key(names.pexels), key(names.pixabay)]);
+  return { ...(pexels ? { pexels: new PexelsStock(pexels) } : {}), ...(pixabay ? { pixabay: new PixabayStock(pixabay) } : {}) };
 }
 
 // ---------------------------------------------------------------------------------------------------------------- Pexels
@@ -130,6 +151,7 @@ function pexelsPhoto(p: unknown): StockItem | null {
   const url = pexelsUrl(o.url);
   const by = text(o.photographer, 80);
   if (!file || !preview || !thumb || !url || !by || !num(o.id)) return null;
+  if (adultText(`${text(o.alt, 300)} ${pathOf(url)}`)) return null;
   return {
     id: String(num(o.id)),
     source: 'pexels',
@@ -167,6 +189,7 @@ function pexelsVideo(v: unknown): StockItem | null {
   const url = pexelsUrl(o.url);
   const by = text(user?.name, 80);
   if (!thumb || !url || !by || !num(o.id)) return null;
+  if (adultText(pathOf(url))) return null;
   return {
     id: String(num(o.id)),
     source: 'pexels',
@@ -229,6 +252,7 @@ function pixabayPhoto(p: unknown): StockItem | null {
   const thumb = pixabayUrl(o.previewURL) ?? pixabayUrl(o.webformatURL);
   const file = pixabayUrl(o.largeImageURL) ?? pixabayUrl(o.webformatURL);
   if (!by || !url || !thumb || !file || !num(o.id)) return null;
+  if (adultText(`${text(o.tags, 400)} ${pathOf(url)}`)) return null;
   return {
     id: String(num(o.id)),
     source: 'pixabay',
@@ -267,6 +291,7 @@ function pixabayVideo(v: unknown): StockItem | null {
   const url = pixabayUrl(o.pageURL);
   const thumb = best.thumb ?? preview.thumb ?? files.find((f) => f.thumb)?.thumb;
   if (!by || !url || !thumb || !num(o.id)) return null;
+  if (adultText(`${text(o.tags, 400)} ${pathOf(url)}`)) return null;
   return {
     id: String(num(o.id)),
     source: 'pixabay',

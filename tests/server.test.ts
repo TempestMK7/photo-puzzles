@@ -294,7 +294,7 @@ describe.each(stores)('the room service on %s', (_name, store) => {
   describe('the automatic look at a picture', () => {
     const told: string[] = [];
     beforeEach(() => void (told.length = 0));
-    const make = (check: (bytes: Uint8Array) => Promise<{ ok: true } | { ok: false; label: string }>) =>
+    const make = (check: (bytes: Uint8Array, type: string, strict?: boolean) => Promise<{ ok: true } | { ok: false; label: string }>) =>
       makeWorld({}, store, undefined, async (text) => void told.push(text), { check });
     const create = async (w: World) => {
       const made = await w.service.createRoom(ann, request());
@@ -323,6 +323,19 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       expect(told[0]).toContain('Violence / Graphic Violence');
       expect(told[0]).toContain(made.roomId);
       expect(await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret })).toMatchObject({ ok: false });
+    });
+
+    it('asks for the stricter look at a picture that came from the stock library, and for the usual one at any other', async () => {
+      const strictness: (boolean | undefined)[] = [];
+      const w = make(async (_bytes, _type, strict) => (strictness.push(strict), { ok: true }));
+      const stock = await w.service.createRoom(ann, { ...request(), stock: true });
+      const own = await w.service.createRoom(bob, request());
+      if (!stock.ok || !own.ok) throw new Error('create failed');
+      expect((await w.store.getRoom(stock.roomId))!.strict).toBe(true);
+      expect((await w.store.getRoom(own.roomId))!.strict).toBeUndefined();
+      await w.service.finishUpload(stock.roomId, jpeg(400, 300));
+      await w.service.finishUpload(own.roomId, jpeg(400, 300));
+      expect(strictness).toEqual([true, false]);
     });
 
     it('does not look at what it would turn away anyway (a picture of the wrong size or kind)', async () => {
