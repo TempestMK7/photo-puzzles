@@ -10,6 +10,7 @@ import type {
   MeResponse,
   PlaybackRequest,
   ReportRequest,
+  VideoCheckResponse,
   RoomDescriptor,
   RoomSummary,
 } from './protocol';
@@ -113,9 +114,9 @@ export class OnlineApi implements RoomApi {
     });
   }
 
-  /** The video is up: a few of its pictures (JPEGs, base64) for the server to look at, and then the puzzle can be joined. */
-  finishVideo(id: string, frames: string[]): Promise<{ ok: true } | ApiFailure | Offline> {
-    return this.call('POST', `/rooms/${encodeURIComponent(id)}/video`, { frames });
+  /** The video is up: starts the server's look at all of it, and then says how it is going (ask again until it is `ready`: then the puzzle can be joined). */
+  finishVideo(id: string): Promise<VideoCheckResponse | ApiFailure | Offline> {
+    return this.call('POST', `/rooms/${encodeURIComponent(id)}/video`, {});
   }
 
   setPlayback(id: string, req: PlaybackRequest): Promise<{ ok: true } | ApiFailure | Offline> {

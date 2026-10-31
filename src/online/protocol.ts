@@ -25,18 +25,17 @@ export const DEFAULT_LIMITS = {
   maxAgeMs: 30 * 24 * 3600 * 1000,
   /** Puzzles made from a video that a player may create per rolling week. 0 switches them off (they are off until the operator sets it: they cost storage, bandwidth and a look at the video). */
   videoRoomsPerWeek: 0,
-  /** The largest video, in bytes, and the longest, in ms. */
-  videoBytes: 50_000_000,
-  videoMs: 60_000,
+  /** The largest video, in bytes, and the longest, in ms (two minutes of a phone's video is about 150 to 250 MB). */
+  videoBytes: 250_000_000,
+  videoMs: 120_000,
 } as const;
 
-/** The kinds of video file an online puzzle may be made from (what a browser can play: the game checks that again where it is played). */
-export const VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-matroska'] as const;
+/**
+ * The kinds of video file an online puzzle may be made from: MP4 and MOV, because those are what Amazon's check of a whole video reads (and only with H.264 inside: a file that the check
+ * cannot read is refused with `unreadable`). WebM and MKV play on your own screen but cannot be checked, so they cannot be shared.
+ */
+export const VIDEO_TYPES = ['video/mp4', 'video/quicktime'] as const;
 export type VideoType = (typeof VIDEO_TYPES)[number];
-
-/** A video is looked at through a few of its pictures, which the game sends when the video is up: at least this many and at most that many, each no larger than `FRAME_BYTES`. */
-export const VIDEO_FRAMES = { min: 3, max: 12 } as const;
-export const FRAME_BYTES = 300_000;
 
 /** How often the player who holds a piece says where it is, and how often a hold is renewed. */
 export const HAND_INTERVAL_MS = 100;
@@ -142,7 +141,9 @@ export type ApiError =
   /** Puzzles made from a video are switched off for now (their limit is 0). */
   | 'video-off'
   /** The video is longer or larger than the limits allow. */
-  | 'too-big';
+  | 'too-big'
+  /** The automatic check could not read the video (it reads MP4 and MOV made with H.264). */
+  | 'unreadable';
 
 export interface ApiFailure {
   ok: false;
@@ -159,7 +160,7 @@ export interface CreateRoomRequest {
   sourceId?: string;
   /** The player has said yes to the picture leaving the device. */
   consent: true;
-  /** A puzzle made from a video: what the file is (the board's `width` and `height` are the video's). The video goes straight to storage (`upload`), then `VideoDoneRequest` follows. */
+  /** A puzzle made from a video: what the file is (the board's `width` and `height` are the video's). The video goes straight to storage (`upload`), then the owner's game asks for it to be checked (`VideoCheckResponse`). */
   video?: { type: VideoType; bytes: number; ms: number };
 }
 
@@ -179,9 +180,13 @@ export interface Invite {
   link: string;
 }
 
-/** The video is up: a few of its pictures (JPEGs, base64), spread over its length, which are looked at before anyone else may see the puzzle. */
-export interface VideoDoneRequest {
-  frames: string[];
+/**
+ * The answer to "the video is up, check it" (and to asking again): the whole video is looked at by Amazon's service, which takes a minute or two, so the owner's game asks every few seconds
+ * until it says `ready`. A video that is turned down is `rejected` (as a picture is), one the check cannot read is `unreadable`.
+ */
+export interface VideoCheckResponse {
+  ok: true;
+  state: 'checking' | 'ready';
 }
 
 /** The host says where the video is (the owner's game, when they play, pause or move it, and now and then while it plays). */

@@ -68,6 +68,7 @@ describe('the limits on the API', () => {
     creations: { perIp: 2, windowMs: HOUR },
     reports: { perPlayer: 2, windowMs: HOUR },
     playback: { perPlayer: 2, windowMs: MIN },
+    videoCheck: { perPlayer: 2, windowMs: MIN },
   };
   const KEY = new Uint8Array(32).fill(9);
 

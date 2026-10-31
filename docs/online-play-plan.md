@@ -21,7 +21,7 @@ Local play stays exactly as it is: free, unlimited, no account, nothing leaves t
 - **Platforms:** the web version at our own domain (Route 53), itch.io, Steam (in a desktop wrapper, later) and the Android app all use the same server. A code works from any of them.
 - **Repo:** `server/` and `infra/` in this repository, importing `src/core`. No keys, tokens or AWS account ids are committed; ids that the apps need are build-time settings.
 - **Domain:** puzzlevid.io, bought by the owner (registered through Route 53; the hosted zone may still be being set up).
-- **Video puzzles:** the board is shared like a picture, from a video of up to 60 s and 50 MB (MP4, MOV, WebM or MKV). The owner is the host: where the video is (position and paused) is room state, so a player who joins starts there and follows the host's play, pause and seeking until they play, pause or seek by themselves; a button then takes them back to the host. **Off until the operator sets `videoRoomsPerWeek`.** The check of a video is of a few pictures that the maker's game sends, not of the video itself (Amazon's video check reads only MP4/MOV with H.264, and a stronger check for those is a later step): weaker than a picture's.
+- **Video puzzles:** the board is shared like a picture, from a video of up to 2 minutes and 250 MB (**MP4 or MOV made with H.264**: those are what Amazon's check of a whole video reads). The owner is the host: where the video is (position and paused) is room state, so a player who joins starts there and follows the host's play, pause and seeking until they play, pause or seek by themselves; a button then takes them back to the host. **Off until the operator sets `videoRoomsPerWeek`.** The whole video is checked by Amazon Rekognition Video (about ten cents a minute, once, when the puzzle is made), as a picture is, and nobody can join until it has passed.
 
 ## Architecture
 
@@ -148,7 +148,7 @@ The Lambda code uses the same `src/core` rules as the game, so the server decide
 
 ### Later
 - Sliding Tiles and Focus Point online, then the other types.
-- Video puzzles: **built** (server: PR for part 1; game: PR for part 2) and **off until the operator sets `videoRoomsPerWeek`**. Still to do: a stronger check of the video itself for MP4/MOV (Rekognition Video, asynchronous), streaming from CloudFront instead of fetching the whole file, and a video's own cost in the plan below.
+- Video puzzles: **built** (server: PR for part 1; game: PR for part 2) and **off until the operator sets `videoRoomsPerWeek`**. Still to do: streaming from CloudFront instead of fetching the whole file (the Android app cannot stream from another address as it stands), and a video's own cost in the plan below.
 - Payments (Stripe on the web, Play Billing in the Android app, entitlements in DynamoDB), Apple and Facebook sign-in.
 
 ## Costs

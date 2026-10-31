@@ -19,6 +19,8 @@ export const DEFAULT_RATES = {
   reports: { perPlayer: 5, windowMs: HOUR },
   /** Where the host says the video is: when it is played, paused or moved, and now and then while it plays. */
   playback: { perPlayer: 60, windowMs: MIN },
+  /** The owner's game asking how the check of a video is going (every few seconds for a minute or two). */
+  videoCheck: { perPlayer: 60, windowMs: 5 * MIN },
 };
 
 export type Rates = typeof DEFAULT_RATES;

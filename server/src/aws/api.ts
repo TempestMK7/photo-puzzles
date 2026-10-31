@@ -19,6 +19,7 @@ import type { Auth, Limits } from '../types';
 import { playerFrom } from './claims';
 import { CognitoAccounts } from './cognito';
 import { RekognitionModeration } from './rekognition';
+import { RekognitionVideoModeration } from './rekognitionVideo';
 import { DynamoPresence, DynamoRates, DynamoStore } from './dynamo';
 import { CognitoVerifier, fetchJson } from './jwt';
 import { IotPubSub } from './iot';
@@ -99,6 +100,8 @@ export async function buildService() {
     accounts: new CognitoAccounts(new CognitoIdentityProviderClient({}), need('USER_POOL_ID')),
     // every picture is looked at before anyone else can see it
     moderation: new RekognitionModeration(new RekognitionClient({})),
+    // and every video, whole (a minute or two, asked about until it is done)
+    videoModeration: new RekognitionVideoModeration(new RekognitionClient({}), need('MEDIA_BUCKET')),
     // a report goes to the alarm topic, so that it reaches the operator's e-mail
     notify: async (text) => void (await sns.send(new PublishCommand({ TopicArn: need('ALERT_TOPIC_ARN'), Subject: 'PuzzleVidio: a puzzle was reported', Message: text }))),
   });
