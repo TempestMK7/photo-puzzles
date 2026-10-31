@@ -5,7 +5,7 @@ import type { RoomEvent, RoomState } from '../core/jigsawRoom';
 import { haptic, type Haptic } from '../haptics';
 import type { HandMessage } from '../online/protocol';
 import { beginFrame, type View } from '../render';
-import { buildAtlas, buildMasks, snapshot, type Atlas } from './jigsawArt';
+import { buildAtlas, buildMasks, buildSprite, snapshot, type Atlas, type Sprite } from './jigsawArt';
 import { glAvailable, PieceRenderer, type GlGroup } from './jigsawGl';
 import { GroupRipple } from './ripple';
 import { hapticToggles, LIFT_CSS, LIFT_MS } from './feedback';
@@ -91,6 +91,12 @@ export class JigsawSession implements PuzzleSession {
   private fixedRes = false;
   private adapt = { t0: 0, decoded0: 0, renders: 0 };
   private pendingCam: { ratio: number; cx: number; cy: number } | null = null;     // the camera of a saved game, until the canvas has a size
+  /** The pieces in the picture, drawn once into one image (so that no seam shows between them), and which of them are in it. */
+  private placedLayer: HTMLCanvasElement | null = null;
+  private placedMask: Uint8Array;
+  private placedSeen = -1;
+  /** Joined groups that are not in the picture, each drawn as one image (see `buildSprite`), by group id; `null` when the group is too big for one. */
+  private sprites = new Map<number, { count: number; first: number; sprite: Sprite | null }>();
   private wave = new GroupRipple();
   private waveGroup: GlGroup = { members: [], rot: 0, dx: 0, dy: 0 };
   private waveOut: { group: GlGroup; ks: number[] } = { group: this.waveGroup, ks: [] };
@@ -105,6 +111,7 @@ export class JigsawSession implements PuzzleSession {
     const board = buildJigsaw({ seed: init.seed, width: init.width, height: init.height, opts: init.opts });
     this.layout_ = board.layout;
     this.game = board.game;
+    this.placedMask = new Uint8Array(board.layout.cols * board.layout.rows);
     this.worldW = board.worldW;
     this.worldH = board.worldH;
     this.frameX = board.frameX;
@@ -113,6 +120,7 @@ export class JigsawSession implements PuzzleSession {
     if (init.video && glAvailable()) {
       try {
         this.gl = new PieceRenderer(buildMasks(l), l, init.video);
+        this.gl.joinOf = (m) => this.joinedSides(m);
       } catch {
         this.gl = null;                                           // no way to draw video pieces here: they are cut from the picture the video is stopped at
       }
@@ -330,18 +338,99 @@ export class JigsawSession implements PuzzleSession {
     this.drawGl(this.view(this.canvasW, this.canvasH), this.wave.step(now) ? this.waveFlash() : null);
   }
 
+  /** Which sides of piece m lie against another piece of its group (bit 0 top, 1 right, 2 bottom, 3 left). */
+  private joinedSides(m: number): number {
+    const { groupOf } = this.game;
+    const { cols, rows } = this.layout_;
+    const gid = groupOf[m];
+    const c = m % cols;
+    let bits = 0;
+    if (m >= cols && groupOf[m - cols] === gid) bits |= 1;
+    if (c < cols - 1 && groupOf[m + 1] === gid) bits |= 2;
+    if (m + cols < cols * rows && groupOf[m + cols] === gid) bits |= 4;
+    if (c > 0 && groupOf[m - 1] === gid) bits |= 8;
+    return bits;
+  }
+
+  /** Forgets the pictures made of pieces (the board was replaced): they are made again when next drawn. */
+  private forgetPictures(): void {
+    this.placedSeen = -1;
+    this.placedMask.fill(0);
+    this.placedLayer?.getContext('2d')?.clearRect(0, 0, this.placedLayer.width, this.placedLayer.height);
+    this.sprites.clear();
+  }
+
+  /**
+   * The pieces that are part of the picture: they are laid into one image as they are placed (never taken out again), and that image is what is drawn - one drawImage of the part
+   * on the screen, however many pieces there are, and no seam between them, which drawing each piece on its own leaves at a size that is not the pieces' own.
+   */
+  private drawPlaced(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number): void {
+    const g = this.game;
+    const l = this.layout_;
+    const a = this.atlas!;
+    if (!this.placedLayer) {
+      this.placedLayer = document.createElement('canvas');
+      this.placedLayer.width = Math.ceil(l.cols * l.size);
+      this.placedLayer.height = Math.ceil(l.rows * l.size);
+    }
+    const layer = this.placedLayer;
+    if (g.anchoredCount !== this.placedSeen) {
+      this.placedSeen = g.anchoredCount;
+      const lc = layer.getContext('2d')!;
+      lc.imageSmoothingQuality = 'high';
+      const o = l.size / 2 + a.pad;
+      for (const grp of g.groups.values()) {
+        if (!grp.anchored) continue;
+        for (const m of grp.members) {
+          if (this.placedMask[m]) continue;
+          this.placedMask[m] = 1;
+          const c = m % l.cols;
+          const r = Math.floor(m / l.cols);
+          lc.drawImage(a.plain, c * a.pitch + 1, r * a.pitch + 1, a.tile, a.tile, (c + 0.5) * l.size - o, (r + 0.5) * l.size - o, a.tile, a.tile);
+        }
+      }
+    }
+    const sx = Math.max(0, Math.floor(x0 - this.frameX));
+    const sy = Math.max(0, Math.floor(y0 - this.frameY));
+    const sw = Math.min(layer.width, Math.ceil(x1 - this.frameX)) - sx;
+    const sh = Math.min(layer.height, Math.ceil(y1 - this.frameY)) - sy;
+    if (sw > 0 && sh > 0) ctx.drawImage(layer, sx, sy, sw, sh, this.frameX + sx, this.frameY + sy, sw, sh);
+  }
+
+  /** Draws a group of joined pieces as the one picture it is (made when it first has to be drawn, and again when pieces join it); false if it is too big for that. */
+  private drawSprite(ctx: CanvasRenderingContext2D, grp: Group, fx: number, fy: number): boolean {
+    const g = this.game;
+    let entry = this.sprites.get(grp.id);
+    if (!entry || entry.count !== grp.members.length || entry.first !== grp.members[0]) {
+      if (this.sprites.size > g.groups.size) for (const id of [...this.sprites.keys()]) if (!g.groups.has(id)) this.sprites.delete(id);
+      const gid = g.groupOf[grp.members[0]];
+      const total = this.layout_.cols * this.layout_.rows;
+      entry = { count: grp.members.length, first: grp.members[0], sprite: buildSprite(this.atlas!, this.layout_, grp.members, (m) => m >= 0 && m < total && g.groupOf[m] === gid) };
+      this.sprites.set(grp.id, entry);
+    }
+    const sp = entry.sprite;
+    if (!sp) return false;
+    ctx.save();
+    ctx.translate(fx + grp.dx, fy + grp.dy);
+    ctx.rotate((grp.rot * Math.PI) / 2);
+    ctx.drawImage(sp.canvas, sp.x, sp.y);
+    ctx.restore();
+    return true;
+  }
+
   /** The pieces cut from a still picture: tiles of the atlas, one drawImage each. */
   private draw2d(ctx: CanvasRenderingContext2D, view: View): void {
     const l = this.layout_;
     const g = this.game;
     ctx.imageSmoothingQuality = view.scale < 0.6 ? 'low' : 'high';
-    const { canvas: lit, plain, pad, tile, pitch } = this.atlas!;
+    const { canvas: lit, pad, tile, pitch } = this.atlas!;
     const x0 = -view.ox / view.scale;
     const y0 = -view.oy / view.scale;
     const x1 = (this.canvasW - view.ox) / view.scale;
     const y1 = (this.canvasH - view.oy) / view.scale;
     const half = tile * 0.75;
-    const drawGroup = (atlas: HTMLCanvasElement, grp: { members: number[]; rot: number; dx: number; dy: number }): void => {
+    const drawGroup = (atlas: HTMLCanvasElement, grp: Group): void => {
+      if (grp.members.length > 1 && this.drawSprite(ctx, grp, this.frameX, this.frameY)) return;      // joined pieces are one picture, with an outline only round them
       for (const m of grp.members) {
         const c = m % l.cols;
         const r = Math.floor(m / l.cols);
@@ -360,10 +449,10 @@ export class JigsawSession implements PuzzleSession {
         }
       }
     };
-    for (const grp of g.groups.values()) if (grp.anchored) drawGroup(plain, grp);
+    this.drawPlaced(ctx, x0, y0, x1, y1);
     const selId = this.selectedGroup();
     const theirs = this.glowing();
-    const drawLoose = (id: number, group: (atlas: HTMLCanvasElement, grp: { members: number[]; rot: number; dx: number; dy: number }) => void): void => {
+    const drawLoose = (id: number, group: (atlas: HTMLCanvasElement, grp: Group) => void): void => {
       const grp = g.groups.get(id)!;
       const held = theirs.get(id);
       if (id === selId || held) {                                 // a glow round the selected group: drawn under it, and over again by the pieces themselves
@@ -389,7 +478,8 @@ export class JigsawSession implements PuzzleSession {
       ctx.clip();
       ctx.setTransform(tv.scale, 0, 0, tv.scale, tv.ox, tv.oy);
       ctx.imageSmoothingQuality = tv.scale < 0.6 ? 'low' : 'high';
-      const inTray = (atlas: HTMLCanvasElement, grp: { members: number[]; rot: number; dx: number; dy: number }): void => {
+      const inTray = (atlas: HTMLCanvasElement, grp: Group): void => {
+        if (grp.members.length > 1 && this.drawSprite(ctx, grp, 0, 0)) return;
         for (const m of grp.members) {
           const c = m % l.cols;
           const r = Math.floor(m / l.cols);
@@ -728,10 +818,28 @@ export class JigsawSession implements PuzzleSession {
     this.apply(this.dropOp(gid, tol));
   }
 
-  /** Pieces have locked together (or into the picture): the ripple runs over the whole group they are in now, out from where `from` were put down. */
-  private startWave(gid: number, from: ReadonlySet<number>, now: number): void {
+  /**
+   * Pieces have locked together or into the picture: the ripple runs from where `from` were put down. Pieces that join each other are lit all over the group they are in now. Pieces
+   * that are placed in the picture only light up the ones near them: those within two pieces of the middle of the ones just placed, and the more pieces were placed at once, the
+   * wider it reaches (20% more for each piece placed after the first).
+   */
+  private startWave(gid: number, from: ReadonlySet<number>, now: number, placed: boolean): void {
     const grp = this.game.groups.get(gid);
-    if (grp && from.size) this.wave.start(gid, grp.members, [...from], this.layout_.cols, this.layout_.size, now);
+    if (!grp || !from.size) return;
+    const { cols, size } = this.layout_;
+    let members = grp.members;
+    if (placed) {
+      const centre = (m: number): Pt => ({ x: ((m % cols) + 0.5) * size, y: (Math.floor(m / cols) + 0.5) * size });
+      let ox = 0;
+      let oy = 0;
+      for (const m of from) {
+        ox += centre(m).x / from.size;
+        oy += centre(m).y / from.size;
+      }
+      const reach = 2 * size * (1 + 0.2 * (from.size - 1));
+      members = members.filter((m) => Math.hypot(centre(m).x - ox, centre(m).y - oy) <= reach);
+    }
+    this.wave.start(gid, members, [...from], cols, size, now);
   }
 
   /** Commits an operation that may join groups, and gives the feedback for it: the ripple, the buzz, the end of the drag. */
@@ -748,7 +856,7 @@ export class JigsawSession implements PuzzleSession {
       this.drag = null;
       this.init.online?.holding(null);
     }
-    this.startWave(g.groupOf[op.piece], before, performance.now());
+    this.startWave(g.groupOf[op.piece], before, performance.now(), g.anchoredCount > wasAnchored);
     if (g.anchoredCount > wasAnchored && this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
     this.buzz(g.solved ? 'solved' : g.anchoredCount > wasAnchored ? 'placed' : 'join');
   }
@@ -898,7 +1006,7 @@ export class JigsawSession implements PuzzleSession {
     const wasAnchored = g.anchoredCount;
     const wasGroups = g.groups.size;
     applyOp(g, op);
-    if (g.groups.size < wasGroups) this.startWave(g.groupOf[op.piece], before, performance.now());
+    if (g.groups.size < wasGroups) this.startWave(g.groupOf[op.piece], before, performance.now(), g.anchoredCount > wasAnchored);
     if (g.anchoredCount > wasAnchored && this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
     this.init.traysChanged?.();
     this.init.requestDraw();
@@ -918,6 +1026,7 @@ export class JigsawSession implements PuzzleSession {
     } catch {
       return;                                                     // (the room's board is this puzzle's: this does not happen)
     }
+    this.forgetPictures();
     this.trayListChanged();
     if (this.sel >= 0 && this.game.groups.get(this.game.groupOf[this.sel])!.anchored) this.sel = -1;
     this.init.requestDraw();

@@ -67,6 +67,7 @@ layout(location=1) in vec2 a_center;
 layout(location=2) in vec2 a_rs;
 layout(location=3) in vec2 a_cell;
 layout(location=4) in float a_plain;
+layout(location=5) in float a_join;
 uniform vec2 u_res;
 uniform vec3 u_xf;
 uniform float u_tile;
@@ -74,6 +75,7 @@ uniform float u_o;
 out vec2 v_tile;
 out vec2 v_cell;
 out float v_plain;
+flat out float v_join;
 void main() {
   vec2 local = a_corner * u_tile - vec2(u_o);
   vec2 p = vec2(local.x * a_rs.x - local.y * a_rs.y, local.x * a_rs.y + local.y * a_rs.x);
@@ -82,6 +84,7 @@ void main() {
   v_tile = a_corner * u_tile;
   v_cell = a_cell;
   v_plain = a_plain;
+  v_join = a_join;
 }`;
 
 const FRAG_PIECE = `#version 300 es
@@ -96,9 +99,11 @@ uniform float u_size;
 uniform vec2 u_vid;
 uniform float u_outline;
 uniform float u_blur;
+uniform float u_o;
 in vec2 v_tile;
 in vec2 v_cell;
 in float v_plain;
+flat in float v_join;
 out vec4 o;
 void main() {
   vec2 auv = (v_cell * u_pitch + vec2(1.0) + v_tile) / u_atlas;
@@ -106,9 +111,15 @@ void main() {
   float cov = 0.25 * (texture(u_cover, auv + vec2(d.x, d.y)).a + texture(u_cover, auv + vec2(-d.x, d.y)).a
                     + texture(u_cover, auv + vec2(d.x, -d.y)).a + texture(u_cover, auv + vec2(-d.x, -d.y)).a);
   if (cov <= 0.0) discard;
+  // an edge that is only half covered on each side of a seam would let the background show through it: a piece is made fully opaque from half covered on, so that neighbours overlap instead
+  cov = min(1.0, cov * mix(1.5, 2.0, v_plain));
   vec3 col = texture(u_video, (u_src + v_cell * u_size + v_tile) / u_vid).rgb;
   vec4 ov = texture(u_overlay, auv);
-  col = mix(col, ov.rgb, ov.a * (1.0 - v_plain) * u_outline);
+  // no outline along a side where the piece lies against another of its group (bit 0 top, 1 right, 2 bottom, 3 left): the side is the quarter of the tile, cut along the diagonals, that the point is in
+  vec2 q = v_tile - vec2(u_o);
+  int side = abs(q.x) > abs(q.y) ? (q.x > 0.0 ? 1 : 3) : (q.y > 0.0 ? 2 : 0);
+  float joined = float((int(v_join + 0.5) >> side) & 1);
+  col = mix(col, ov.rgb, ov.a * (1.0 - v_plain) * (1.0 - joined) * u_outline);
   o = vec4(col * cov, cov);
 }`;
 
@@ -157,7 +168,7 @@ void main() {
   o = vec4(vec3(cov), cov);
 }`;
 
-const FLOATS = 7;                       // per instance: centre x, y, cos, sin, cell c, r, plain
+const FLOATS = 8;                       // per instance: centre x, y, cos, sin, cell c, r, plain, joined sides
 const STRIDE = FLOATS * 4;
 const GLOW_PX = 7;                      // the selection glow reaches this far, in screen pixels (less, if the piece's tile has no room)
 
@@ -186,6 +197,8 @@ export class PieceRenderer {
   private data = new Float32Array(0);
   /** The piece canvas has this share of the board's pixels in each direction (the browser stretches it): less work for a slow graphics card. */
   res = 1;
+  /** Which sides of piece `m` lie against another piece of its group (bit 0 top, 1 right, 2 bottom, 3 left): no outline is drawn there. */
+  joinOf: ((m: number) => number) | null = null;
   private readonly vw: number;
   private readonly vh: number;
 
@@ -255,7 +268,7 @@ export class PieceRenderer {
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     this.instBuf = gl.createBuffer()!;
-    for (let i = 1; i <= 4; i++) {
+    for (let i = 1; i <= 5; i++) {
       gl.enableVertexAttribArray(i);
       gl.vertexAttribDivisor(i, 1);
     }
@@ -356,6 +369,7 @@ export class PieceRenderer {
         data[i + 4] = c;
         data[i + 5] = r;
         data[i + 6] = ks ? ks[j] : plain;
+        data[i + 7] = plain === 0 && !ks && this.joinOf ? this.joinOf(m) : 0;
         n++;
       }
     };
@@ -426,6 +440,7 @@ export class PieceRenderer {
       gl.vertexAttribPointer(2, 2, gl.FLOAT, false, STRIDE, o + 8);
       gl.vertexAttribPointer(3, 2, gl.FLOAT, false, STRIDE, o + 16);
       gl.vertexAttribPointer(4, 1, gl.FLOAT, false, STRIDE, o + 24);
+      gl.vertexAttribPointer(5, 1, gl.FLOAT, false, STRIDE, o + 28);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, count);
     };
 
