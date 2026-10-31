@@ -12,6 +12,7 @@ import { appVersion, versionLabel } from '../version';
 import { h, svg } from './dom';
 import { KIND_ICONS } from './icons';
 import { aiMark, attribution, creditLine, siteMark } from './stocksite';
+import { effectsButton } from './effects';
 
 export interface LibraryDeps {
   prefs: Prefs;
@@ -198,6 +199,7 @@ export class LibraryScreen {
             ]
           : []),
         this.progressBtn,
+        effectsButton(deps.prefs),
         ...(deps.badge ? [deps.badge] : []),
       ),
       this.kindsEl,

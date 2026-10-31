@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DIRS, generateOverlap, OverlapGame, overlapGrid, STACKS, type OverlapSetup } from '../src/core/overlap';
+import { DIRS, generateOverlap, OverlapGame, overlapGrid, STACKS, stackCount, type OverlapSetup } from '../src/core/overlap';
 import { Rng } from '../src/core/rng';
 
 const make = (seed: number, cols = 7, rows = 5, turned = true, placed = 20, windows = true) => generateOverlap(new Rng(seed), { cols, rows, turned, placed, windows });
@@ -85,6 +85,14 @@ describe('generateOverlap', () => {
     expect(s.stacks).toHaveLength(STACKS);
     expect([...inStacks, ...s.placedAtStart].sort((a, b) => a - b)).toEqual(s.pieces.map((p) => p.id));
     expect(new OverlapGame(s).solved).toBe(false);
+  });
+
+  it('has three stacks, and one more for every hundred approximate cells', () => {
+    expect([50, 90, 100, 190, 200, 300, 500].map(stackCount)).toEqual([3, 3, 4, 4, 5, 6, 8]);
+    const s = generateOverlap(new Rng(5), { cols: 20, rows: 15, turned: true, placed: 20, windows: true, stacks: stackCount(300) });
+    expect(s.stacks).toHaveLength(6);
+    expect([...s.stacks.flat(), ...s.placedAtStart].sort((a, b) => a - b)).toEqual(s.pieces.map((p) => p.id));
+    expect(Math.max(...s.stacks.map((st) => st.length)) - Math.min(...s.stacks.map((st) => st.length))).toBeLessThanOrEqual(1);          // dealt evenly
   });
 
   it('puts windows only on overlap cells that another piece also reveals, never on a centre, never on a placed piece, and never when windows are off', () => {

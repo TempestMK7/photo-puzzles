@@ -31,6 +31,8 @@ export interface OverlapOptions {
   placed: number;
   /** Some pieces have a window cell. */
   windows: boolean;
+  /** How many stacks the pieces wait in (`STACKS` when not given; see `stackCount`). */
+  stacks?: number;
 }
 
 export interface OverlapSetup {
@@ -41,11 +43,17 @@ export interface OverlapSetup {
   rot: number[];
   /** Pieces already in place at the start. */
   placedAtStart: number[];
-  /** The three stacks, bottom to top. */
+  /** The stacks, bottom to top. */
   stacks: number[][];
 }
 
+/** Stacks a small puzzle has. */
 export const STACKS = 3;
+
+/** How many stacks a puzzle of about `total` cells has: three, and one more for every hundred cells. */
+export function stackCount(total: number): number {
+  return STACKS + Math.floor(Math.max(0, total) / 100);
+}
 
 /** The grid for about `total` cells in the proportions of a picture: as many columns and rows as come closest (never fewer than four by three, nor more than 120 across). */
 export function overlapGrid(total: number, width: number, height: number): { cols: number; rows: number } {
@@ -56,7 +64,7 @@ export function overlapGrid(total: number, width: number, height: number): { col
 /**
  * Lays the pieces over the grid and shuffles them. The cells are divided like a checkerboard: every other cell is a piece's own cell (its centre, which nothing else covers),
  * the others are overlap cells, each of which two or more pieces cover. Each piece is a centre cell and two to four of the overlap cells next to it, so it has three to five
- * cells; every overlap cell is covered by at least two pieces (the two it touches, for a corner). Then some pieces are put in place and the rest dealt to three stacks.
+ * cells; every overlap cell is covered by at least two pieces (the two it touches, for a corner). Then some pieces are put in place and the rest dealt to the stacks (three unless `o.stacks` says otherwise).
  * Everything comes from the seed.
  */
 export function generateOverlap(rng: Rng, o: OverlapOptions): OverlapSetup {
@@ -118,9 +126,10 @@ export function generateOverlap(rng: Rng, o: OverlapOptions): OverlapSetup {
       solid[cells[p.marker]]--;
     }
   }
-  const stacks: number[][] = Array.from({ length: STACKS }, () => []);
+  const stackN = Math.max(1, Math.floor(o.stacks ?? STACKS));
+  const stacks: number[][] = Array.from({ length: stackN }, () => []);
   let dealt = 0;
-  for (let i = placedCount; i < pieces.length; i++) stacks[dealt++ % STACKS].push(i);
+  for (let i = placedCount; i < pieces.length; i++) stacks[dealt++ % stackN].push(i);
   for (const st of stacks) st.sort((a, b) => Number(pieces[a].marker >= 0) - Number(pieces[b].marker >= 0));        // pieces with a window lie on top, where they can be seen (the sort is stable)
   return { cols, rows, pieces, rot, placedAtStart: pieces.slice(0, placedCount).map((p) => p.id), stacks };
 }

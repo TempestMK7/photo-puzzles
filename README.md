@@ -11,13 +11,17 @@ View, New puzzle (the same photo with a new seed), Other photo (a new puzzle wit
 frame copying - so a 30 fps clip redraws 30 times a second. A bar under the board has pause / play, a draggable position and a sound switch (remembered). A new puzzle
 or Restart keeps the video where it is. Videos are stored as they are in the browser's storage (nothing is uploaded or re-encoded).
 
-**Display settings** for Focus Point: grid lines and swap animations can be switched off (on the main screen or with the Grid / Animate buttons while playing). They are
+**Sound effects and celebration.** A piece that locks in place gets a brief ripple (Tile Swap, Overlap, Strips and Jigsaw; in Jigsaw it travels over every piece that is locked together, also when loose
+pieces join each other), and when a puzzle is finished a party blower sounds and confetti flies in from the bottom corners as the "Solved!" window comes up. The game's sound effects (`src/sounds.ts`,
+the files in `src/sounds/`) have a switch of their own - the **Effects** button on the main screen and while playing, remembered - apart from the sound of a video puzzle. The party blower is a public-domain sound.
+
+**Display settings** for Tile Swap: grid lines and swap animations can be switched off (on the main screen or with the Grid / Animate buttons while playing). They are
 remembered and, being about looks rather than difficulty, do not start a new best-time record.
 
 Playable now:
-- **Focus Point** - the picture is cut into rectangles of different sizes (10 to 300 of them) and shuffled; click two pieces to make them trade places *and sizes*; put every piece back. A piece that is in its right place locks there.
+- **Tile Swap** - the picture is cut into rectangles of different sizes (10 to 300 of them) and shuffled; click two pieces to make them trade places *and sizes*; put every piece back. A piece that is in its right place locks there.
 - **Overlap** - the grid is divided like a checkerboard: every other cell is a piece's own *centre* cell, and the cells between are *overlap* cells. Each piece is a centre and two to four of the overlap
-  cells next to it (three to five cells), and every overlap cell belongs to at least two pieces. The pieces wait in three stacks; drag the top piece onto the grid (or onto another stack to move it there), centre
+  cells next to it (three to five cells), and every overlap cell belongs to at least two pieces. The pieces wait in stacks (three, and one more for every hundred approximate cells); drag the top piece onto the grid (or onto another stack to move it there), centre
   first and turned the way it lies in the picture, and it stays and shows its part. The empty board is a radial pattern drawn in code (sunbursts, targets, rose windows, spirals, wheels - one per puzzle, with its
   centre off the board); some pieces have a *window* on one of their overlap cells that shows the bit of that pattern from where the piece belongs, as a hint, and turns into the picture for every piece that
   has it when any piece is placed over that cell.
@@ -60,7 +64,7 @@ Playable now:
 
 **Touch.** On a touch screen the dragging puzzles (Overlap, Strips, Jigsaw) hold a piece you pick up 76 px above your finger (it rises over a tenth of a second, and stays at least 24 px from the
 top of the screen) so that the finger does not hide it; a mouse or a pen holds it where it is, and the **Lift pieces above the finger** option switches it off. Every puzzle gives a small
-vibration at its key moments: **Vibration** option, and a header button where the device can give it. Focus Point: each piece you select (and the swap); Sliding Tiles and Rotascope: a piece
+vibration at its key moments: **Vibration** option, and a header button where the device can give it. Tile Swap: each piece you select (and the swap); Sliding Tiles and Rotascope: a piece
 that moves; Overlap, Strips and Jigsaw: a piece picked up, put down, placed (a longer pattern) and turned; finished puzzles a long pattern. A browser asks for it with `navigator.vibrate`; an
 app that wraps the game in a web view can offer `window.PhotoPuzzlesNative.haptic(kind)` (`grab`, `drop`, `join`, `placed`, `turn`, `move`, `solved`) instead and play the phone's own haptic effects,
 which are felt on every phone, whereas a web page's short vibrate-for-a-few-milliseconds is often too weak to notice (`src/haptics.ts`, `src/sessions/feedback.ts`).

@@ -16,7 +16,7 @@ puzzle type does and for the layout of the source.
 
 ## This is a public repository
 
-Nothing private or copyrighted goes into a commit: no photos, videos or other media (all art in the game is drawn in code), no keys, tokens or `.env` files, no personal paths,
+Nothing private or copyrighted goes into a commit: no photos, videos or other media (all art in the game is drawn in code; the only recordings are the public-domain sound effects in `src/sounds/`, which the game plays - add one only when the owner says it is public domain or made for the game), no keys, tokens or `.env` files, no personal paths,
 names or e-mail addresses in files. `.gitignore` already excludes media, keys and native build output (`android/`, `ios/`); keep it that way, and check `git status` before
 every commit. Test media (clips, big photos) is made on the spot with ffmpeg in an ignored folder and deleted afterwards.
 

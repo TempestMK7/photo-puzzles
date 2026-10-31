@@ -6,7 +6,8 @@ import { haptic, type Haptic } from '../haptics';
 import type { HandMessage } from '../online/protocol';
 import { beginFrame, type View } from '../render';
 import { buildAtlas, buildMasks, snapshot, type Atlas } from './jigsawArt';
-import { glAvailable, PieceRenderer } from './jigsawGl';
+import { glAvailable, PieceRenderer, type GlGroup } from './jigsawGl';
+import { GroupRipple } from './ripple';
 import { hapticToggles, LIFT_CSS, LIFT_MS } from './feedback';
 import type { Pt, PuzzleSession, SessionInit, ToggleDef } from './types';
 
@@ -90,8 +91,9 @@ export class JigsawSession implements PuzzleSession {
   private fixedRes = false;
   private adapt = { t0: 0, decoded0: 0, renders: 0 };
   private pendingCam: { ratio: number; cx: number; cy: number } | null = null;     // the camera of a saved game, until the canvas has a size
-  private flash = new Set<number>();
-  private flashStart = 0;
+  private wave = new GroupRipple();
+  private waveGroup: GlGroup = { members: [], rot: 0, dx: 0, dy: 0 };
+  private waveOut: { group: GlGroup; ks: number[] } = { group: this.waveGroup, ks: [] };
   /** The pieces other players hold: where each really is on the board (`truth`), where its holder's hand put it last (`target`), and where it is drawn (`cur`, which follows the target). */
   private hands = new Map<string, { gid: number; truth: Pose; target: Pose; cur: Pose }>();
   private lastDraw = 0;
@@ -246,10 +248,9 @@ export class JigsawSession implements PuzzleSession {
     ctx.setLineDash([8 / view.scale, 6 / view.scale]);
     ctx.strokeRect(this.frameX, this.frameY, pw, ph);
     ctx.setLineDash([]);
-    // a moment's glow where pieces have just joined the picture
     let running = this.stepHands(now);
-    const flashK = this.flashLeft(now);
-    if (flashK > 0) running = true;
+    const waving = this.wave.step(now);                           // the ripple over pieces that have just locked together
+    if (waving) running = true;
     const d = this.drag;
     if (d && d.k < 1) {                                           // a piece picked up by a finger rises above it
       d.k = Math.min(1, (now - d.t0) / LIFT_MS);
@@ -257,7 +258,7 @@ export class JigsawSession implements PuzzleSession {
       running = true;
     }
     if (this.gl) {
-      this.drawGl(view, flashK > 0 ? { members: [...this.flash], k: flashK } : null);
+      this.drawGl(view, waving ? this.waveFlash() : null);
       const tv = this.tv();
       if (tv) {                                                   // (the open tray's panel is drawn here, under the graphics card's canvas, which draws its pieces)
         ctx.save();
@@ -267,10 +268,7 @@ export class JigsawSession implements PuzzleSession {
       }
     } else {
       this.draw2d(ctx, view);
-      if (flashK > 0) {
-        ctx.fillStyle = `rgba(255,255,255,${0.35 * flashK})`;
-        for (const m of this.flash) ctx.fillRect(this.frameX + (m % l.cols) * l.size, this.frameY + Math.floor(m / l.cols) * l.size, l.size, l.size);
-      }
+      if (waving) this.drawWave2d(ctx);
     }
     this.lastDraw = now;
     return running;
@@ -299,19 +297,37 @@ export class JigsawSession implements PuzzleSession {
     this.adapt.t0 = 0;
   }
 
-  /** How much of the join glow is left (0: none), forgetting the pieces once it is over. */
-  private flashLeft(now: number): number {
-    if (!this.flash.size) return 0;
-    const k = 1 - (now - this.flashStart) / 500;
-    if (k <= 0) this.flash.clear();
-    return Math.max(0, k);
+  /** The ripple as the graphics card draws it: the locked pieces where their group lies now, each as bright as the ripple makes it (nothing for a group in a tray, whose pose is another space's). */
+  private waveFlash(): { group: GlGroup; ks: number[] } | null {
+    const grp = this.game.groups.get(this.wave.gid);
+    if (!grp || grp.tray >= 0) return null;
+    this.waveGroup.members = this.wave.members;
+    this.waveGroup.rot = grp.rot;
+    this.waveGroup.dx = grp.dx;
+    this.waveGroup.dy = grp.dy;
+    this.waveOut.ks = this.wave.ks;
+    return this.waveOut;
+  }
+
+  /** The ripple over still pictures: a white square over each piece it has reached (a quarter turn leaves a square as it is). */
+  private drawWave2d(ctx: CanvasRenderingContext2D): void {
+    const f = this.waveFlash();
+    if (!f) return;
+    const l = this.layout_;
+    ctx.fillStyle = '#ffffff';
+    f.group.members.forEach((m, j) => {
+      if (f.ks[j] <= 0) return;
+      const [rx, ry] = rotVec(f.group.rot, ((m % l.cols) + 0.5) * l.size, (Math.floor(m / l.cols) + 0.5) * l.size);
+      ctx.globalAlpha = 0.4 * f.ks[j];
+      ctx.fillRect(this.frameX + f.group.dx + rx - l.size / 2, this.frameY + f.group.dy + ry - l.size / 2, l.size, l.size);
+    });
+    ctx.globalAlpha = 1;
   }
 
   /** A new picture of the video: only the pieces are drawn again, on their own canvas; the board under them is as it was. */
   videoFrame(now: number): void {
     if (!this.gl || !this.inited) return;
-    const k = this.flashLeft(now);
-    this.drawGl(this.view(this.canvasW, this.canvasH), k > 0 ? { members: [...this.flash], k } : null);
+    this.drawGl(this.view(this.canvasW, this.canvasH), this.wave.step(now) ? this.waveFlash() : null);
   }
 
   /** The pieces cut from a still picture: tiles of the atlas, one drawImage each. */
@@ -423,7 +439,7 @@ export class JigsawSession implements PuzzleSession {
   }
 
   /** The pieces cut from a video: drawn on the graphics card into a canvas of their own that lies over the board (copying it onto the board's canvas every frame would cost far too much on a slow GPU). */
-  private drawGl(view: View, flash: { members: number[]; k: number } | null): void {
+  private drawGl(view: View, flash: { group: GlGroup; ks: number[] } | null): void {
     this.adaptResolution();
     const g = this.game;
     const selId = this.selectedGroup();
@@ -712,7 +728,13 @@ export class JigsawSession implements PuzzleSession {
     this.apply(this.dropOp(gid, tol));
   }
 
-  /** Commits an operation that may join groups, and gives the feedback for it: the glow, the buzz, the end of the drag. */
+  /** Pieces have locked together (or into the picture): the ripple runs over the whole group they are in now, out from where `from` were put down. */
+  private startWave(gid: number, from: ReadonlySet<number>, now: number): void {
+    const grp = this.game.groups.get(gid);
+    if (grp && from.size) this.wave.start(gid, grp.members, [...from], this.layout_.cols, this.layout_.size, now);
+  }
+
+  /** Commits an operation that may join groups, and gives the feedback for it: the ripple, the buzz, the end of the drag. */
   private apply(op: PieceOp): void {
     const g = this.game;
     const gid = g.groupOf[op.piece];
@@ -726,11 +748,8 @@ export class JigsawSession implements PuzzleSession {
       this.drag = null;
       this.init.online?.holding(null);
     }
-    if (g.anchoredCount > wasAnchored) {
-      this.flash = before;
-      this.flashStart = performance.now();
-      if (this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
-    }
+    this.startWave(g.groupOf[op.piece], before, performance.now());
+    if (g.anchoredCount > wasAnchored && this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
     this.buzz(g.solved ? 'solved' : g.anchoredCount > wasAnchored ? 'placed' : 'join');
   }
 
@@ -877,12 +896,10 @@ export class JigsawSession implements PuzzleSession {
     }
     const before = new Set(g.groups.get(gid)?.members ?? []);
     const wasAnchored = g.anchoredCount;
+    const wasGroups = g.groups.size;
     applyOp(g, op);
-    if (g.anchoredCount > wasAnchored) {
-      this.flash = before;
-      this.flashStart = performance.now();
-      if (this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
-    }
+    if (g.groups.size < wasGroups) this.startWave(g.groupOf[op.piece], before, performance.now());
+    if (g.anchoredCount > wasAnchored && this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
     this.init.traysChanged?.();
     this.init.requestDraw();
     this.init.progress?.();

@@ -12,6 +12,8 @@ export interface PrefsData {
   best: Record<string, number>;
   /** Sound of a video puzzle is off. */
   muted: boolean;
+  /** The game's sound effects are on (the sound of a video puzzle is `muted`'s business). */
+  sfx: boolean;
   /** How My Files is listed: in the order the files were added, or by name. */
   sort: 'added' | 'name';
 }
@@ -28,7 +30,7 @@ export class Prefs {
   data: PrefsData;
 
   constructor(private readonly storage: StorageLike | null) {
-    this.data = { seed: randomSeedText(), kind: 'focus', photo: '', settings: {}, best: {}, muted: false, sort: 'added' };
+    this.data = { seed: randomSeedText(), kind: 'focus', photo: '', settings: {}, best: {}, muted: false, sfx: true, sort: 'added' };
     this.load();
   }
 
@@ -43,6 +45,7 @@ export class Prefs {
       if (raw.settings && typeof raw.settings === 'object') this.data.settings = { ...raw.settings };
       if (raw.best && typeof raw.best === 'object') this.data.best = { ...raw.best };
       if (typeof raw.muted === 'boolean') this.data.muted = raw.muted;
+      if (typeof raw.sfx === 'boolean') this.data.sfx = raw.sfx;
       if (raw.sort === 'added' || raw.sort === 'name') this.data.sort = raw.sort;
     } catch {
       // damaged or unavailable storage: start from the defaults

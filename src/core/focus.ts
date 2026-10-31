@@ -14,7 +14,7 @@ export interface FocusState {
 }
 
 /**
- * Focus Point style puzzle. The picture is cut into rectangles ("homes"). Piece i shows the part of the picture that belongs in home i, but starts in some other
+ * Tile Swap style puzzle. The picture is cut into rectangles ("homes"). Piece i shows the part of the picture that belongs in home i, but starts in some other
  * home's place (its "slot") and is stretched to that slot's size. Clicking two pieces makes them trade places and sizes; the puzzle is solved when every piece is
  * back in its own home. A piece that is in its own home is locked there: it cannot be chosen or traded.
  */

@@ -37,7 +37,7 @@ const OFFSET: OptionDef = { key: 'offset', label: 'Lift pieces above the finger'
 export const KINDS: readonly KindDef[] = [
   {
     id: 'focus',
-    name: 'Focus Point',
+    name: 'Tile Swap',
     blurb: 'Pieces of different sizes are shuffled. Click two to trade places and sizes. A piece that is in the right place locks there.',
     available: true,
     options: [

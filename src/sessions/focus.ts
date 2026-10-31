@@ -1,10 +1,11 @@
 import { FocusGame, type FocusState } from '../core/focus';
 import type { Rect } from '../core/layout';
-import { draw, type Anim, type View } from '../render';
+import { draw, SWAP_MS, type Anim, type View } from '../render';
+import { Ripples } from './ripple';
 import { buzz, hapticToggles } from './feedback';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
-/** Focus Point: click two pieces to trade places and sizes. */
+/** Tile Swap: click two pieces to trade places and sizes. */
 export class FocusSession implements PuzzleSession {
   readonly toggles = [
     { key: 'grid', label: 'Grid', title: 'Grid lines' },
@@ -15,6 +16,7 @@ export class FocusSession implements PuzzleSession {
   private game: FocusGame;
   private anims = new Map<number, Anim>();
   private hover = -1;
+  private ripples = new Ripples();
 
   constructor(private readonly init: SessionInit) {
     this.game = new FocusGame(init.width, init.height, { seed: init.seed, pieces: init.opts.pieces, irregular: init.opts.irregular === 1 });
@@ -30,7 +32,8 @@ export class FocusSession implements PuzzleSession {
   }
 
   draw(ctx: CanvasRenderingContext2D, view: View, now: number): boolean {
-    return draw(ctx, this.init.source, this.game, view, this.anims, this.hover, now, this.init.flag('grid'));
+    const moving = draw(ctx, this.init.source, this.game, view, this.anims, this.hover, now, this.init.flag('grid'));
+    return this.ripples.draw(ctx, now) || moving;
   }
 
   pointerDown(p: Pt): void {
@@ -38,11 +41,15 @@ export class FocusSession implements PuzzleSession {
     const piece = game.pieceAt(p.x, p.y);
     if (piece < 0) return;
     const before = game.slotOf.map((_, i) => game.slotRect(i));
+    const wasPlaced = game.slotOf.map((_, i) => game.placed(i));
     const result = game.click(piece);
     if (result === 'swap') {
       buzz(this.init, game.solved ? 'solved' : 'join');
+      const now = performance.now();
+      game.homes.forEach((home, i) => {                                                    // a piece that has just found its place gets a ripple once it arrives
+        if (game.placed(i) && !wasPlaced[i]) this.ripples.add([home], now, this.init.flag('animate') ? SWAP_MS : 0);
+      });
       if (this.init.flag('animate')) {
-        const now = performance.now();
         for (let i = 0; i < game.count; i++) {
           const to: Rect = game.slotRect(i);
           if (to !== before[i]) this.anims.set(i, { from: before[i], to, start: now });
