@@ -7,12 +7,10 @@ import {
   cleanNote,
   inviteLink,
   normalizeCode,
-  FRAME_BYTES,
   PROTOCOL_VERSION,
   REPORT_REASONS,
   secretFrom,
   topics,
-  VIDEO_FRAMES,
   VIDEO_TYPES,
   type ApiError,
   type ApiFailure,
@@ -26,7 +24,7 @@ import {
   type Member,
   type MeResponse,
   type PlaybackRequest,
-  type VideoDoneRequest,
+  type VideoCheckResponse,
   type RoomDescriptor,
   type RoomMessage,
   type RoomSettings,
@@ -36,7 +34,7 @@ import {
 import { sniffImage } from './image';
 import type { AdminRoomSummary } from '../../src/online/adminProtocol';
 import { playedMs } from './played';
-import type { Accounts, Clock, Limits, Media, Moderation, Player, Presence, PubSub, Random, Report, RoomRecord, Store } from './types';
+import type { Accounts, Clock, Limits, Media, Moderation, Player, Presence, PubSub, Random, Report, RoomRecord, Store, VideoModeration } from './types';
 
 export interface Deps {
   store: Store;
@@ -52,6 +50,8 @@ export interface Deps {
   accounts?: Accounts;
   /** Looks at every picture before the puzzle can be joined (nothing for a server that has no such service). */
   moderation?: Moderation;
+  /** The same for the whole of a video, which takes a minute or two (nothing for a server that has no such service: a video is let through). */
+  videoModeration?: VideoModeration;
   /** Tells the operator something (an e-mail, in the cloud). Nothing for a server that has nobody to tell. */
   notify?: (text: string) => Promise<void>;
 }
@@ -365,54 +365,71 @@ export class RoomService {
   }
 
   /**
-   * The creator's game has put a video in storage (the address `createRoom` gave) and sends a few of its pictures. The file must be exactly what was said (the size, the kind), and the
-   * pictures are looked at by the automatic check: the room can then be joined. The pictures are only what the creator's game says the video holds: this is a weaker check than one
-   * of the video itself (docs/online-play-plan.md), which is why a report, and the operator, remain.
+   * The creator's game has put a video in storage (at the address `createRoom` gave) and asks for it to be checked; asking again says how the check is going. The file must be exactly
+   * what was said (the size, the kind). Then the whole video is looked at by Amazon's service (a minute or two), and only when it passes can anyone join. A video that is turned down
+   * ends the puzzle (and the operator is told); one that the service cannot read ends it too (`unreadable`). A server with no such service lets a video through.
    */
-  async finishVideo(player: Player, roomId: string, req: VideoDoneRequest): Promise<{ ok: true } | ApiFailure> {
+  async checkVideo(player: Player, roomId: string): Promise<VideoCheckResponse | ApiFailure> {
     const room = await this.live(roomId);
-    if (!room || room.ownerId !== player.id || room.ready || !room.video) return fail('not-found');
-    const frames = req?.frames;
-    const valid = Array.isArray(frames) && frames.length >= VIDEO_FRAMES.min && frames.length <= VIDEO_FRAMES.max && frames.every((f) => typeof f === 'string' && f.length <= Math.ceil((FRAME_BYTES * 4) / 3) + 4);
-    if (!valid) return fail('bad-request');
-    const stored = await this.d.media.inspect(roomId, PEEK);
-    if (!stored) return fail('not-ready');                                 // the video has not arrived (yet): the creator may ask again
-    if (stored.bytes !== room.video.bytes || !looksLike(stored.head, room.video.type)) {
-      await this.cleanup(room, 'owner');                                    // not the file the puzzle was made for: nothing is kept
-      return fail('bad-request');
-    }
-    const pictures: { bytes: Uint8Array; type: string }[] = [];
-    for (const text of frames) {
-      const bytes = fromBase64(text);
-      const found = bytes && bytes.length <= FRAME_BYTES ? sniffImage(bytes) : null;
-      if (!bytes || !found) {
-        await this.cleanup(room, 'owner');
+    if (!room || room.ownerId !== player.id || !room.video) return fail('not-found');
+    if (room.ready) return { ok: true, state: 'ready' };
+    const { videoModeration } = this.d;
+    if (!room.checking) {
+      const stored = await this.d.media.inspect(roomId, PEEK);
+      if (!stored) return fail('not-ready');                               // the video has not arrived (yet): the creator may ask again
+      if (stored.bytes !== room.video.bytes || !looksLike(stored.head, room.video.type)) {
+        await this.cleanup(room, 'owner');                                  // not the file the puzzle was made for: nothing is kept
         return fail('bad-request');
       }
-      pictures.push({ bytes, type: found.type });
-    }
-    if (this.d.moderation) {
-      for (const p of pictures) {
-        let verdict: Awaited<ReturnType<Moderation['check']>>;
-        try {
-          verdict = await this.d.moderation.check(p.bytes, p.type);
-        } catch (e) {
-          console.error(e);
-          return fail('busy');                                              // not looked at: nothing is shown, and the creator may send it again
-        }
-        if (!verdict.ok) {
-          await this.cleanup(room, 'owner');
-          await this.tell(`A video was turned down by the automatic check of its pictures (${verdict.label}): room ${roomId}, made by ${room.ownerId}. The puzzle was ended.`);
-          return fail('rejected');
-        }
+      if (!videoModeration) return this.videoReady(roomId);
+      let job: Awaited<ReturnType<VideoModeration['start']>>;
+      try {
+        job = await videoModeration.start(roomId);
+      } catch (e) {
+        console.error(e);
+        return fail('busy');                                                // not started: nothing is shown, and the creator may ask again
       }
+      if ('unreadable' in job) {
+        await this.cleanup(room, 'owner');
+        return fail('unreadable');
+      }
+      const started = await this.update(roomId, (r) => {
+        r.checking ??= { jobId: job.jobId, at: this.d.clock.now() };
+        return r;
+      });
+      if ('error' in started) return started;
+      return { ok: true, state: 'checking' };
     }
+    if (!videoModeration) return this.videoReady(roomId);
+    let verdict: Awaited<ReturnType<VideoModeration['result']>>;
+    try {
+      verdict = await videoModeration.result(room.checking.jobId);
+    } catch (e) {
+      console.error(e);
+      return fail('busy');
+    }
+    if (verdict.state === 'working') return { ok: true, state: 'checking' };
+    if (verdict.state === 'unreadable') {
+      await this.cleanup(room, 'owner');
+      return fail('unreadable');
+    }
+    if (!verdict.ok) {
+      await this.cleanup(room, 'owner');
+      await this.tell(`A video was turned down by the automatic check (${verdict.label}): room ${roomId}, made by ${room.ownerId}. The puzzle was ended.`);
+      return fail('rejected');
+    }
+    return this.videoReady(roomId);
+  }
+
+  /** The video has passed (or no check is made here): the room can be joined, and the video plays from the start as of now. */
+  private async videoReady(roomId: string): Promise<VideoCheckResponse | ApiFailure> {
     const done = await this.update(roomId, (r) => {
       r.ready = true;
-      r.playback = { pos: 0, paused: false, at: this.d.clock.now() };       // it plays from the start, as of the moment it is ready
+      r.checking = undefined;
+      r.playback = { pos: 0, paused: false, at: this.d.clock.now() };
       return r;
     });
-    return 'error' in done ? done : { ok: true };
+    return 'error' in done ? done : { ok: true, state: 'ready' };
   }
 
   /** A server with no storage of its own to send a video to (the local one) is sent the file itself, to the address `createRoom` gave. */
@@ -769,13 +786,4 @@ export function looksLike(head: Uint8Array, type: string): boolean {
   if (type === 'video/mp4' || type === 'video/quicktime') return head.length >= 12 && ascii(4, 'ftyp');
   if (type === 'video/webm' || type === 'video/x-matroska') return head.length >= 4 && head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3;
   return false;
-}
-
-function fromBase64(text: string): Uint8Array | null {
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(text) || text.length % 4 !== 0) return null;
-  try {
-    return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
-  } catch {
-    return null;
-  }
 }

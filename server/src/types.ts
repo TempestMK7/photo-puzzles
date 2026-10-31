@@ -44,6 +44,8 @@ export interface RoomRecord {
   video?: { type: VideoType; bytes: number; ms: number };
   /** Where the owner's video was, as the owner last said (a video puzzle only). */
   playback?: Playback;
+  /** The automatic look at the video is going on (its job's id, and when it began): the room cannot be joined until it is done. */
+  checking?: { jobId: string; at: number };
   /** The picture has arrived and been checked: only then can anyone join. */
   ready: boolean;
   status: 'open' | 'solved';
@@ -111,6 +113,14 @@ export interface Store {
 export interface Moderation {
   /** `label` says what was found (for the operator; the player is only told that the picture cannot be used). Throws if it could not be checked. */
   check(bytes: Uint8Array, type: string): Promise<{ ok: true } | { ok: false; label: string }>;
+}
+
+/** The automatic look at a whole video, which takes a minute or two: it is started, and asked about until it is done. */
+export interface VideoModeration {
+  /** Starts looking at the video stored for the room: the job's id, or `unreadable` if the service will not take it at all. Throws if it could not be started (nothing was done: it may be tried again). */
+  start(roomId: string): Promise<{ jobId: string } | { unreadable: true }>;
+  /** How the look is going. `unreadable`: the service cannot read this video. `label` says what was found, for the operator. Throws if the answer could not be had (ask again). */
+  result(jobId: string): Promise<{ state: 'working' } | { state: 'unreadable' } | { state: 'done'; ok: true } | { state: 'done'; ok: false; label: string }>;
 }
 
 /** The sign-in service, which can be told to forget an account (Cognito in the cloud; the local server has none). */

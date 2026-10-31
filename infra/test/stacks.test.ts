@@ -94,6 +94,11 @@ describe('api limits', () => {
   it('knows the limits of video puzzles, which are off until one is set', () => {
     const set = JSON.stringify(stack(app({ limits: '{"videoRoomsPerWeek":1,"videoBytes":20000000,"videoMs":30000}' }), 'PuzzleVidio-dev-Api').toJSON());
     expect(set).toContain('videoRoomsPerWeek');
+    // the function that makes puzzles may start and read the look at a whole video (it reads the file with its own permissions on the media bucket)
+    const api = stack(app(), 'PuzzleVidio-dev-Api').toJSON();
+    const actions = JSON.stringify(api);
+    expect(actions).toContain('rekognition:StartContentModeration');
+    expect(actions).toContain('rekognition:GetContentModeration');
     expect(() => app({ limits: '{"videoRooms":1}' }) && stack(app({ limits: '{"videoRooms":1}' }), 'PuzzleVidio-dev-Api')).toThrow(/not a limit/);
   });
 });
@@ -329,7 +334,7 @@ describe('api', () => {
     const pool = st.filter((x) => actionsOf([x]).some((a) => a.startsWith('cognito-idp:')));
     expect(pool.map((x) => actionsOf([x]).join())).toEqual(['cognito-idp:AdminDeleteUser']);                // the one thing it does to the user pool
     const look = st.filter((x) => actionsOf([x]).some((a) => a.startsWith('rekognition:')));
-    expect(look.map((x) => actionsOf([x]).join())).toEqual(['rekognition:DetectModerationLabels']);          // it looks at pictures and does nothing else with the service
+    expect(look.map((x) => actionsOf([x]).join())).toEqual(['rekognition:DetectModerationLabels,rekognition:StartContentModeration,rekognition:GetContentModeration']);          // it looks at pictures and at whole videos, and does nothing else with the service
     expect(statementsOf(prod, /^AdminServiceRole|AdminDefaultPolicy|AdminServiceRoleDefaultPolicy/).some((x) => actionsOf([x]).some((a) => a.startsWith('rekognition:')))).toBe(false);
     expect(actionsOf(st)).not.toContain('*');
     expect(actionsOf(st).filter((a) => a.startsWith('secretsmanager:')).sort()).toEqual(['secretsmanager:DescribeSecret', 'secretsmanager:GetSecretValue']);

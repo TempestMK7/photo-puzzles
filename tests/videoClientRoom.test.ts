@@ -5,7 +5,7 @@ import { PROTOCOL_VERSION, type RoomDescriptor } from '../src/online/protocol';
 import type { Connection, Realtime, RealtimeHandlers } from '../src/online/realtime';
 import { OnlineRoom, type RoomView } from '../src/online/room';
 import type { Player } from '../server/src/types';
-import { ann, bob, jpeg, joined, request, world, type World } from './helpers/world';
+import { ann, bob, joined, request, world, type World } from './helpers/world';
 
 const mp4 = (n: number): Uint8Array => {
   const b = new Uint8Array(n);
@@ -43,8 +43,7 @@ async function videoRoom(w: World) {
   const made = await w.service.createRoom(ann, request({}, { video: { type: 'video/mp4', bytes: 5000, ms: 20_000 } }));
   if (!made.ok) throw new Error(made.error);
   await w.media.put(made.roomId, mp4(5000), 'video/mp4');
-  const frames = [1, 2, 3].map(() => Buffer.from(jpeg(160, 90)).toString('base64'));
-  const done = await w.service.finishVideo(ann, made.roomId, { frames });
+  const done = await w.service.checkVideo(ann, made.roomId);
   if (!done.ok) throw new Error(done.error);
   return made;
 }

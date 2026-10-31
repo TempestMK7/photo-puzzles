@@ -1,4 +1,4 @@
-import type { CommandRequest, CreateRoomRequest, JoinRequest, ApiError, PlaybackRequest, ReportRequest, VideoDoneRequest } from '../../src/online/protocol';
+import type { CommandRequest, CreateRoomRequest, JoinRequest, ApiError, PlaybackRequest, ReportRequest } from '../../src/online/protocol';
 import type { RoomService } from './service';
 import { clientKey, type RateLimiter } from './ratelimit';
 import type { Auth, Player } from './types';
@@ -48,11 +48,10 @@ const STATUS: Record<ApiError, number> = {
   paused: 503,
   'video-off': 503,
   'too-big': 413,
+  unreadable: 422,
 };
 
 const MAX_JSON = 64 * 1024;
-/** The pictures that come with a video (a dozen JPEGs, as text) make a larger request than the others. */
-const MAX_FRAMES_JSON = 8 * 1024 * 1024;
 
 /** A development sign-in: `dev:<id>:<name>`. There is no password: this is for the machine it runs on. Real sign-in (Cognito) replaces it. */
 export class DevAuth implements Auth {
@@ -83,8 +82,8 @@ export interface GuestGate {
 export function createRouter(d: { service: RoomService; auth: Auth; media: MediaGate; guests?: GuestGate; limiter?: RateLimiter }): (req: Req) => Promise<Res> {
   const { service, auth, media, guests, limiter } = d;
   const reply = (r: { ok: boolean; error?: ApiError }): Res => ({ status: r.ok ? 200 : STATUS[r.error!] ?? 400, body: r });
-  const json = <T>(req: Req, max = MAX_JSON): T | null => {
-    if (req.body.length > max) return null;
+  const json = <T>(req: Req): T | null => {
+    if (req.body.length > MAX_JSON) return null;
     try {
       return JSON.parse(new TextDecoder().decode(req.body)) as T;
     } catch {
@@ -172,10 +171,10 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
           const body = json<CommandRequest>(req);
           return body ? reply(await service.command(player, id, body)) : bad;
         }
-        case 'video': {
-          const body = json<VideoDoneRequest>(req, MAX_FRAMES_JSON);
-          return body ? reply(await service.finishVideo(player, id, body)) : bad;
-        }
+        case 'video':
+          // the video is up: start the check (once) and say how it is going; the game asks again every few seconds
+          if (limiter && !(await limiter.take(`videocheck#${player.id}`, limiter.rates.videoCheck.perPlayer, limiter.rates.videoCheck.windowMs))) return slow(limiter.rates.videoCheck.windowMs);
+          return reply(await service.checkVideo(player, id));
         case 'playback': {
           const body = json<PlaybackRequest>(req);
           if (!body) return bad;

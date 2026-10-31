@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { playbackNow, type CreateRoomRequest, type VideoType } from '../src/online/protocol';
 import { looksLike } from '../server/src/service';
 import { createRouter, DevAuth } from '../server/src/router';
+import type { VideoModeration } from '../server/src/types';
 import { ann, bob, jpeg, joined, request, world, type World } from './helpers/world';
 
 const MP4 = (n: number): Uint8Array => {
@@ -14,8 +15,6 @@ const WEBM = (n: number): Uint8Array => {
   b.set([0x1a, 0x45, 0xdf, 0xa3]);
   return b;
 };
-const base64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64');
-const frames = (n = 4): string[] => Array.from({ length: n }, () => base64(jpeg(160, 90)));
 
 const videoRequest = (video: Partial<NonNullable<CreateRoomRequest['video']>> = {}, extra: Partial<CreateRoomRequest> = {}): CreateRoomRequest =>
   request({}, { video: { type: 'video/mp4', bytes: 5000, ms: 12_000, ...video }, ...extra });
@@ -28,6 +27,21 @@ async function made(w: World, req = videoRequest(), bytes: Uint8Array = MP4(req.
   return res;
 }
 
+/** The look at a whole video, as a test wants it to go: what it says each time it is asked, and how often it was started. */
+function lookAt(...answers: Awaited<ReturnType<VideoModeration['result']>>[]) {
+  const calls = { started: 0, asked: 0 };
+  const check: VideoModeration = {
+    async start() {
+      calls.started++;
+      return { jobId: 'job-1' };
+    },
+    async result() {
+      return answers[Math.min(calls.asked++, answers.length - 1)];
+    },
+  };
+  return { check, calls };
+}
+
 describe('making a puzzle from a video', () => {
   it('is switched off until the operator sets a limit', async () => {
     const w = world({ videoRoomsPerWeek: 0 });
@@ -35,29 +49,32 @@ describe('making a puzzle from a video', () => {
     expect((await w.service.createRoom(ann, request())).ok).toBe(true);                               // pictures are as before
   });
 
-  it('gives the creator a place to send the file, and the puzzle cannot be joined until it has arrived and been looked at', async () => {
+  it('gives the creator a place to send the file, and the puzzle cannot be joined until it has arrived and been checked', async () => {
     const w = world();
     const res = await w.service.createRoom(ann, videoRequest());
     if (!res.ok) throw new Error(res.error);
     expect(res.upload.url).toContain(`/media/${res.roomId}/video`);
     expect(await w.service.join(bob, { protocol: 1, code: res.invite.code, secret: res.invite.secret })).toEqual({ ok: false, error: 'not-ready' });
-    expect(await w.service.finishVideo(ann, res.roomId, { frames: frames() })).toEqual({ ok: false, error: 'not-ready' });           // no file yet
+    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: false, error: 'not-ready' });           // no file yet
     await w.media.put(res.roomId, MP4(5000), 'video/mp4');
-    expect(await w.service.finishVideo(ann, res.roomId, { frames: frames() })).toEqual({ ok: true });
+    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: true, state: 'ready' });                  // (no check is made by this server: it lets the video through)
+    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: true, state: 'ready' });                  // and asking again is no harm
     const room = await joined(w, res, bob);
     expect(room.media.type).toBe('video');
     expect(room.media.video).toEqual({ type: 'video/mp4', bytes: 5000, ms: 12_000 });
     expect(room.playback).toMatchObject({ pos: 0, paused: false });
   });
 
-  it('turns away a video that is too long or too large, or of a kind that is not allowed, and counts videos by themselves', async () => {
+  it('takes only MP4 and MOV, nothing too long or too large, and counts videos by themselves', async () => {
     const w = world({ videoRoomsPerWeek: 1, freeRoomsPerWeek: 3 });
     expect(await w.service.createRoom(ann, videoRequest({ bytes: 1_000_001 }))).toEqual({ ok: false, error: 'too-big' });
     expect(await w.service.createRoom(ann, videoRequest({ ms: 30_001 }))).toEqual({ ok: false, error: 'too-big' });
+    expect(await w.service.createRoom(ann, videoRequest({ type: 'video/webm' as VideoType }))).toEqual({ ok: false, error: 'bad-request' });          // it cannot be checked
+    expect(await w.service.createRoom(ann, videoRequest({ type: 'video/x-matroska' as VideoType }))).toEqual({ ok: false, error: 'bad-request' });
     expect(await w.service.createRoom(ann, videoRequest({ type: 'video/x-flv' as VideoType }))).toEqual({ ok: false, error: 'bad-request' });
     expect(await w.service.createRoom(ann, videoRequest({ bytes: 0 }))).toEqual({ ok: false, error: 'bad-request' });
     expect(await w.service.createRoom(ann, videoRequest({ ms: Number.NaN }))).toEqual({ ok: false, error: 'bad-request' });
-    expect((await w.service.createRoom(ann, videoRequest())).ok).toBe(true);
+    expect((await w.service.createRoom(ann, videoRequest({ type: 'video/quicktime' }))).ok).toBe(true);
     const again = await w.service.createRoom(ann, videoRequest());
     expect(again).toMatchObject({ ok: false, error: 'quota' });                                      // one video a week
     expect((await w.service.createRoom(ann, request())).ok).toBe(true);                               // and the pictures still have their own three
@@ -72,44 +89,94 @@ describe('making a puzzle from a video', () => {
 
   it('ends the puzzle, with its file, when the file is not what was said', async () => {
     for (const [what, bytes, type] of [['another size', MP4(4999), 'video/mp4'], ['another kind', WEBM(5000), 'video/mp4'], ['no kind at all', new Uint8Array(5000), 'video/mp4']] as const) {
-      const w = world();
+      const look = lookAt({ state: 'done', ok: true });
+      const w = world({}, undefined, undefined, undefined, undefined, look.check);
       const res = await made(w, videoRequest(), bytes, type);
-      expect(await w.service.finishVideo(ann, res.roomId, { frames: frames() }), what).toEqual({ ok: false, error: 'bad-request' });
+      expect(await w.service.checkVideo(ann, res.roomId), what).toEqual({ ok: false, error: 'bad-request' });
+      expect(look.calls.started, what).toBe(0);                                                         // nothing is paid for
       expect(w.media.has(res.roomId), what).toBe(false);
       expect(await w.store.getRoom(res.roomId), what).toBeUndefined();
     }
   });
 
-  it('wants a few pictures, each a picture, and only from the owner', async () => {
+  it('is only for the owner of a video puzzle', async () => {
     const w = world();
     const res = await made(w);
-    expect(await w.service.finishVideo(ann, res.roomId, { frames: frames(2) })).toEqual({ ok: false, error: 'bad-request' });
-    expect(await w.service.finishVideo(ann, res.roomId, { frames: frames(13) })).toEqual({ ok: false, error: 'bad-request' });
-    expect(await w.service.finishVideo(bob, res.roomId, { frames: frames() })).toEqual({ ok: false, error: 'not-found' });
-    expect(await w.service.finishVideo(ann, res.roomId, { frames: [...frames(3), 'not base64!'] })).toEqual({ ok: false, error: 'bad-request' });
-    expect(await w.store.getRoom(res.roomId)).toBeUndefined();                       // the last one ended it
-    const w2 = world();
-    const r2 = await made(w2);
-    expect(await w2.service.finishVideo(ann, r2.roomId, { frames: [...frames(3), base64(new Uint8Array([1, 2, 3, 4]))] })).toEqual({ ok: false, error: 'bad-request' });
+    expect(await w.service.checkVideo(bob, res.roomId)).toEqual({ ok: false, error: 'not-found' });
+    const picture = world();
+    const p = await picture.service.createRoom(ann, request());
+    if (!p.ok) throw new Error(p.error);
+    expect(await picture.service.checkVideo(ann, p.roomId)).toEqual({ ok: false, error: 'not-found' });
   });
+});
 
-  it('looks at every picture, and ends the puzzle and tells the operator when one is turned down; a check that cannot be made leaves it as it is', async () => {
-    const told: string[] = [];
-    let n = 0;
-    const w = world({}, undefined, undefined, async (t) => void told.push(t), { check: async () => (++n === 3 ? { ok: false, label: 'Explicit Nudity' } : { ok: true }) });
+describe('the look at the whole video', () => {
+  it('is started once, asked about until it is done, and only then can anyone join', async () => {
+    const look = lookAt({ state: 'working' }, { state: 'working' }, { state: 'done', ok: true });
+    const w = world({}, undefined, undefined, undefined, undefined, look.check);
     const res = await made(w);
-    expect(await w.service.finishVideo(ann, res.roomId, { frames: frames(4) })).toEqual({ ok: false, error: 'rejected' });
-    expect(n).toBe(3);
-    expect(told[0]).toContain('Explicit Nudity');
-    expect(w.media.has(res.roomId)).toBe(false);
-
-    const down = world({}, undefined, undefined, undefined, { check: async () => { throw new Error('down'); } });
-    const r2 = await made(down);
-    expect(await down.service.finishVideo(ann, r2.roomId, { frames: frames() })).toEqual({ ok: false, error: 'busy' });
-    expect(await down.store.getRoom(r2.roomId)).toBeDefined();
+    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: true, state: 'checking' });
+    expect(await w.service.join(bob, { protocol: 1, code: res.invite.code, secret: res.invite.secret })).toEqual({ ok: false, error: 'not-ready' });
+    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: true, state: 'checking' });
+    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: true, state: 'checking' });
+    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: true, state: 'ready' });
+    expect(look.calls).toEqual({ started: 1, asked: 3 });
+    expect((await joined(w, res, bob)).playback).toMatchObject({ pos: 0, paused: false });
+    expect((await w.store.getRoom(res.roomId))!.checking).toBeUndefined();
   });
 
-  it('is taken by the local server as the file itself, of exactly the size that was said', async () => {
+  it('turns a video down, ends the puzzle and tells the operator', async () => {
+    const told: string[] = [];
+    const look = lookAt({ state: 'done', ok: false, label: 'Violence / Graphic Violence' });
+    const w = world({}, undefined, undefined, async (t) => void told.push(t), undefined, look.check);
+    const res = await made(w);
+    await w.service.checkVideo(ann, res.roomId);
+    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: false, error: 'rejected' });
+    expect(told[0]).toContain('Violence / Graphic Violence');
+    expect(w.media.has(res.roomId)).toBe(false);
+    expect(await w.store.getRoom(res.roomId)).toBeUndefined();
+  });
+
+  it('ends the puzzle when the service cannot read the video (while asking, or at the start)', async () => {
+    const look = lookAt({ state: 'unreadable' });
+    const w = world({}, undefined, undefined, undefined, undefined, look.check);
+    const res = await made(w);
+    await w.service.checkVideo(ann, res.roomId);
+    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: false, error: 'unreadable' });
+    expect(w.media.has(res.roomId)).toBe(false);
+    const refusing = world({}, undefined, undefined, undefined, undefined, { start: async () => ({ unreadable: true }), result: async () => ({ state: 'working' }) });
+    const r2 = await made(refusing);
+    expect(await refusing.service.checkVideo(ann, r2.roomId)).toEqual({ ok: false, error: 'unreadable' });
+    expect(await refusing.store.getRoom(r2.roomId)).toBeUndefined();
+  });
+
+  it('is not given up on when the service cannot be reached: the creator may ask again', async () => {
+    let up = false;
+    const flaky: VideoModeration = {
+      async start() {
+        if (!up) throw new Error('down');
+        return { jobId: 'j' };
+      },
+      async result() {
+        if (!up) throw new Error('down');
+        return { state: 'done', ok: true };
+      },
+    };
+    const w = world({}, undefined, undefined, undefined, undefined, flaky);
+    const res = await made(w);
+    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: false, error: 'busy' });
+    up = true;
+    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: true, state: 'checking' });
+    up = false;
+    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: false, error: 'busy' });
+    expect(await w.store.getRoom(res.roomId)).toBeDefined();
+    up = true;
+    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: true, state: 'ready' });
+  });
+});
+
+describe('the local server', () => {
+  it('is sent the file itself, of exactly the size that was said', async () => {
     const w = world();
     const res = await w.service.createRoom(ann, videoRequest());
     if (!res.ok) throw new Error(res.error);
@@ -124,7 +191,7 @@ describe('making a puzzle from a video', () => {
 describe('the host of a video puzzle', () => {
   const ready = async (w: World) => {
     const res = await made(w);
-    await w.service.finishVideo(ann, res.roomId, { frames: frames() });
+    await w.service.checkVideo(ann, res.roomId);
     await joined(w, res, bob);
     return res;
   };
@@ -179,18 +246,15 @@ describe('telling a video file by its first bytes', () => {
   it('knows the containers it allows', () => {
     expect(looksLike(MP4(20), 'video/mp4')).toBe(true);
     expect(looksLike(MP4(20), 'video/quicktime')).toBe(true);
-    expect(looksLike(WEBM(20), 'video/webm')).toBe(true);
-    expect(looksLike(WEBM(20), 'video/x-matroska')).toBe(true);
     expect(looksLike(WEBM(20), 'video/mp4')).toBe(false);
-    expect(looksLike(MP4(20), 'video/webm')).toBe(false);
     expect(looksLike(new Uint8Array(3), 'video/mp4')).toBe(false);
     expect(looksLike(MP4(20), 'video/x-flv')).toBe(false);
   });
 });
 
 describe('the video routes of the API', () => {
-  const setup = () => {
-    const w = world();
+  const setup = (look?: VideoModeration) => {
+    const w = world({}, undefined, undefined, undefined, undefined, look);
     const route = createRouter({ service: w.service, auth: new DevAuth(), media: w.media });
     const as = (p: { id: string; name: string }) => `Bearer dev:${p.id}:${p.name}`;
     const post = (path: string, who: { id: string; name: string }, body: unknown) =>
@@ -198,7 +262,7 @@ describe('the video routes of the API', () => {
     return { w, route, post };
   };
 
-  it('takes the file at the signed address (the local server), and the pictures and the host\'s word at the room\'s', async () => {
+  it('takes the file at the signed address (the local server), then the check and the host\'s word at the room\'s', async () => {
     const { w, route, post } = setup();
     const created = await post('/rooms', ann, videoRequest());
     const body = created.body as { ok: true; roomId: string; upload: { url: string } };
@@ -209,10 +273,22 @@ describe('the video routes of the API', () => {
     expect(bad.status).toBe(403);
     const put = await route({ method: 'PUT', path: url.pathname, query: url.searchParams, body: MP4(5000) });
     expect(put.status).toBe(200);
-    expect((await post(`/rooms/${body.roomId}/video`, ann, { frames: frames() })).status).toBe(200);
+    const check = await post(`/rooms/${body.roomId}/video`, ann, {});
+    expect(check.status).toBe(200);
+    expect(check.body).toEqual({ ok: true, state: 'ready' });
     expect((await post(`/rooms/${body.roomId}/playback`, ann, { pos: 2, paused: true })).status).toBe(200);
     expect((await post(`/rooms/${body.roomId}/playback`, bob, { pos: 2, paused: true })).status).toBe(404);          // not a member
     expect(w.messages(body.roomId).some((m) => m.t === 'playback')).toBe(true);
+  });
+
+  it('answers a turned-down or unreadable video with the status the game reads', async () => {
+    const { w, post } = setup(lookAt({ state: 'unreadable' }).check);
+    const created = (await post('/rooms', ann, videoRequest())).body as { roomId: string };
+    await w.media.put(created.roomId, MP4(5000), 'video/mp4');
+    expect((await post(`/rooms/${created.roomId}/video`, ann, {})).body).toEqual({ ok: true, state: 'checking' });
+    const res = await post(`/rooms/${created.roomId}/video`, ann, {});
+    expect(res.status).toBe(422);
+    expect(res.body).toEqual({ ok: false, error: 'unreadable' });
   });
 
   it('answers a switched-off or oversized video with the status the game reads', async () => {

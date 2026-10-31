@@ -92,7 +92,7 @@ export class ApiStack extends Stack {
     // deleting an account (the player asked for it) is the one thing the function does to the user pool
     fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['cognito-idp:AdminDeleteUser'], resources: [props.pool.userPoolArn] }));
     // the picture of every puzzle is looked at (for explicit, violent, disturbing or hateful content) before anyone else can see it
-    fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['rekognition:DetectModerationLabels'], resources: ['*'] }));
+    fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['rekognition:DetectModerationLabels', 'rekognition:StartContentModeration', 'rekognition:GetContentModeration'], resources: ['*'] }));
     const admin = serviceFunction('Admin', 'server/src/aws/admin.ts', 512, Duration.seconds(30));
     // the operator can delete an account for someone who cannot sign in (the same one thing to the user pool)
     admin.addToRolePolicy(new iam.PolicyStatement({ actions: ['cognito-idp:AdminDeleteUser'], resources: [props.pool.userPoolArn] }));

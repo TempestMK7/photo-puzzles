@@ -542,28 +542,24 @@ export class PlayScreen {
       if (token === this.token) this.showProgress(text);
     };
     say('Loading the video… 0%');
-    const res = await fetch(d.media.url);
-    if (!res.ok) throw new Error('The video could not be loaded');
-    const total = info.bytes;
-    const parts: Uint8Array[] = [];
-    let got = 0;
-    const reader = res.body?.getReader();
-    if (reader) {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        parts.push(value);
-        got += value.length;
-        say(`Loading the video… ${Math.min(100, Math.round((got / total) * 100))}%`);
+    // a request object, not fetch: it says how far it has got, and keeps a file of two minutes' video (a couple of hundred MB) in a blob that the browser may keep on disk
+    const file = await new Promise<Blob>((resolve, reject) => {
+      const x = new XMLHttpRequest();
+      x.open('GET', d.media.url);
+      x.responseType = 'blob';
+      x.onprogress = (e) => {
         if (token !== this.token) {
-          void reader.cancel();
-          break;
+          x.abort();
+          reject(new Error('The video was not loaded'));
+          return;
         }
-      }
-    } else {
-      parts.push(new Uint8Array(await res.arrayBuffer()));
-    }
-    const blob = new Blob(parts as BlobPart[], { type: info.type });
+        say(`Loading the video… ${Math.min(100, Math.round((e.lengthComputable ? e.loaded / e.total : e.loaded / info.bytes) * 100))}%`);
+      };
+      x.onerror = () => reject(new Error('The video could not be loaded'));
+      x.onload = () => (x.status >= 200 && x.status < 300 ? resolve(x.response as Blob) : reject(new Error('The video could not be loaded')));
+      x.send();
+    });
+    const blob = new Blob([file], { type: info.type });
     const url = URL.createObjectURL(blob);
     let src: PlaySource;
     try {
