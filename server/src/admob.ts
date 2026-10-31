@@ -28,7 +28,8 @@ const unbase64 = (text: string): Buffer => Buffer.from(text.replace(/-/g, '+').r
 
 /**
  * AdMob's server-side verification of a rewarded ad: when a player has watched the ad to the end, AdMob calls an address of ours with the reward in its query string, signed with
- * ECDSA (SHA-256) over the whole of the query string that comes before `&signature=`; `signature` and `key_id` are always the last two. Only a call that is signed by one of AdMob's
+ * ECDSA (SHA-256) over the whole of the query string that comes before `&signature=`, **with its percent-escapes decoded** (what Java's `URI.getQuery()` gives, which is what AdMob's own
+ * verifier checks: `reward_item=Photo%20Credit` is signed as `Photo Credit`; found with AdMob's test call); `signature` and `key_id` are always the last two. Only a call that is signed by one of AdMob's
  * keys, for one of our own ad units, and not too old, is taken as true. The game's own word that an ad was watched is worth nothing: anyone can say it.
  * https://developers.google.com/admob/android/rewarded-video-ssv
  */
@@ -74,7 +75,7 @@ export class AdMobCallbacks implements AdCallbacks {
     const pem = await this.key(keyId);
     if (!pem) return { genuine: false, reason: 'unknown-key' };
     try {
-      if (!verify('sha256', Buffer.from(signed), { key: createPublicKey(pem), dsaEncoding: 'der' }, unbase64(signature))) return { genuine: false, reason: 'bad-signature' };
+      if (!verify('sha256', Buffer.from(decodeURIComponent(signed)), { key: createPublicKey(pem), dsaEncoding: 'der' }, unbase64(signature))) return { genuine: false, reason: 'bad-signature' };
     } catch {
       return { genuine: false, reason: 'bad-signature' };                // not a signature at all
     }

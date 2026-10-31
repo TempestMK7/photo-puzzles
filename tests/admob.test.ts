@@ -14,12 +14,12 @@ const PEM = publicKey.export({ type: 'spki', format: 'pem' }).toString();
 const NOW = 1_000_000;
 const clock = { now: () => NOW };
 
-/** A callback query as AdMob sends it: the values, then `signature` and `key_id` last, the signature over everything before it. */
+/** A callback query as AdMob sends it: the values (percent-escaped), then `signature` and `key_id` last, the signature over everything before it **as it reads when the escapes are decoded**. */
 function callback(values: Record<string, string | number>, key = privateKey, keyId = '1234'): string {
   const text = Object.entries({ ad_network: '5450213213286189855', ad_unit: '2747237720', reward_amount: 5, reward_item: 'credits', timestamp: NOW, transaction_id: 'AAAA1111', ...values })
     .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
     .join('&');
-  const signature = sign('sha256', Buffer.from(text), { key, dsaEncoding: 'der' }).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const signature = sign('sha256', Buffer.from(decodeURIComponent(text)), { key, dsaEncoding: 'der' }).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   return `${text}&signature=${signature}&key_id=${keyId}`;
 }
 
@@ -32,6 +32,16 @@ describe('the check of what AdMob says', () => {
     const out = await verifier().verify(callback({ custom_data: 'nonce one', transaction_id: 'TX-1' }));
     expect(out).toEqual({ genuine: true, reward: { transactionId: 'TX-1', customData: 'nonce one', at: NOW } });
     expect(await verifier(keys, ['2747237720']).verify(callback({ transaction_id: 'TX-2' }))).toMatchObject({ genuine: true, reward: { transactionId: 'TX-2', customData: '' } });     // the number alone will do
+  });
+
+  it('believes the test call that AdMob itself sent (with its real key), which has an escape in it', async () => {
+    // what the "Verify URL" button of the AdMob console sent to the dev server, as the log wrote it down, and the key that AdMob publishes for it (https://www.gstatic.com/admob/reward/verifier-keys.json)
+    const real = 'ad_network=5450213213286189855&ad_unit=1234567890&reward_amount=5&reward_item=Photo%20Credit&timestamp=1793466814653&transaction_id=123456789&user_id=test&signature=MEUCIQCQ0IoOq25RBhDYxo_oLOWNX3OGbwPUeCKbGCKE7SDJJAIgdo5_3qVeB3FB_h_BY26Y_DEY-7lGJFcun2AUP-pBnEs&key_id=3335741209';
+    const googles = async () => new Map([['3335741209', '-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE+nzvoGqvDeB9+SzE6igTl7TyK4JB\nbglwir9oTcQta8NuG26ZpZFxt+F2NDk7asTE6/2Yc8i1ATcGIqtuS5hv0Q==\n-----END PUBLIC KEY-----']]);
+    const at = { now: () => 1793466814653 };
+    expect(await new AdMobCallbacks(['2747237720'], at, googles).verify(real)).toEqual({ genuine: true, reward: null, why: 'other-unit' });      // (genuine: its ad unit is a made-up one)
+    expect(await new AdMobCallbacks(['1234567890'], at, googles).verify(real)).toMatchObject({ genuine: true, reward: { transactionId: '123456789' } });
+    expect(await new AdMobCallbacks(['1234567890'], at, googles).verify(real.replace('Photo%20Credit', 'Photo%20Credits'))).toEqual({ genuine: false, reason: 'bad-signature' });
   });
 
   it('believes nothing that has been changed, signed by another key, or not signed', async () => {
