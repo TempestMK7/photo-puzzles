@@ -1,5 +1,7 @@
 import { pexelsUrl, pixabayUrl, STOCK_SITES, type StockItem, type StockSite, type StockType } from '../../src/online/protocol';
 
+import { adultText, pathOf } from './stockFilter';
+
 export { pexelsUrl, pixabayUrl };
 
 /**
@@ -86,6 +88,7 @@ abstract class CachedStock implements StockProvider {
   async search(query: string, type: StockType, page: number, allow?: () => Promise<boolean>): Promise<StockPage | 'busy' | null> {
     const q = query.replace(/\s+/g, ' ').trim().slice(0, 80);
     const p = Math.min(MAX_PAGE, Math.max(1, Math.floor(page) || 1));
+    if (adultText(q)) return { ok: true, items: [], page: p, more: false };          // a search for adult pictures finds none (and is not sent to the site)
     const id = `${type}|${q.toLowerCase()}|${p}`;
     const had = this.kept.get(id);
     if (had && this.now() - had.at < this.keepMs) return had.res;
@@ -148,6 +151,7 @@ function pexelsPhoto(p: unknown): StockItem | null {
   const url = pexelsUrl(o.url);
   const by = text(o.photographer, 80);
   if (!file || !preview || !thumb || !url || !by || !num(o.id)) return null;
+  if (adultText(`${text(o.alt, 300)} ${pathOf(url)}`)) return null;
   return {
     id: String(num(o.id)),
     source: 'pexels',
@@ -185,6 +189,7 @@ function pexelsVideo(v: unknown): StockItem | null {
   const url = pexelsUrl(o.url);
   const by = text(user?.name, 80);
   if (!thumb || !url || !by || !num(o.id)) return null;
+  if (adultText(pathOf(url))) return null;
   return {
     id: String(num(o.id)),
     source: 'pexels',
@@ -247,6 +252,7 @@ function pixabayPhoto(p: unknown): StockItem | null {
   const thumb = pixabayUrl(o.previewURL) ?? pixabayUrl(o.webformatURL);
   const file = pixabayUrl(o.largeImageURL) ?? pixabayUrl(o.webformatURL);
   if (!by || !url || !thumb || !file || !num(o.id)) return null;
+  if (adultText(`${text(o.tags, 400)} ${pathOf(url)}`)) return null;
   return {
     id: String(num(o.id)),
     source: 'pixabay',
@@ -285,6 +291,7 @@ function pixabayVideo(v: unknown): StockItem | null {
   const url = pixabayUrl(o.pageURL);
   const thumb = best.thumb ?? preview.thumb ?? files.find((f) => f.thumb)?.thumb;
   if (!by || !url || !thumb || !num(o.id)) return null;
+  if (adultText(`${text(o.tags, 400)} ${pathOf(url)}`)) return null;
   return {
     id: String(num(o.id)),
     source: 'pixabay',

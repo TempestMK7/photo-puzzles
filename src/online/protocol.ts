@@ -222,6 +222,8 @@ export interface CreateRoomRequest {
   consent: true;
   /** A puzzle made from a video: what the file is (the board's `width` and `height` are the video's). The video goes straight to storage (`upload`), then the owner's game asks for it to be checked (`VideoCheckResponse`). */
   video?: { type: VideoType; bytes: number; ms: number };
+  /** The picture or video is one of the stock library's (the game says so): it gets the stricter automatic look, which also turns down nudity that is not explicit. */
+  stock?: true;
 }
 
 export interface CreateRoomResponse {

@@ -125,6 +125,29 @@ describe('the look at the whole video', () => {
     expect((await w.store.getRoom(res.roomId))!.checking).toBeUndefined();
   });
 
+  it('asks for the stricter look at a video that came from the stock library, and for the usual one at any other', async () => {
+    const asked: (boolean | undefined)[] = [];
+    const check: VideoModeration = {
+      async start() {
+        return { jobId: 'job' };
+      },
+      async result(_job, strict) {
+        asked.push(strict);
+        return { state: 'done', ok: true };
+      },
+    };
+    const w = world({ videoRoomsPerWeek: 2 }, undefined, undefined, undefined, undefined, check);
+    const stock = await made(w, videoRequest({}, { stock: true }));
+    await w.service.checkVideo(ann, stock.roomId);
+    await w.service.checkVideo(ann, stock.roomId);
+    const own = await w.service.createRoom(bob, videoRequest());
+    if (!own.ok) throw new Error(own.error);
+    await w.media.put(own.roomId, MP4(videoRequest().video!.bytes), 'video/mp4');
+    await w.service.checkVideo(bob, own.roomId);
+    await w.service.checkVideo(bob, own.roomId);
+    expect(asked).toEqual([true, false]);
+  });
+
   it('turns a video down, ends the puzzle and tells the operator', async () => {
     const told: string[] = [];
     const look = lookAt({ state: 'done', ok: false, label: 'Violence / Graphic Violence' });
