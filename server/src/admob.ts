@@ -1,5 +1,5 @@
 import { createPublicKey, verify } from 'node:crypto';
-import type { AdCallbacks, Clock } from './types';
+import type { AdCallbacks, AdReport, Clock } from './types';
 
 /** Where AdMob publishes the keys that sign its reward callbacks (they rotate, so they are fetched again now and then). */
 export const ADMOB_KEYS_URL = 'https://www.gstatic.com/admob/reward/verifier-keys.json';
@@ -63,26 +63,28 @@ export class AdMobCallbacks implements AdCallbacks {
     return this.adUnits.some((u) => u === adUnit || u.endsWith(`/${adUnit}`));
   }
 
-  async verify(rawQuery: string): Promise<{ transactionId: string; customData: string; at: number } | null> {
+  async verify(rawQuery: string): Promise<AdReport> {
     const cut = rawQuery.lastIndexOf('&signature=');
-    if (cut < 0) return null;
+    if (cut < 0) return { genuine: false, reason: 'unsigned' };
     const signed = rawQuery.slice(0, cut);
     const tail = new URLSearchParams(rawQuery.slice(cut + 1));
     const signature = tail.get('signature');
     const keyId = tail.get('key_id');
-    if (!signature || !keyId) return null;
+    if (!signature || !keyId) return { genuine: false, reason: 'unsigned' };
     const pem = await this.key(keyId);
-    if (!pem) return null;
+    if (!pem) return { genuine: false, reason: 'unknown-key' };
     try {
-      if (!verify('sha256', Buffer.from(signed), { key: createPublicKey(pem), dsaEncoding: 'der' }, unbase64(signature))) return null;
+      if (!verify('sha256', Buffer.from(signed), { key: createPublicKey(pem), dsaEncoding: 'der' }, unbase64(signature))) return { genuine: false, reason: 'bad-signature' };
     } catch {
-      return null;                                                      // not a signature at all
+      return { genuine: false, reason: 'bad-signature' };                // not a signature at all
     }
+    // from here on the call is the network's (it signed it): what it says is looked at, and a call that is of no use to us is still answered as the network's
     const q = new URLSearchParams(signed);
     const transactionId = q.get('transaction_id');
     const at = Number(q.get('timestamp'));
-    if (!transactionId || !/^[\w-]{1,128}$/.test(transactionId) || !Number.isFinite(at) || !this.ours(q.get('ad_unit') ?? '')) return null;
-    if (Math.abs(this.clock.now() - at) > MAX_AGE_MS) return null;
-    return { transactionId, customData: q.get('custom_data') ?? '', at };
+    if (!transactionId || !/^[\w-]{1,128}$/.test(transactionId) || !Number.isFinite(at)) return { genuine: true, reward: null, why: 'incomplete' };
+    if (!this.ours(q.get('ad_unit') ?? '')) return { genuine: true, reward: null, why: 'other-unit' };
+    if (Math.abs(this.clock.now() - at) > MAX_AGE_MS) return { genuine: true, reward: null, why: 'old' };
+    return { genuine: true, reward: { transactionId, customData: q.get('custom_data') ?? '', at } };
   }
 }

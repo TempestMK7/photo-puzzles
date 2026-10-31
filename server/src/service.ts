@@ -436,8 +436,18 @@ export class RoomService {
    */
   async adCallback(rawQuery: string): Promise<boolean> {
     const { adCallbacks, store, clock } = this.d;
-    const reward = await adCallbacks?.verify(rawQuery);
-    if (!reward) return false;
+    if (!adCallbacks) return false;
+    const report = await adCallbacks.verify(rawQuery);
+    // (what is written down is the call as it came: ids and numbers, never a name; it says why a call was not believed, which nothing else can)
+    if (!report.genuine) {
+      console.log(JSON.stringify({ ad: 'callback-refused', reason: report.reason, query: rawQuery.slice(0, 700) }));
+      return false;
+    }
+    const reward = report.reward;
+    if (!reward) {
+      console.log(JSON.stringify({ ad: 'callback-ignored', why: report.why, query: rawQuery.slice(0, 700) }));
+      return true;                                                       // the network's own call, and of no use to us: it is answered, so that the network is content
+    }
     if (await store.hasAdTransaction(reward.transactionId)) return true;
     const asked = reward.customData ? await store.getAdNonce(reward.customData) : undefined;
     if (!asked || asked.expiresAt <= clock.now()) {

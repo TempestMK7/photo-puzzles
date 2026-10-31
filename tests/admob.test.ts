@@ -30,30 +30,33 @@ describe('the check of what AdMob says', () => {
 
   it('believes a call signed by AdMob’s key, for one of our ad units, and gives what it says', async () => {
     const out = await verifier().verify(callback({ custom_data: 'nonce one', transaction_id: 'TX-1' }));
-    expect(out).toEqual({ transactionId: 'TX-1', customData: 'nonce one', at: NOW });
-    expect(await verifier(keys, ['2747237720']).verify(callback({ transaction_id: 'TX-2' }))).toMatchObject({ transactionId: 'TX-2', customData: '' });     // the number alone will do
+    expect(out).toEqual({ genuine: true, reward: { transactionId: 'TX-1', customData: 'nonce one', at: NOW } });
+    expect(await verifier(keys, ['2747237720']).verify(callback({ transaction_id: 'TX-2' }))).toMatchObject({ genuine: true, reward: { transactionId: 'TX-2', customData: '' } });     // the number alone will do
   });
 
   it('believes nothing that has been changed, signed by another key, or not signed', async () => {
     const good = callback({ custom_data: 'n' });
-    expect(await verifier().verify(good.replace('reward_amount=5', 'reward_amount=500'))).toBeNull();
-    expect(await verifier().verify(good.replace('custom_data=n', 'custom_data=other'))).toBeNull();
+    const refused = (reason: string) => ({ genuine: false, reason });
+    expect(await verifier().verify(good.replace('reward_amount=5', 'reward_amount=500'))).toEqual(refused('bad-signature'));
+    expect(await verifier().verify(good.replace('custom_data=n', 'custom_data=other'))).toEqual(refused('bad-signature'));
     const other = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey;
-    expect(await verifier().verify(callback({}, other))).toBeNull();
-    expect(await verifier().verify(callback({}, privateKey, '999'))).toBeNull();                       // a key we do not know
-    expect(await verifier().verify(good.replace(/signature=[^&]+/, 'signature=AAAA'))).toBeNull();
-    expect(await verifier().verify(good.replace(/&signature=.*/, ''))).toBeNull();
-    expect(await verifier().verify('')).toBeNull();
-    expect(await verifier().verify('hello=world&signature=x&key_id=1234')).toBeNull();
+    expect(await verifier().verify(callback({}, other))).toEqual(refused('bad-signature'));
+    expect(await verifier().verify(callback({}, privateKey, '999'))).toEqual(refused('unknown-key'));          // a key we do not know
+    expect(await verifier().verify(good.replace(/signature=[^&]+/, 'signature=AAAA'))).toEqual(refused('bad-signature'));
+    expect(await verifier().verify(good.replace(/&signature=.*/, ''))).toEqual(refused('unsigned'));
+    expect(await verifier().verify('')).toEqual(refused('unsigned'));
+    expect(await verifier().verify('hello=world&signature=x&key_id=1234')).toEqual(refused('bad-signature'));
   });
 
-  it('believes only a call for our own ad units, that is not too old, and that has a transaction number', async () => {
-    expect(await verifier().verify(callback({ ad_unit: '555' }))).toBeNull();
-    expect(await verifier().verify(callback({ timestamp: NOW - DAY - 1 }))).toBeNull();
-    expect(await verifier().verify(callback({ timestamp: NOW - DAY + 1000 }))).not.toBeNull();
-    expect(await verifier().verify(callback({ transaction_id: '' }))).toBeNull();
-    expect(await verifier().verify(callback({ transaction_id: 'a b' }))).toBeNull();
-    expect(await verifier().verify(callback({ timestamp: 'soon' }))).toBeNull();
+  it('gives a reward only for a call for our own ad units, that is not too old, and that has a transaction number: any other genuine call is still the network’s', async () => {
+    const useless = (why: string) => ({ genuine: true, reward: null, why });
+    expect(await verifier().verify(callback({ ad_unit: '555' }))).toEqual(useless('other-unit'));
+    expect(await verifier().verify(callback({ timestamp: NOW - DAY - 1 }))).toEqual(useless('old'));
+    expect((await verifier().verify(callback({ timestamp: NOW - DAY + 1000 }))).genuine).toBe(true);
+    expect(await verifier().verify(callback({ timestamp: NOW - DAY + 1000 }))).toMatchObject({ reward: { transactionId: 'AAAA1111' } });
+    expect(await verifier().verify(callback({ transaction_id: '' }))).toEqual(useless('incomplete'));
+    expect(await verifier().verify(callback({ transaction_id: 'a b' }))).toEqual(useless('incomplete'));
+    expect(await verifier().verify(callback({ timestamp: 'soon' }))).toEqual(useless('incomplete'));
   });
 
   it('reads the keys again when a call names one it does not know (they rotate), but not more than once a minute, and keeps what it has when AdMob cannot be reached', async () => {
@@ -67,19 +70,20 @@ describe('the check of what AdMob says', () => {
       return new Map(mode === 'old' ? [['1234', PEM]] : [['1234', PEM], ['777', PEM]]);
     };
     const v = new AdMobCallbacks(['2747237720'], { now: () => now }, source);
-    expect(await v.verify(callback({}, privateKey, '1234'))).not.toBeNull();
+    const believed = async (c: string) => (await v.verify(c)).genuine;
+    expect(await believed(callback({}, privateKey, '1234'))).toBe(true);
     expect(calls).toBe(1);
-    expect(await v.verify(callback({}, privateKey, '1234'))).not.toBeNull();
+    expect(await believed(callback({}, privateKey, '1234'))).toBe(true);
     expect(calls).toBe(1);                                                                        // known, and fresh: no trip
     mode = 'new';
-    expect(await v.verify(callback({}, privateKey, '777'))).toBeNull();                           // asked for it a moment ago: not again yet
+    expect(await believed(callback({}, privateKey, '777'))).toBe(false);                          // asked for it a moment ago: not again yet
     expect(calls).toBe(1);
     now += 61_000;
-    expect(await v.verify(callback({ timestamp: now }, privateKey, '777'))).not.toBeNull();
+    expect(await believed(callback({ timestamp: now }, privateKey, '777'))).toBe(true);
     expect(calls).toBe(2);
     mode = 'down';
     now += 7 * 3600 * 1000;                                                                       // (the keys are old: they are asked for, and it fails)
-    expect(await v.verify(callback({ timestamp: now }, privateKey, '1234'))).not.toBeNull();       // the keys it has are still used
+    expect(await believed(callback({ timestamp: now }, privateKey, '1234'))).toBe(true);           // the keys it has are still used
     expect(log).toHaveBeenCalled();
     log.mockRestore();
   });
@@ -199,6 +203,18 @@ describe.each(stores)('a rewarded ad, from the game to the credits, on %s', (_na
     expect(await start(w)).toMatchObject({ ok: false, reason: 'daily-limit' });
     w.clock.t += DAY;
     expect((await start(w)).ok).toBe(true);
+  });
+
+  it('answers a genuine call that is of no use to us as the network’s (and writes down why), and turns away one that is not, writing down why', async () => {
+    const w = worldWithAds();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    expect(await w.service.adCallback(callback({ ad_unit: '555', user_id: 'test', transaction_id: 'TX-X' }))).toBe(true);          // (AdMob's own test of the address, for one thing)
+    expect(JSON.parse(log.mock.calls.at(-1)![0] as string)).toMatchObject({ ad: 'callback-ignored', why: 'other-unit' });
+    expect(await w.service.adCallback(callback({}).replace('reward_amount=5', 'reward_amount=50'))).toBe(false);
+    expect(JSON.parse(log.mock.calls.at(-1)![0] as string)).toMatchObject({ ad: 'callback-refused', reason: 'bad-signature', query: expect.stringContaining('reward_amount=50') });
+    expect(await w.service.adCallback('hello=world')).toBe(false);
+    expect(JSON.parse(log.mock.calls.at(-1)![0] as string)).toMatchObject({ ad: 'callback-refused', reason: 'unsigned' });
+    log.mockRestore();
   });
 
   it('turns away a call that is not AdMob’s, and writes down how many ads were rewarded', async () => {
