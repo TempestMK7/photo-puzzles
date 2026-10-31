@@ -16,6 +16,7 @@ import type { PhotoEntry } from './store/photos';
 import { LibraryScreen } from './ui/library';
 import { OnlinePanel } from './ui/online';
 import { PlayScreen } from './ui/play';
+import { browserSignIn, takeSignIn } from './platform';
 import { CreditsUi } from './ui/credits';
 import { DELETE_HASH, ProfileDialog, takeAccountDeletedNotice } from './ui/profile';
 import { SignInDialog } from './ui/signin';
@@ -57,13 +58,15 @@ async function main(): Promise<void> {
   const dev = new DevIdentity();
   // the way to sign in: Cognito in the cloud, the made-up identity (which can be signed out, to play as a guest) on a developer's machine
   // (Google does not let its sign-in page open inside an app's web view, so the Android app has no Google button until it signs in through the browser: docs/online-play-plan.md)
-  const google = !!cloud?.google && !('PhotoPuzzlesNative' in window);
+  // (an app whose shell opens the sign-in pages in the phone's browser and takes the player back can: see `browserSignIn`)
+  const google = !!cloud?.google && (browserSignIn() || !('PhotoPuzzlesNative' in window));
   const accountSource: Account | null = cloud ? new CognitoAccount({ host: cloud.cognitoHost, clientId: cloud.cognitoClientId, google }, storage(), session()) : base ? new DevAccount(dev) : null;
   // the sign-in page sends the player back with a code in the address
   let signedInHash = '';
   let signInFailed = false;
   if (accountSource instanceof CognitoAccount) {
-    const back = await accountSource.completeSignIn(window.location.href);
+    // (in an app: the address that the sign-in service sent the player back to the app with, if it came while the page was not there: the system closed the app, say)
+    const back = await accountSource.completeSignIn(takeSignIn() || window.location.href);
     if (back.handled) {
       history.replaceState(null, '', window.location.pathname + (back.ok ? back.hash : ''));        // the code does not stay in the address bar
       signedInHash = back.ok ? back.hash : '';
@@ -93,7 +96,7 @@ async function main(): Promise<void> {
     photoAdded: (id) => void library.photoAdded(id),
   });
   // the pop-ups for signing in (the game's own pages, in a build whose accounts have them) and for the profile, with the round badge on the main screen
-  const signInDialog = player.passwords ? new SignInDialog(player.passwords, player.google) : null;
+  const signInDialog = player.passwords ? new SignInDialog(player.passwords, player.google, browserSignIn()) : null;
   const signIn = async (): Promise<boolean> => {
     let signedIn = true;
     if (signInDialog) signedIn = await signInDialog.ask();
@@ -161,6 +164,20 @@ async function main(): Promise<void> {
   if (credits) root.append(credits.dialog);
   if (profile) root.append(profile.el);
   if (signInDialog) root.append(signInDialog.el);
+  // in an app that signs in through the phone's browser, the player comes back to the app (the sign-in service sent them to the app's own address, with the answer): the shell says so
+  window.addEventListener('photopuzzles-signin', () => {
+    const back = takeSignIn();
+    if (!back || !(accountSource instanceof CognitoAccount)) return;
+    void accountSource.completeSignIn(back).then((done) => {
+      if (!done.handled) return;                                 // (coming back from signing out, say: nothing to finish)
+      signInDialog?.externalDone(done.ok);
+      if (done.ok) {
+        void player.refreshProfile().then(() => profile?.refreshBadge());
+        player.changed();
+        profile?.refreshBadge();
+      }
+    });
+  });
   // the badge shows the account's name: ask the server for it once (the name that is kept on this device is used until it answers)
   if (profile && player.kind() === 'account') void player.refreshProfile().then(() => profile.refreshBadge());
 

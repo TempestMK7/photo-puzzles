@@ -1,4 +1,5 @@
 import { ADMIN_GROUP } from './adminProtocol';
+import { APP_SIGN_IN_REDIRECT, browserSignIn, openSignIn } from '../platform';
 import type { Account, AuthError, AuthResult, PasswordAccount } from './identity';
 
 /** Where the sign-in pages of the user pool are (`https://<prefix>.auth.<region>.amazoncognito.com`) and which app client the game is. */
@@ -17,14 +18,23 @@ export interface CognitoEnv {
   go(url: string): void;
   /** Where the sign-in page sends the player back to: it has to be one of the addresses the app client lists. */
   redirect(): string;
+  /**
+   * The sign-in pages are opened in the phone's browser and come back through the app (the Android app: Google does not let its sign-in page open in an app's web view), so the page is
+   * never taken away: what has to be kept for coming back is kept where it survives the app being closed meanwhile, and signing out does not take the page away either.
+   */
+  external?: boolean;
 }
 
-const browserEnv = (): CognitoEnv => ({
-  fetch: (...a) => fetch(...a),
-  now: () => Date.now(),
-  go: (url) => window.location.assign(url),
-  redirect: () => `${window.location.origin}/`,
-});
+const browserEnv = (): CognitoEnv => {
+  const external = browserSignIn();
+  return {
+    fetch: (...a) => fetch(...a),
+    now: () => Date.now(),
+    go: (url) => (external ? openSignIn(url) : window.location.assign(url)),
+    redirect: () => (external ? APP_SIGN_IN_REDIRECT : `${window.location.origin}/`),
+    external,
+  };
+};
 
 const KEY = 'photo-puzzles/online/auth';
 const FLOW_KEY = 'photo-puzzles/online/auth-flow';
@@ -187,7 +197,8 @@ export class CognitoAccount implements Account {
     const state = rand(16);
     const challenge = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
     try {
-      this.session?.setItem(FLOW_KEY, JSON.stringify({ verifier, state, hash: returnHash }));
+      // (kept on the device and not for the visit when the sign-in is in another app: the system may close this one while the player is away)
+      (this.env.external ? (this.local ?? this.session) : this.session)?.setItem(FLOW_KEY, JSON.stringify({ verifier, state, hash: returnHash }));
     } catch {
       /* then signing in cannot be completed: the player is told when they come back */
     }
@@ -214,8 +225,9 @@ export class CognitoAccount implements Account {
     if (!code && !url.searchParams.get('error')) return { handled: false, ok: false, hash: '' };
     let flow: { verifier?: string; state?: string; hash?: string } | null = null;
     try {
-      flow = JSON.parse(this.session?.getItem(FLOW_KEY) ?? 'null');
+      flow = JSON.parse(this.session?.getItem(FLOW_KEY) ?? this.local?.getItem(FLOW_KEY) ?? 'null');
       this.session?.removeItem(FLOW_KEY);
+      this.local?.removeItem(FLOW_KEY);
     } catch {
       /* no flow to go with it */
     }
@@ -244,7 +256,7 @@ export class CognitoAccount implements Account {
     if (tokens) void this.call('RevokeToken', { Token: tokens.refresh, ClientId: this.config.clientId });        // so that the refresh token cannot be used again; nothing depends on it working
     if (!tokens?.hosted) return false;
     this.env.go(`${this.config.host}/logout?${new URLSearchParams({ client_id: this.config.clientId, logout_uri: this.env.redirect() })}`);
-    return true;
+    return !this.env.external;                 // (in the phone's browser it ends the session there, and comes back to the app, whose page was never taken away)
   }
 
   // ---------------------------------------------------------------------------------------------------------------- the e-mail and password pages

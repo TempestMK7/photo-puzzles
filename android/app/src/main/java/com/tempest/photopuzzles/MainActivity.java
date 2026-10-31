@@ -26,6 +26,8 @@ import android.database.Cursor;
 import android.provider.OpenableColumns;
 import android.webkit.MimeTypeMap;
 
+import androidx.browser.customtabs.CustomTabsIntent;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -60,6 +62,9 @@ public class MainActivity extends Activity {
     private final Map<Integer, String> sharedTypes = new HashMap<>();
     private final List<JSONObject> sharedPending = new ArrayList<>();
     private int sharedCount = 0;
+
+    /** The address that the sign-in service sent the player back to the app with (after Google, in the phone's browser), until the page takes it. */
+    private String signInPending;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -162,7 +167,10 @@ public class MainActivity extends Activity {
         });
         web.addJavascriptInterface(new Bridge(), "PhotoPuzzlesNative");
         // started from "Share > PuzzleVidio": the page takes what was shared when it has started (not again when the system makes this activity anew)
-        if (state == null) collectShared(getIntent());
+        if (state == null) {
+            collectShared(getIntent());
+            collectSignIn(getIntent());
+        }
         web.loadUrl("https://" + HOST + "/index.html");
     }
 
@@ -172,6 +180,17 @@ public class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         if (collectShared(intent)) web.evaluateJavascript("window.dispatchEvent(new Event('photopuzzles-shared'))", null);
+        collectSignIn(intent);                  // (the page is told when the app is shown again: see onResume)
+    }
+
+    /** Notes the address that the sign-in service sent the player back with (the app's own made-up address: com.tempest.photopuzzles://signed-in?code=...). True if this is one. */
+    private boolean collectSignIn(Intent intent) {
+        Uri data = intent == null ? null : intent.getData();
+        if (data == null || !Intent.ACTION_VIEW.equals(intent.getAction()) || !"com.tempest.photopuzzles".equals(data.getScheme()) || !"signed-in".equals(data.getHost())) return false;
+        synchronized (sharedLock) {
+            signInPending = data.toString();
+        }
+        return true;
     }
 
     /** Notes the pictures and videos that another app sent with Share (one, or several). True if there were any. */
@@ -317,6 +336,37 @@ public class MainActivity extends Activity {
     private class Bridge {
         private final Handler later = new Handler(Looper.getMainLooper());
 
+        /**
+         * Opens a page of the sign-in service in the phone's browser (a Chrome Custom Tab, which Google accepts and its page in an app's web view is not), where the player signs in,
+         * for instance with Google; the service then sends them back to com.tempest.photopuzzles://signed-in, which brings them here (see takeSignIn). Only the sign-in service's own
+         * pages: the page of another site is not opened.
+         */
+        @JavascriptInterface
+        public void openSignIn(String url) {
+            final Uri u = url == null ? null : Uri.parse(url);
+            if (u == null || !"https".equals(u.getScheme()) || u.getHost() == null || !u.getHost().endsWith(".amazoncognito.com")) return;
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        new CustomTabsIntent.Builder().build().launchUrl(MainActivity.this, u);
+                    } catch (Exception e) {
+                        /* no browser to open it with: nothing happens, and the page says it did not work when the player tries again */
+                    }
+                }
+            });
+        }
+
+        /** The address that the sign-in service sent the player back to the app with, once (an empty string if there is none). */
+        @JavascriptInterface
+        public String takeSignIn() {
+            synchronized (sharedLock) {
+                String out = signInPending == null ? "" : signInPending;
+                signInPending = null;
+                return out;
+            }
+        }
+
         /** Where the game is running (the page shows ads only in the Android and iOS apps). */
         @JavascriptInterface
         public String platform() {
@@ -432,6 +482,11 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         web.onResume();
+        boolean back;
+        synchronized (sharedLock) {
+            back = signInPending != null;
+        }
+        if (back) web.evaluateJavascript("window.dispatchEvent(new Event('photopuzzles-signin'))", null);
     }
 
     @Override

@@ -143,7 +143,7 @@ describe('auth', () => {
     t.hasResourceProperties('AWS::Cognito::UserPoolClient', {
       GenerateSecret: false,
       AllowedOAuthFlows: ['code'],
-      CallbackURLs: ['https://puzzlevid.io/'],
+      CallbackURLs: ['https://puzzlevid.io/', 'com.tempest.photopuzzles://signed-in'],          // (the Android app's own address too: it signs in through the phone's browser)
       SupportedIdentityProviders: ['COGNITO'],
     });
   });
@@ -156,7 +156,7 @@ describe('auth', () => {
     });
   });
   it('lets a local game sign in to the test stage only', () => {
-    stack(app(), 'PuzzleVidio-dev-Auth').hasResourceProperties('AWS::Cognito::UserPoolClient', { CallbackURLs: ['https://dev.puzzlevid.io/', 'http://localhost:5173/'] });
+    stack(app(), 'PuzzleVidio-dev-Auth').hasResourceProperties('AWS::Cognito::UserPoolClient', { CallbackURLs: ['https://dev.puzzlevid.io/', 'http://localhost:5173/', 'com.tempest.photopuzzles://signed-in'] });
   });
   it('allows the credentialed "admin" sign-in (for test tokens) on the test stage only', () => {
     stack(app(), 'PuzzleVidio-dev-Auth').hasResourceProperties('AWS::Cognito::UserPoolClient', { ExplicitAuthFlows: Match.arrayWith(['ALLOW_ADMIN_USER_PASSWORD_AUTH']) });

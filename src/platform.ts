@@ -16,6 +16,8 @@ export type Platform = 'android' | 'ios' | 'steam' | 'itch' | 'web';
 
 interface Native {
   platform?: () => string;
+  openSignIn?: (url: string) => void;
+  takeSignIn?: () => string;
   prepareAds?: () => void;
   showRewardedAd?: (kind: string, nonce: string) => void;
   privacyOptionsRequired?: () => boolean;
@@ -33,6 +35,33 @@ export function platform(host: Native | undefined = nativeHost(), built: string 
     }
   }
   return built === 'steam' || built === 'itch' ? built : 'web';
+}
+
+/**
+ * Signing in with Google (or any page of the sign-in service) cannot happen inside an app's web view: Google refuses it. A shell that can do it differently offers `openSignIn(url)`,
+ * which opens the address in the phone's browser (a Chrome Custom Tab), and the sign-in service sends the player back to the app's own address (`APP_SIGN_IN_REDIRECT`), which the shell
+ * receives and keeps until the page asks for it with `takeSignIn()` (the whole address, or an empty string): the window event `photopuzzles-signin` says that there is one.
+ */
+export const APP_SIGN_IN_REDIRECT = 'com.tempest.photopuzzles://signed-in';
+
+/** Whether sign-in pages are opened outside the page (in the phone's browser) and come back through the app. */
+export function browserSignIn(host: Native | undefined = nativeHost()): boolean {
+  return typeof host?.openSignIn === 'function' && typeof host.takeSignIn === 'function';
+}
+
+/** Opens a sign-in address in the phone's browser. */
+export function openSignIn(url: string, host: Native | undefined = nativeHost()): void {
+  host?.openSignIn?.(url);
+}
+
+/** The address that the sign-in service sent the player back to the app with, if one has come and has not been taken. */
+export function takeSignIn(host: Native | undefined = nativeHost()): string {
+  try {
+    const url = host?.takeSignIn?.();
+    return typeof url === 'string' ? url : '';
+  } catch {
+    return '';
+  }
 }
 
 /** The app that an ad would be watched in, or nothing where there are no ads. */

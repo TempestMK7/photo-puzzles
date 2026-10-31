@@ -1,7 +1,7 @@
 import { CfnOutput, Duration, RemovalPolicy, SecretValue, Stack, type StackProps } from 'aws-cdk-lib';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import type { Construct } from 'constructs';
-import { ADMIN_GROUP, MAIL_FROM_NAME, mailFrom, REGION, type Stage } from './config';
+import { ADMIN_GROUP, APP_SIGN_IN_REDIRECTS, MAIL_FROM_NAME, mailFrom, REGION, type Stage } from './config';
 
 export interface AuthStackProps extends StackProps {
   stage: Stage;
@@ -58,7 +58,8 @@ export class AuthStack extends Stack {
         })
       : undefined;
 
-    const returns = props.origins.map((o) => `${o}/`);
+    // (the Android app signs in through the phone's browser and is sent back to its own address)
+    const returns = [...props.origins.map((o) => `${o}/`), ...APP_SIGN_IN_REDIRECTS];
     this.client = this.pool.addClient('Game', {
       generateSecret: false,
       // The test stage also allows the "admin" sign-in, which only someone with AWS credentials can use (it is signed with them): it lets a script make a token for a test user.

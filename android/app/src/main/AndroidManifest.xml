@@ -31,6 +31,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- where the sign-in service sends the player back, after signing in with Google in the phone's browser (src/platform.ts, android/README.md) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.tempest.photopuzzles" android:host="signed-in" />
+            </intent-filter>
+
             <!-- in the system's share list for pictures and videos: "Share > PuzzleVidio" in the gallery, a file manager, a chat... adds them to the game's library -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

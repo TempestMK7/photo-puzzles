@@ -68,6 +68,8 @@ dependencies {
     // rewarded ads (AdMob), and Google's consent form for them, which the law asks for in the EEA and the UK
     implementation 'com.google.android.gms:play-services-ads:25.5.0'
     implementation 'com.google.android.ump:user-messaging-platform:4.0.0'
+    // the phone's browser, opened inside the app: where signing in with Google happens (Google does not let its page open in an app's web view)
+    implementation 'androidx.browser:browser:1.8.0'
 }
 
 // A release build must not carry the test ids: its ads would earn nothing. (-PallowTestAds for a private build that is only to be looked at.)
