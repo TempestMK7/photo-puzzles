@@ -6,6 +6,8 @@ import { isVideoFile, loadPhoto, makeThumb, readVideo } from '../image';
 export interface PhotoEntry {
   id: string;
   name: string;
+  /** When it was added to the library (milliseconds), for sorting. */
+  addedAt: number;
   thumbUrl: string;
   /** Object URL of the full picture (or the video file), for the preview. */
   previewUrl: string;
@@ -152,6 +154,7 @@ export class PhotoLibrary {
     return {
       id: p.id,
       name: p.name,
+      addedAt: p.addedAt,
       get thumbUrl() {
         return url('thumb', p.thumb);
       },

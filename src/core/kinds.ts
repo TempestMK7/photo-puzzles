@@ -38,10 +38,10 @@ export const KINDS: readonly KindDef[] = [
   {
     id: 'focus',
     name: 'Focus Point',
-    blurb: 'Pieces of different sizes are shuffled. Click two to trade places and sizes.',
+    blurb: 'Pieces of different sizes are shuffled. Click two to trade places and sizes. A piece that is in the right place locks there.',
     available: true,
     options: [
-      { key: 'pieces', label: 'Pieces', min: 6, max: 200, def: 16, step: 2 },
+      { key: 'pieces', label: 'Pieces', min: 10, max: 300, def: 20, step: 10 },
       { key: 'irregular', label: 'Irregular pieces', min: 0, max: 1, def: 1, toggle: true },
       { key: 'grid', label: 'Grid lines', min: 0, max: 1, def: 1, toggle: true, display: true },
       { key: 'animate', label: 'Animations', min: 0, max: 1, def: 1, toggle: true, display: true },
@@ -54,7 +54,7 @@ export const KINDS: readonly KindDef[] = [
     blurb: 'Pieces that overlap wait in stacks: each has a centre square of its own and some squares around it that other pieces share. Drag the top piece onto the grid, centre first, turned the way it lies in the picture. Tap a piece to turn it.',
     available: true,
     options: [
-      { key: 'cells', label: 'Cells across', min: 5, max: 16, def: 7 },
+      { key: 'total', label: 'Approximate cells', min: 50, max: 500, def: 50, step: 10 },
       { key: 'turned', label: 'Turned pieces', min: 0, max: 1, def: 1, toggle: true },
       { key: 'windows', label: 'Window pieces', min: 0, max: 1, def: 1, toggle: true },
       { key: 'placed', label: 'Placed at the start (%)', min: 0, max: 50, def: 20, step: 5 },

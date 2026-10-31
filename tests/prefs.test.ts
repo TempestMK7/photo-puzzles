@@ -21,15 +21,22 @@ describe('kinds', () => {
     expect(optionValue({ 'focus.pieces': 1000 }, 'focus', pieces)).toBe(pieces.max);
     expect(optionValue({ 'focus.pieces': -3 }, 'focus', pieces)).toBe(pieces.min);
     expect(optionValue({ 'focus.pieces': NaN }, 'focus', pieces)).toBe(pieces.def);
-    expect(optionsOf({}, focus)).toEqual({ pieces: 16, irregular: 1, grid: 1, animate: 1, haptics: 1 });
+    expect(optionsOf({}, focus)).toEqual({ pieces: 20, irregular: 1, grid: 1, animate: 1, haptics: 1 });
   });
 
   it('a record belongs to photo, type and difficulty - not to the seed', () => {
     const a = recordKey(focus, 'p1', {});
-    expect(recordKey(focus, 'p1', { 'focus.pieces': 16 })).toBe(a);
-    expect(recordKey(focus, 'p1', { 'focus.pieces': 20 })).not.toBe(a);
+    expect(recordKey(focus, 'p1', { 'focus.pieces': 20 })).toBe(a);
+    expect(recordKey(focus, 'p1', { 'focus.pieces': 30 })).not.toBe(a);
     expect(recordKey(focus, 'p2', {})).not.toBe(a);
     expect(recordKey(focus, 'p1', { 'focus.grid': 0, 'focus.animate': 0 })).toBe(a);        // how it is shown is not a difficulty
+  });
+
+  it('Focus Point steps by ten pieces from 10 to 300, and Overlap by ten cells from 50 to 500; every slider starts on one of its steps', () => {
+    const range = (kind: string, key: string) => findKind(kind)!.options.find((o) => o.key === key)!;
+    expect(range('focus', 'pieces')).toMatchObject({ min: 10, max: 300, step: 10 });
+    expect(range('overlap', 'total')).toMatchObject({ min: 50, max: 500, step: 10 });
+    for (const k of KINDS) for (const o of k.options) if (o.step) expect((o.def - o.min) % o.step, `${k.id}.${o.key}`).toBe(0);
   });
 
   it('the jigsaw background is dark unless chosen, and is not a difficulty', () => {
@@ -67,6 +74,16 @@ describe('prefs', () => {
     expect(q.data.seed).toBe('ABCD2345');
     expect(q.data.photo).toBe('p9');
     expect(q.data.settings['focus.pieces']).toBe(30);
+  });
+
+  it('remembers how My Files is sorted, and ignores a sort it does not know', () => {
+    const st = memoryStorage();
+    expect(new Prefs(st).data.sort).toBe('added');
+    const p = new Prefs(st);
+    p.data.sort = 'name';
+    p.save();
+    expect(new Prefs(st).data.sort).toBe('name');
+    expect(new Prefs(memoryStorage({ 'photo-puzzles/v1': JSON.stringify({ sort: 'size' }) })).data.sort).toBe('added');
   });
 
   it('ignores damaged storage and types that cannot be played', () => {

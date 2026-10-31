@@ -301,8 +301,6 @@ body.dragging .library::after {
 .admin .pane > div > button { margin-top: 10px; }
 
 /* ---------------------------------------------------------------- playing with friends */
-.bar .friends { margin-left: auto; }
-.bar .friends + .progress-btn { margin-left: 0; }
 .online .body { padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
 .online section { display: flex; flex-direction: column; gap: 8px; }
 .online h3 { margin: 0; font-size: 14px; color: var(--accent2); }
@@ -387,3 +385,10 @@ button.link:hover:not(:disabled) { background: none; color: var(--text); }
 .bar .avatar { margin-left: 4px; }
 .online .avatar { color: #1b1210; }
 .online .avatar.guest { color: var(--dim); }
+
+/* ---------------------------------------------------------------- the credits go with Play with friends; sorting My Files */
+.bar .online-group { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.bar .online-group .friends { margin-left: 0; }
+.bar .online-group + .progress-btn { margin-left: 0; }
+.sortbar { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--dim); }
+.sortbar select { flex: 1; font: inherit; padding: 4px 8px; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; }

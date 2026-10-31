@@ -47,6 +47,12 @@ export interface OverlapSetup {
 
 export const STACKS = 3;
 
+/** The grid for about `total` cells in the proportions of a picture: as many columns and rows as come closest (never fewer than four by three, nor more than 120 across). */
+export function overlapGrid(total: number, width: number, height: number): { cols: number; rows: number } {
+  const cols = Math.min(120, Math.max(4, Math.round(Math.sqrt((total * width) / height))));
+  return { cols, rows: Math.max(3, Math.round(total / cols)) };
+}
+
 /**
  * Lays the pieces over the grid and shuffles them. The cells are divided like a checkerboard: every other cell is a piece's own cell (its centre, which nothing else covers),
  * the others are overlap cells, each of which two or more pieces cover. Each piece is a centre cell and two to four of the overlap cells next to it, so it has three to five
