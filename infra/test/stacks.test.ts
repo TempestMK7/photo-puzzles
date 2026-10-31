@@ -297,6 +297,7 @@ describe('api', () => {
         ['POST /me/delete', 'NONE'],
         ['POST /guest', 'NONE'],
         ['PUT /media/{id}', 'NONE'],             // the address is signed
+        ['GET /stock/search', 'NONE'],           // the stock library: open to everyone, limited by the function (per address, and the provider's own limit for all)
         ['GET /admin/{proxy+}', 'JWT'],          // the admin page: a Cognito token at the gateway, and the admin group in the function
         ['POST /admin/{proxy+}', 'JWT'],
       ].sort(),
@@ -428,5 +429,32 @@ describe('live', () => {
 
   it('has an authorizer of its own for each stage', () => {
     stack(app(), 'PuzzleVidio-prod-Live').hasResourceProperties('AWS::IoT::Authorizer', { AuthorizerName: 'puzzlevidio-prod' });
+  });
+});
+
+describe('the stock library', () => {
+  const routes = (t: Template) => Object.values(t.findResources('AWS::ApiGatewayV2::Route')) as { Properties: { RouteKey: string; AuthorizationType?: string } }[];
+  const apiEnvironment = (t: Template): Record<string, unknown> => {
+    const fn = (Object.entries(t.findResources('AWS::Lambda::Function')) as [string, { Properties: { Environment?: { Variables: Record<string, unknown> } } }][]).find(([id]) => /^Api[0-9A-F]{8}$/.test(id));
+    return fn![1].Properties.Environment!.Variables;
+  };
+
+  it('has an open route for searching, with or without a key (without one it answers that the library is off)', () => {
+    for (const t of [stack(app(), 'PuzzleVidio-dev-Api'), stack(app({ pexelsSecretName: 'puzzlevidio/pexels' }), 'PuzzleVidio-dev-Api')]) {
+      const route = routes(t).find((r) => r.Properties.RouteKey === 'GET /stock/search');
+      expect(route).toBeDefined();
+      expect(route!.Properties.AuthorizationType ?? 'NONE').toBe('NONE');
+    }
+  });
+
+  it('gives only the API function the name of the key and the right to read it, when a secret is named', () => {
+    expect(apiEnvironment(stack(app(), 'PuzzleVidio-dev-Api')).PEXELS_SECRET_ID).toBeUndefined();
+    const t = stack(app({ pexelsSecretName: 'puzzlevidio/pexels' }), 'PuzzleVidio-dev-Api');
+    expect(apiEnvironment(t).PEXELS_SECRET_ID).toBe('puzzlevidio/pexels');
+    const policies = Object.entries(t.findResources('AWS::IAM::Policy')) as [string, { Properties: { PolicyDocument: { Statement: Statement[] } } }][];
+    const readers = policies.filter(([, p]) => JSON.stringify(p.Properties.PolicyDocument.Statement).includes('puzzlevidio/pexels')).map(([id]) => id);
+    expect(readers).toHaveLength(1);
+    expect(readers[0]).toMatch(/^Api/);
+    expect(readers[0]).not.toMatch(/^Admin/);
   });
 });

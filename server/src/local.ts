@@ -7,6 +7,7 @@ import { MemoryMedia, MemoryPubSub, MemoryStore, SystemRandom, systemClock } fro
 import { setActive } from './played';
 import { createRouter, DevAuth } from './router';
 import { RoomService } from './service';
+import { PexelsStock } from './stock';
 import type { Player, Presence, PubSub } from './types';
 
 /**
@@ -85,7 +86,9 @@ const service = new RoomService({
 // real guests as in the cloud (signed tokens, a key made when the server starts); the accounts are the made-up ones
 const guests = new GuestTokens(new Uint8Array(randomBytes(32)), systemClock);
 const auth = new TokenAuth(guests, new DevAuth());
-const route = createRouter({ service, auth, media, guests });
+// the stock library, when this machine has a Pexels key (PEXELS_API_KEY; PEXELS_API_BASE points it at a stand-in for trying the game without one)
+const stock = process.env.PEXELS_API_KEY ? new PexelsStock(process.env.PEXELS_API_KEY, { base: process.env.PEXELS_API_BASE }) : undefined;
+const route = createRouter({ service, auth, media, guests, stock });
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -165,4 +168,5 @@ setInterval(() => void service.sweep().catch((e) => console.error(e)), 60_000).u
 server.listen(PORT, () => {
   console.log(`Online server on ${ORIGIN}  (the game is expected at ${WEB_BASE}; ${FREE_ROOMS} free puzzles a week)`);
   console.log('Nothing is kept: stopping the server forgets every room.');
+  if (!stock) console.log('No stock library: set PEXELS_API_KEY to turn it on.');
 });

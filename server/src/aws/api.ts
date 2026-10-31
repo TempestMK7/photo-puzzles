@@ -15,6 +15,7 @@ import { createRouter, type Req, type Res } from '../router';
 import { RoomService } from '../service';
 import { GuestTokens, TokenAuth } from '../guest';
 import { Signer } from '../signing';
+import { PexelsStock } from '../stock';
 import type { Auth, Limits } from '../types';
 import { playerFrom } from './claims';
 import { CognitoAccounts } from './cognito';
@@ -108,10 +109,23 @@ export async function buildService() {
   return { service, media, guests, auth: new TokenAuth(guests, accounts), db, table };
 }
 
+/** The stock library, if the deployment has a Pexels key (a secret that only this function may read); without one the game does not offer it. */
+async function stockLibrary(): Promise<PexelsStock | undefined> {
+  const id = process.env.PEXELS_SECRET_ID;
+  if (!id) return undefined;
+  try {
+    const key = (await new SecretsManagerClient({}).send(new GetSecretValueCommand({ SecretId: id }))).SecretString?.trim();
+    return key ? new PexelsStock(key) : undefined;
+  } catch (e) {
+    console.error(e);
+    return undefined;
+  }
+}
+
 async function build(): Promise<(req: Req) => Promise<Res>> {
   const { service, media, guests, auth, db, table } = await buildService();
   const limiter = new RateLimiter(new DynamoRates(db, table, systemClock), systemClock);
-  return createRouter({ service, auth, media, guests, limiter });
+  return createRouter({ service, auth, media, guests, limiter, stock: await stockLibrary() });
 }
 
 let router: Promise<(req: Req) => Promise<Res>> | undefined;

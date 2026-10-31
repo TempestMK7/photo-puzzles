@@ -76,6 +76,24 @@ input[type='email'], input[type='password'] { text-transform: none; letter-spaci
 .pfoot { flex: none; display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; border-top: 1px solid var(--line); background: var(--panel2); }
 .pfoot button { flex: 1 1 0; padding: 8px 6px; white-space: nowrap; }
 .pfoot input.link { flex: 1 1 100%; min-width: 0; padding: 8px; }
+/* the two lists of the photo panel (the player's files, the stock library's), and what shows where a picture came from */
+.ptabs { flex: none; display: flex; background: var(--panel2); border-bottom: 1px solid var(--line); }
+.ptabs button { flex: 1; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--dim); padding: 9px 6px; }
+.ptabs button.on { color: var(--text); border-bottom-color: var(--accent2); background: var(--panel); }
+.stockbar { flex: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border-bottom: 1px solid var(--line); }
+.stockbar .sfield { flex: 1 1 100%; display: flex; align-items: center; gap: 8px; padding: 0 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+.stockbar input[type='search'] { flex: 1; min-width: 0; font: inherit; color: inherit; background: transparent; border: 0; outline: none; padding: 7px 0; }
+.stockbar select { flex: 1; font: inherit; padding: 5px 8px; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; }
+.stockbar button { flex: 1; }
+.thumb { position: relative; display: block; flex: none; width: 56px; height: 56px; }
+.thumb .pmark { position: absolute; right: -4px; bottom: -4px; display: flex; }
+.pmark { display: inline-flex; flex: none; }
+.pmark svg { display: block; border-radius: 4px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55); }
+.pcreditbox:empty { display: none; }
+.pcredit, .attrib { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px; font-size: 12px; color: var(--dim); }
+.pcredit a, .attrib a { color: var(--accent2); }
+.attrib { flex: 1 1 100%; }
+.item.have .b { color: var(--accent2); }
 .pfoot .msg { flex: 1 1 100%; font-size: 13px; color: var(--accent2); text-align: center; }
 button.danger { background: #7a1f1f; border-color: #c0443a; }
 button.danger:hover:not(:disabled) { background: #983028; }

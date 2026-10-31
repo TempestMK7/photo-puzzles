@@ -164,6 +164,7 @@ The steps for a notice of copyright infringement (the published procedure is the
 ## Quotas
 
 - **Lambda concurrent runs** was 10 in this new account. A request for **1000** was filed on 2026-10-30 (Service Quotas, id `6a89f90ccea24e4580c19914eb919aa4gACcheB3`); `aws service-quotas list-requested-service-quota-change-history-by-quota --service-code lambda --quota-code L-B99A9384` says how it stands. Once it is granted: reserve some for the API function so that a bug elsewhere cannot starve it (not done yet; a reservation is a deploy setting that does not exist yet).
+- **Pexels** (the stock library) lets one key make 200 requests an hour and 20,000 a month. The server stops at 150 an hour (`stockUpstream`) and keeps each answer for ten minutes, so a busy day shows as players being told the library is busy: ask Pexels (pexels.com/api) to lift the limit, which they do for free for credited use.
 - Still to ask for before a launch: IoT Core connection and message rates, the API's throttle, DynamoDB (it is pay per request and rarely the limit).
 
 ## Not covered yet

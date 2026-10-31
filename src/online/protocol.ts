@@ -143,7 +143,52 @@ export type ApiError =
   /** The video is longer or larger than the limits allow. */
   | 'too-big'
   /** The automatic check could not read the video (it reads MP4 and MOV made with H.264). */
-  | 'unreadable';
+  | 'unreadable'
+  /** The library of stock pictures and videos cannot be used right now (it is not set up, or its provider does not answer). */
+  | 'stock-off';
+
+// ------------------------------------------------------------------------------------------------------------------------------- stock pictures and videos
+
+export type StockType = 'photo' | 'video';
+
+/** One picture or video of the stock library (Pexels), as the server found it. Every address is one of Pexels' own (the page checks that before it fetches anything). */
+export interface StockItem {
+  id: string;
+  type: StockType;
+  title: string;
+  /** Who made it, and where to see them and the picture on Pexels (shown with the picture: the library asks for that). */
+  by: string;
+  byUrl: string;
+  url: string;
+  /** A small picture for the list, what to show in the big preview (a picture, or a small video), and the file to put in the library. */
+  thumb: string;
+  preview: string;
+  file: string;
+  fileType: string;
+  width: number;
+  height: number;
+  /** Seconds, for a video. */
+  duration: number;
+}
+
+export interface StockResponse {
+  ok: true;
+  items: StockItem[];
+  page: number;
+  /** There is a next page. */
+  more: boolean;
+}
+
+/** An address on Pexels' own servers (https, a host that is pexels.com or below it): nothing else is passed on to the game. */
+export function pexelsUrl(v: unknown): string | null {
+  if (typeof v !== 'string' || v.length > 600) return null;
+  try {
+    const u = new URL(v);
+    return u.protocol === 'https:' && !u.username && !u.password && (u.hostname === 'pexels.com' || u.hostname.endsWith('.pexels.com')) ? u.href : null;
+  } catch {
+    return null;
+  }
+}
 
 export interface ApiFailure {
   ok: false;

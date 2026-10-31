@@ -55,7 +55,7 @@ the budget, the quotas (Lambda runs 10 at a time in a new account, which is to b
 6. **Dev deploys itself** whenever a change is merged into `main` (tests first; a change that only touches documents is skipped). **Production is run by hand**: Actions > Deploy > Run workflow, stage `prod`, with the word `prod` typed in the box. The workflow deploys the stacks and then puts the game in the bucket; the main screen shows which build it is (`src/version.ts`).
 
 Settings that can be given with `-c name=value` (or as `PUZZLEVIDIO_NAME` in the environment): `hostedZoneId` (required), `zoneName` (default `puzzlevid.io`), `alertEmail`, `budgetUsd` (default 25),
-`githubRepo` (default this one), `githubSubjectPrefix` (see below), `githubProviderArn`, `googleClientId` and `googleSecretName`, and `limits` (a JSON object that changes the service's limits, like `{"freeRoomsPerWeek":0}` to switch the making of puzzles off: `docs/runbook.md`). **The runbook (`docs/runbook.md`) says how to run it: alarms, logs, limits, reports, bans, deploys.**
+`githubRepo` (default this one), `githubSubjectPrefix` (see below), `githubProviderArn`, `googleClientId` and `googleSecretName`, `pexelsSecretName` (the stock library, below), and `limits` (a JSON object that changes the service's limits, like `{"freeRoomsPerWeek":0}` to switch the making of puzzles off: `docs/runbook.md`). **The runbook (`docs/runbook.md`) says how to run it: alarms, logs, limits, reports, bans, deploys.**
 
 ## Reports, ending a puzzle, banning a player
 
@@ -88,6 +88,14 @@ The sign-in and sign-up pop-ups of the game show a **Sign in with Google** butto
    `https://puzzlevidio-dev.auth.us-east-1.amazoncognito.com/oauth2/idpresponse` and `https://puzzlevidio-prod.auth.us-east-1.amazoncognito.com/oauth2/idpresponse`.
 3. Keep the client secret in Secrets Manager, not in a file of the repository: `aws secretsmanager create-secret --name puzzlevidio/google --secret-string <secret>` (with the secret put in from a file or a variable, so that it does not stay in the shell's history).
 4. Set the repository variables `GOOGLE_CLIENT_ID` (the client id; it is not secret) and `GOOGLE_SECRET_NAME` (`puzzlevidio/google`), or deploy by hand with `-c googleClientId=<id> -c googleSecretName=puzzlevidio/google`. The next deploy of the Auth stack adds the provider to the user pool and lists it on the app client; the build after it shows the button.
+
+## The stock library (Pexels)
+
+The **Stock Files** tab of the game's photo panel searches Pexels for pictures and videos (they are downloaded straight from Pexels' own servers when someone presses Play; the API only does the searching, so the key stays secret and answers are kept for ten minutes). The tab is there when the build has an API (`VITE_ONLINE_URL`); a deployment without a key answers `stock-off` and the tab says the library is not available.
+
+1. Make a free account at pexels.com and ask for an API key (pexels.com/api). Its terms ask for a visible link to Pexels wherever its pictures are shown (the game does that), and give a key 200 requests an hour and 20,000 a month (the server keeps its own count: `stockUpstream` in `server/src/ratelimit.ts` stops at 150 an hour; ask Pexels to raise the limit when the game has players, they do it for free for credited use).
+2. Keep the key in Secrets Manager: `aws secretsmanager create-secret --name puzzlevidio/pexels --secret-string <key>` (put in from a file or a variable, so that it does not stay in the shell's history).
+3. Set the repository variable `PEXELS_SECRET_NAME` (`puzzlevidio/pexels`), or deploy by hand with `-c pexelsSecretName=puzzlevidio/pexels`. Only the API function may read the secret. On a developer's machine, `PEXELS_API_KEY=<key> npm run server` turns the library on for the local server.
 
 An account made with Google is a **separate account** from one made with an e-mail address and password for the same address: Cognito does not join them by itself (see the plan: linking them is the next step).
 
