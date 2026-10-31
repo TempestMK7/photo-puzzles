@@ -95,9 +95,16 @@ async function main(): Promise<void> {
   // the pop-ups for signing in (the game's own pages, in a build whose accounts have them) and for the profile, with the round badge on the main screen
   const signInDialog = player.passwords ? new SignInDialog(player.passwords, player.google) : null;
   const signIn = async (): Promise<boolean> => {
-    if (signInDialog) return signInDialog.ask();
-    await player.signIn();          // the local build's stand-in
-    return true;
+    let signedIn = true;
+    if (signInDialog) signedIn = await signInDialog.ask();
+    else await player.signIn();          // the local build's stand-in
+    // (the page is not loaded again: the credits at the top of the screen are asked for now)
+    if (signedIn) {
+      void player.refreshProfile().then(() => profile?.refreshBadge());
+      player.changed();
+      profile?.refreshBadge();
+    }
+    return signedIn;
   };
   const profile: ProfileDialog | null = api
     ? new ProfileDialog({

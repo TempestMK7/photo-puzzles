@@ -3,16 +3,23 @@ import type { AdPlatform } from './online/protocol';
 /**
  * Where the game is running, for the one thing that depends on it: rewarded ads, which only the mobile apps may show (Steam and itch forbid them, and the web page has no ad network).
  *
- * - The mobile apps are a shell around the page that offers `window.PhotoPuzzlesNative`. For ads it adds `showRewardedAd(kind)` (`'photo'` or `'video'`), which starts an ad and returns at once;
- *   when the ad is over the shell fires the window event `photopuzzles-ad` with `detail` `{ kind, rewarded, proof }` (`rewarded`: the player watched it to the end; `proof`: what the ad network
- *   gave the app, for the server to check). A shell may also offer `platform()` ('android' or 'ios'); one that does not is taken for Android's.
+ * - The mobile apps are a shell around the page that offers `window.PhotoPuzzlesNative`. For ads it adds `showRewardedAd(kind, nonce)` (`kind` is `'photo'` or `'video'`; `nonce` is the
+ *   one-time number that the server gave for this ad, which the shell gives the ad network as the ad's custom data, so that the network's report to the server can be matched to the account),
+ *   which starts an ad and returns at once; when the ad is over the shell fires the window event `photopuzzles-ad` with `detail` `{ kind, rewarded, error? }` (`rewarded`: the player watched it
+ *   to the end; `error`: `no-ad` when there was none to show, `consent` when the player has not agreed to ads where the law asks). The credits themselves come from the ad network's
+ *   report to the server, not from the page. A shell may also offer `platform()` ('android' or 'ios'; one that does not is taken for Android's), and, where the law asks that the
+ *   player can change their mind about ads, `privacyOptionsRequired()` and `showPrivacyOptions()`. Nothing in the app talks to the ad network before the page calls `prepareAds()`
+ *   (when the player looks at the credits), which makes the app find out about the player's consent and get an ad ready, and fires the window event `photopuzzles-ads-ready` when it knows.
  * - A build for Steam or itch says so with `VITE_PLATFORM` (`steam` or `itch`) when it is built. Anything else is the web page.
  */
 export type Platform = 'android' | 'ios' | 'steam' | 'itch' | 'web';
 
 interface Native {
   platform?: () => string;
-  showRewardedAd?: (kind: string) => void;
+  prepareAds?: () => void;
+  showRewardedAd?: (kind: string, nonce: string) => void;
+  privacyOptionsRequired?: () => boolean;
+  showPrivacyOptions?: () => void;
 }
 
 const nativeHost = (): Native | undefined => (typeof window === 'undefined' ? undefined : (window as unknown as { PhotoPuzzlesNative?: Native }).PhotoPuzzlesNative);
@@ -37,14 +44,33 @@ export function adPlatform(host: Native | undefined = nativeHost(), built?: stri
 export interface AdResult {
   /** The player watched the ad to the end. */
   rewarded: boolean;
-  proof?: string;
+  /** Why there was nothing to watch: no ad to show, or the player has not agreed to ads. */
+  error?: 'no-ad' | 'consent';
+}
+
+/** The player is looking at the credits in an app that has ads: it may get ready for one (and learns whether the player has choices to make: it says so with the window event photopuzzles-ads-ready). */
+export function prepareAds(host: Native | undefined = nativeHost()): void {
+  try {
+    host?.prepareAds?.();
+  } catch {
+    /* the app has no ads to get ready */
+  }
+}
+
+/** The player's choices about ads, where the shell has them (the law asks for a way to change them): shows them. Nothing where there is no such thing. */
+export function adPrivacy(host: Native | undefined = nativeHost()): (() => void) | null {
+  try {
+    return typeof host?.showPrivacyOptions === 'function' && host.privacyOptionsRequired?.() === true ? () => host.showPrivacyOptions!() : null;
+  } catch {
+    return null;
+  }
 }
 
 /** How long to wait for the shell to say that the ad is over (an ad that never answers does not leave the dialog waiting for ever). */
 const AD_GIVE_UP_MS = 5 * 60_000;
 
 /** Shows a rewarded ad (in an app that can) and waits for the shell to say how it went. Nothing is rewarded when there is no ad to show. */
-export function watchAd(kind: 'photo' | 'video', host: Native | undefined = nativeHost(), target: Pick<Window, 'addEventListener' | 'removeEventListener'> | undefined = typeof window === 'undefined' ? undefined : window): Promise<AdResult> {
+export function watchAd(kind: 'photo' | 'video', nonce: string, host: Native | undefined = nativeHost(), target: Pick<Window, 'addEventListener' | 'removeEventListener'> | undefined = typeof window === 'undefined' ? undefined : window): Promise<AdResult> {
   return new Promise((resolve) => {
     if (typeof host?.showRewardedAd !== 'function' || !target) return resolve({ rewarded: false });
     const done = (r: AdResult) => {
@@ -52,14 +78,14 @@ export function watchAd(kind: 'photo' | 'video', host: Native | undefined = nati
       target.removeEventListener('photopuzzles-ad', onEnd as EventListener);
       resolve(r);
     };
-    const onEnd = (e: CustomEvent<{ kind?: unknown; rewarded?: unknown; proof?: unknown }>) => {
+    const onEnd = (e: CustomEvent<{ kind?: unknown; rewarded?: unknown; error?: unknown }>) => {
       if (e.detail?.kind !== kind) return;
-      done({ rewarded: e.detail.rewarded === true, ...(typeof e.detail.proof === 'string' ? { proof: e.detail.proof } : {}) });
+      done({ rewarded: e.detail.rewarded === true, ...(e.detail.error === 'no-ad' || e.detail.error === 'consent' ? { error: e.detail.error } : {}) });
     };
     const timer = setTimeout(() => done({ rewarded: false }), AD_GIVE_UP_MS);
     target.addEventListener('photopuzzles-ad', onEnd as EventListener);
     try {
-      host.showRewardedAd(kind);
+      host.showRewardedAd(kind, nonce);
     } catch {
       done({ rewarded: false });
     }

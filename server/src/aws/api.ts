@@ -10,6 +10,7 @@ import { PublishCommand, SNSClient } from '@aws-sdk/client-sns';
 import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
 import { DEFAULT_LIMITS } from '../../../src/online/protocol';
 import { SystemRandom, systemClock } from '../memory';
+import { AdMobCallbacks } from '../admob';
 import { RateLimiter } from '../ratelimit';
 import { createRouter, type Req, type Res } from '../router';
 import { RoomService } from '../service';
@@ -40,6 +41,7 @@ export function toReq(event: APIGatewayProxyEventV2WithJWTAuthorizer): Req {
     method: event.requestContext.http.method,
     path: event.rawPath,
     query: new URLSearchParams(event.rawQueryString),
+    rawQuery: event.rawQueryString,
     authorization: event.headers?.authorization,
     ip: event.requestContext.http.sourceIp,
     body: new Uint8Array(body),
@@ -89,6 +91,7 @@ export async function buildService() {
   const media = new S3Media(new S3Client({}), need('MEDIA_BUCKET'), signer, need('API_BASE'));
   // the picture is sent through the API and a Lambda can take about 6 MB in a request (a little less than that once it is base64), so a picture may be at most 4 MB
   const limits: Limits = { ...DEFAULT_LIMITS, pictureBytes: 4_000_000, ...(JSON.parse(process.env.LIMITS ?? '{}') as Partial<Limits>) };
+  const adUnits = (process.env.ADMOB_AD_UNITS ?? '').split(',').map((u) => u.trim()).filter(Boolean);
   const service = new RoomService({
     store: new DynamoStore(db, table, systemClock),
     media,
@@ -103,6 +106,8 @@ export async function buildService() {
     moderation: new RekognitionModeration(new RekognitionClient({})),
     // and every video, whole (a minute or two, asked about until it is done)
     videoModeration: new RekognitionVideoModeration(new RekognitionClient({}), need('MEDIA_BUCKET')),
+    // AdMob tells the server when a rewarded ad was watched (only for the ad units named in the deployment: without them no ad is accepted)
+    adCallbacks: adUnits.length ? new AdMobCallbacks(adUnits, systemClock) : undefined,
     // a report goes to the alarm topic, so that it reaches the operator's e-mail
     notify: async (text) => void (await sns.send(new PublishCommand({ TopicArn: need('ALERT_TOPIC_ARN'), Subject: 'PuzzleVidio: a puzzle was reported', Message: text }))),
   });

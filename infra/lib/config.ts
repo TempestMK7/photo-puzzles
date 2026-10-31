@@ -37,6 +37,11 @@ export interface Settings {
    */
   pexelsSecretName?: string;
   pixabaySecretName?: string;
+  /**
+   * The AdMob ad units that the game's rewarded ads are made of (the ids, comma-separated, like `ca-app-pub-123/456`). AdMob tells the server when an ad was watched, and the server believes
+   * only a call that is about one of these. Without them no ad is accepted (unless the limit `adsTrusted` is set).
+   */
+  admobAdUnits?: string;
   /** Changes to the service's limits (see `Limits` in server/src/types.ts), as numbers by name: `hostingPaused: 1` switches the making of puzzles off. */
   limits?: Record<string, number>;
 }
@@ -96,6 +101,7 @@ export function settings(node: Node): Settings {
     githubProviderArn: text(node, 'githubProviderArn'),
     googleClientId,
     googleSecretName,
+    admobAdUnits: text(node, 'admobAdUnits'),
     pexelsSecretName: stockSecret(node, 'pexelsSecretName', DEFAULT_STOCK_SECRETS.pexels),
     pixabaySecretName: stockSecret(node, 'pixabaySecretName', DEFAULT_STOCK_SECRETS.pixabay),
     limits: parseLimits(text(node, 'limits')),
@@ -106,6 +112,9 @@ export function settings(node: Node): Settings {
 export function siteDomain(stage: Stage, zoneName: string): string {
   return stage === 'prod' ? zoneName : `${stage}.${zoneName}`;
 }
+
+/** The address that the Android app's pages come from (the app serves its own files under it): it may call the API and fetch and upload pictures, but is not a place to sign in from. */
+export const APP_ORIGINS = ['https://appassets.androidplatform.net'];
 
 /** Where the game may be served from, for the places that must know (sign-in return addresses, upload CORS). */
 export function siteOrigins(stage: Stage, zoneName: string): string[] {

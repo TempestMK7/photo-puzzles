@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A jigsaw piece on the game's dark brown, drawn in code like the rest of the art. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#2d1e15"
+        android:pathData="M0,0h48v48h-48z" />
+    <path
+        android:fillColor="#ffd84a"
+        android:pathData="M10,13h9a3.5,3.5 0 1,1 7,0h9v9a3.5,3.5 0 1,0 0,7v9h-9a3.5,3.5 0 1,0 -7,0h-9z" />
+</vector>

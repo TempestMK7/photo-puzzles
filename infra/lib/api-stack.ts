@@ -38,6 +38,8 @@ export interface ApiStackProps extends StackProps {
   client: cognito.IUserPoolClient;
   /** Changes to the service's limits (the deploy setting `limits`). */
   limits?: Record<string, number>;
+  /** The AdMob ad units whose reward calls are believed (the deploy setting `admobAdUnits`). */
+  admobAdUnits?: string;
   /** The secret that holds the Pexels API key (the deploy setting `pexelsSecretName`): with it the API offers the stock library. */
   pexelsSecretName?: string;
   /** The same for Pixabay (`pixabaySecretName`). */
@@ -103,6 +105,7 @@ export class ApiStack extends Stack {
       fn.addEnvironment(variable, name);
       secretsmanager.Secret.fromSecretNameV2(this, id, name).grantRead(fn);
     }
+    if (props.admobAdUnits) fn.addEnvironment('ADMOB_AD_UNITS', props.admobAdUnits);
     const admin = serviceFunction('Admin', 'server/src/aws/admin.ts', 512, Duration.seconds(30));
     // the operator can delete an account for someone who cannot sign in (the same one thing to the user pool)
     admin.addToRolePolicy(new iam.PolicyStatement({ actions: ['cognito-idp:AdminDeleteUser'], resources: [props.pool.userPoolArn] }));
@@ -164,6 +167,9 @@ export class ApiStack extends Stack {
     }
     // credits for a rewarded ad: an account's, like making a puzzle (the gateway turns a guest's token away)
     this.api.addRoutes({ path: '/credits/ad', methods: [POST], integration, authorizer: jwt });
+    this.api.addRoutes({ path: '/credits/ad/start', methods: [POST], integration, authorizer: jwt });
+    // the ad network's own call, when a rewarded ad was watched: no sign-in, it is signed (and only a signature from AdMob, for one of our ad units, is believed)
+    this.api.addRoutes({ path: '/credits/ad/callback', methods: [GET], integration });
     this.api.addRoutes({ path: '/media/{id}', methods: [PUT], integration });
     this.api.addRoutes({ path: '/stock/search', methods: [GET], integration });
     // the admin page: nothing without a Cognito ID token (the function looks for the admin group besides)

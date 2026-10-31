@@ -46,3 +46,23 @@ jobs:
       - run: npm test
       # Builds every template and bundles the functions, with a made-up hosted zone: no AWS account is needed.
       - run: npx cdk synth --quiet -c hostedZoneId=ZEXAMPLE
+
+  android:
+    name: Android app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - run: npm ci
+      # the game's web build goes into the app (no online play: nothing here knows where a server is), then the app is built with Google's test ad ids
+      - run: node scripts/android-web.mjs offline
+      - run: ./gradlew assembleDebug --console=plain
+        working-directory: android

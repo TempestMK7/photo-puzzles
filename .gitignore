@@ -35,8 +35,14 @@ steamcmd/
 butler_creds
 itch-api-key*
 
-# Generated native projects (recreate with the wrapper's tooling)
-android/
+# Native projects. The Android app (android/) is part of the repository: what is built, copied in from the web build, or local to one machine is not.
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/assets/www/
+*.apk
+*.aab
 ios/
 src-tauri/target/
 

@@ -1,4 +1,4 @@
-import type { AdRequest, CommandRequest, CreateRoomRequest, JoinRequest, ApiError, PlaybackRequest, ReportRequest } from '../../src/online/protocol';
+import type { AdRequest, AdStartRequest, CommandRequest, CreateRoomRequest, JoinRequest, ApiError, PlaybackRequest, ReportRequest } from '../../src/online/protocol';
 import type { RoomService } from './service';
 import { clientKey, type RateLimiter } from './ratelimit';
 import { stockSitesOf, type StockProviders } from './stock';
@@ -12,6 +12,8 @@ export interface Req {
   /** The `Authorization` header, if any. */
   authorization?: string;
   body: Uint8Array;
+  /** The query string exactly as it came (not taken apart: the ad network signs its text). */
+  rawQuery?: string;
   /** The address the request came from, as the gateway saw it (for the limits on how often it may do things). */
   ip?: string;
   /** Already signed in (the cloud's gateway checks the token before the request gets here): no `Authorization` header is looked at then. */
@@ -121,6 +123,11 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
       return { status: 405, body: { ok: false, error: 'bad-request' } };
     }
 
+    // the ad network tells the server that a rewarded ad was watched (signed by the network: there is no sign-in)
+    if (parts[0] === 'credits' && parts[1] === 'ad' && parts[2] === 'callback' && parts.length === 3 && req.method === 'GET') {
+      return (await service.adCallback(req.rawQuery ?? '')) ? { status: 200, body: { ok: true } } : { status: 403, body: { ok: false, error: 'unauthorized' } };
+    }
+
     // the library of stock pictures and videos: open to everyone (the game's single-player side has no sign-in), so how often an address may ask is limited, and the provider's own limit is shared by all
     if (parts[0] === 'stock' && parts[1] === 'search' && parts.length === 2 && req.method === 'GET') {
       const sites = stock ? stockSitesOf(stock) : [];
@@ -158,6 +165,10 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
     // a player whom the operator has stopped can still see and delete what is theirs (above), and nothing else
     if (await service.isBanned(player.id)) return { status: 403, body: { ok: false, error: 'banned' } };
     // a rewarded ad that was watched in a mobile app: credits for it, if the account is owed them (the account decides: see `claimAd`)
+    if (parts[0] === 'credits' && parts[1] === 'ad' && parts[2] === 'start' && parts.length === 3 && req.method === 'POST') {
+      const body = json<AdStartRequest>(req);
+      return body ? reply(await service.adStart(player, body)) : bad;
+    }
     if (parts[0] === 'credits' && parts[1] === 'ad' && parts.length === 2 && req.method === 'POST') {
       const body = json<AdRequest>(req);
       return body ? reply(await service.claimAd(player, body)) : bad;

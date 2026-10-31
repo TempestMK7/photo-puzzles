@@ -1,5 +1,5 @@
 import { BatchGetCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand, ScanCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import type { AccountRecord, Ban, Clock, FileRecord, Presence, RateCounter, Report, RoomRecord, Store } from '../types';
+import type { AccountRecord, AdNonce, Ban, Clock, FileRecord, Presence, RateCounter, Report, RoomRecord, Store } from '../types';
 
 /** The part of the document client that is used, so that a test can put a fake in its place. */
 export interface Sender {
@@ -18,6 +18,8 @@ export interface Sender {
  *   FILE#<id>     / USER#<player>   a player who may make a puzzle from the file (they joined a puzzle made from it)
  *   PLAYER#<id>   / FILE#<id>       a file the player sent
  *   FILES         / <ms>#<id>       every kept file, in the order they were sent (to list them). The last three have a `ttl` a little after the file's own, put forward each time the file is used
+ *   AD#<nonce>    / NONCE           what an ad was asked for, until it is watched (`body` is the record as JSON; with a `ttl`)
+ *   ADTX#<id>     / TX              a reward that the ad network reported (with a `ttl`: the network may report one again for a while)
  *   REPORTS       / <ms>#<tag>      a report of a puzzle (with a `ttl`)
  *   BANS          / <player>        a player who may not play online (no `ttl`)
  *   RATE#<key>#<n> / COUNT          how many times something happened in one window of time (see DynamoRates)
@@ -207,6 +209,28 @@ export class DynamoStore implements Store {
       start = page.LastEvaluatedKey;
     } while (start);
     return rooms;
+  }
+
+  async putAdNonce(nonce: AdNonce): Promise<void> {
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: `AD#${nonce.nonce}`, sk: 'NONCE', body: JSON.stringify(nonce), ttl: seconds(nonce.expiresAt) } }));
+  }
+
+  async getAdNonce(nonce: string): Promise<AdNonce | undefined> {
+    const { Item } = await this.db.send(new GetCommand({ TableName: this.table, Key: { pk: `AD#${nonce}`, sk: 'NONCE' }, ConsistentRead: true }));
+    return Item ? (JSON.parse(Item.body as string) as AdNonce) : undefined;      // (the service looks at the time: the table may keep an item that has run out for a day or two)
+  }
+
+  async deleteAdNonce(nonce: string): Promise<void> {
+    await this.db.send(new DeleteCommand({ TableName: this.table, Key: { pk: `AD#${nonce}`, sk: 'NONCE' } }));
+  }
+
+  async hasAdTransaction(transactionId: string): Promise<boolean> {
+    const { Item } = await this.db.send(new GetCommand({ TableName: this.table, Key: { pk: `ADTX#${transactionId}`, sk: 'TX' }, ConsistentRead: true }));
+    return !!Item;
+  }
+
+  async putAdTransaction(transactionId: string, until: number): Promise<void> {
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: `ADTX#${transactionId}`, sk: 'TX', ttl: seconds(until) } }));
   }
 
   async getAccount(playerId: string): Promise<AccountRecord | undefined> {

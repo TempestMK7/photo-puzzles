@@ -1,5 +1,5 @@
 import { Signer } from './signing';
-import type { AccountRecord, Ban, Clock, FileRecord, Media, PubSub, RateCounter, Random, Report, RoomRecord, Store } from './types';
+import type { AccountRecord, AdNonce, Ban, Clock, FileRecord, Media, PubSub, RateCounter, Random, Report, RoomRecord, Store } from './types';
 
 /** Everything in memory: for the tests and for the local server (which forgets it all when it stops). */
 export class MemoryStore implements Store {
@@ -10,6 +10,8 @@ export class MemoryStore implements Store {
   private reports: Report[] = [];
   private banned = new Map<string, Ban>();
   private files = new Map<string, FileRecord>();
+  private nonces = new Map<string, AdNonce>();
+  private transactions = new Map<string, number>();
   private fileUsers = new Map<string, Set<string>>();
 
   async getRoom(id: string): Promise<RoomRecord | undefined> {
@@ -48,6 +50,27 @@ export class MemoryStore implements Store {
 
   async allRooms(): Promise<RoomRecord[]> {
     return [...this.rooms.values()].map((r) => structuredClone(r));
+  }
+
+  async putAdNonce(nonce: AdNonce): Promise<void> {
+    this.nonces.set(nonce.nonce, { ...nonce });
+  }
+
+  async getAdNonce(nonce: string): Promise<AdNonce | undefined> {
+    const n = this.nonces.get(nonce);
+    return n && { ...n };
+  }
+
+  async deleteAdNonce(nonce: string): Promise<void> {
+    this.nonces.delete(nonce);
+  }
+
+  async hasAdTransaction(transactionId: string): Promise<boolean> {
+    return this.transactions.has(transactionId);
+  }
+
+  async putAdTransaction(transactionId: string, until: number): Promise<void> {
+    this.transactions.set(transactionId, until);
   }
 
   async getAccount(playerId: string): Promise<AccountRecord | undefined> {

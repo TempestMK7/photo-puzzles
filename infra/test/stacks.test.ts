@@ -128,7 +128,7 @@ describe('data', () => {
     prod.hasResourceProperties('AWS::S3::Bucket', {
       PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true },
       LifecycleConfiguration: { Rules: Match.arrayWith([Match.objectLike({ ExpirationInDays: 35, Prefix: 'rooms/' }), Match.objectLike({ ExpirationInDays: 365, Prefix: 'files/' })]) },
-      CorsConfiguration: { CorsRules: [Match.objectLike({ AllowedOrigins: ['https://puzzlevid.io'] })] },
+      CorsConfiguration: { CorsRules: [Match.objectLike({ AllowedOrigins: ['https://puzzlevid.io', 'https://appassets.androidplatform.net'] })] },         // (the Android app's pages too)
     });
     prod.hasResourceProperties('AWS::S3::BucketPolicy', {
       PolicyDocument: { Statement: Match.arrayWith([Match.objectLike({ Effect: 'Deny', Condition: { Bool: { 'aws:SecureTransport': 'false' } } })]) },
@@ -292,7 +292,9 @@ describe('api', () => {
     expect(routes.map((r) => [r.RouteKey, r.AuthorizationType ?? 'NONE']).sort()).toEqual(
       [
         ['POST /rooms', 'JWT'],                  // making a puzzle: only with an account
-        ['POST /credits/ad', 'JWT'],             // credits for an ad: an account's too
+        ['POST /credits/ad', 'JWT'],             // credits for an ad (only where the game's word is taken): an account's too
+        ['POST /credits/ad/start', 'JWT'],
+        ['GET /credits/ad/callback', 'NONE'],    // the ad network's own call: signed, checked in the function
         ['GET /rooms', 'NONE'],                  // from here the function checks the token itself, a Cognito one or a guest's
         ['GET /rooms/{proxy+}', 'NONE'],
         ['POST /rooms/{proxy+}', 'NONE'],
@@ -309,9 +311,9 @@ describe('api', () => {
     );
   });
 
-  it("lets browsers call it only from the game's own addresses", () => {
-    prod.hasResourceProperties('AWS::ApiGatewayV2::Api', { CorsConfiguration: Match.objectLike({ AllowOrigins: ['https://puzzlevid.io'], AllowHeaders: ['Authorization', 'Content-Type'] }) });
-    dev.hasResourceProperties('AWS::ApiGatewayV2::Api', { CorsConfiguration: Match.objectLike({ AllowOrigins: ['https://dev.puzzlevid.io', 'http://localhost:5173'] }) });
+  it("lets browsers call it only from the game's own addresses, and the Android app's pages", () => {
+    prod.hasResourceProperties('AWS::ApiGatewayV2::Api', { CorsConfiguration: Match.objectLike({ AllowOrigins: ['https://puzzlevid.io', 'https://appassets.androidplatform.net'], AllowHeaders: ['Authorization', 'Content-Type'] }) });
+    dev.hasResourceProperties('AWS::ApiGatewayV2::Api', { CorsConfiguration: Match.objectLike({ AllowOrigins: ['https://dev.puzzlevid.io', 'http://localhost:5173', 'https://appassets.androidplatform.net'] }) });
   });
 
   it('has a limit on how fast it answers, a low one for the test stage', () => {

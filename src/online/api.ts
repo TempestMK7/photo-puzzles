@@ -1,6 +1,8 @@
 import type {
   AdRequest,
   AdResponse,
+  AdStartRequest,
+  AdStartResponse,
   ApiError,
   ApiFailure,
   CommandResponse,
@@ -90,7 +92,12 @@ export class OnlineApi implements RoomApi {
     return this.call('POST', '/rooms', { protocol: PROTOCOL_VERSION, ...req });
   }
 
-  /** A rewarded ad was watched in a mobile app: asks for the credits it is worth (the server decides whether the account is owed them). */
+  /** The game is about to show a rewarded ad: asks whether the account is owed credits for one, and for the number that goes with the ad. */
+  adStart(req: AdStartRequest): Promise<AdStartResponse | Offline> {
+    return this.call('POST', '/credits/ad/start', req);
+  }
+
+  /** Only where the operator takes the game's word that an ad was watched (for trying things out): asks for the credits it is worth. */
   claimAd(req: AdRequest): Promise<AdResponse | Offline> {
     return this.call('POST', '/credits/ad', req);
   }

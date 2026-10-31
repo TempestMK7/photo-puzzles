@@ -1,7 +1,8 @@
 import { createServer } from 'node:http';
-import { randomBytes } from 'node:crypto';
+import { generateKeyPairSync, randomBytes, sign } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { ACCOUNT_TYPES, DEFAULT_LIMITS, topics, type RoomMessage } from '../../src/online/protocol';
+import { AdMobCallbacks } from './admob';
 import { GuestTokens, TokenAuth } from './guest';
 import { MemoryMedia, MemoryPubSub, MemoryStore, SystemRandom, systemClock } from './memory';
 import { setActive } from './played';
@@ -22,6 +23,16 @@ const ORIGIN = `http://localhost:${PORT}`;
 const ACCOUNT = ACCOUNT_TYPES.find((t) => t === process.env.ACCOUNT_TYPE);
 /** A request may carry a video here (the local server is sent it itself: the cloud's storage takes it from the game). */
 const MAX_BODY = DEFAULT_LIMITS.videoBytes + 1_000_000;
+
+// FAKE_ADMOB=1 stands in for AdMob, to try the game's side of rewarded ads in a browser with a pretend app shell: an ad is reported as watched by asking for
+// /dev/fake-admob?nonce=<what the game was given>, and the server is told just as AdMob would tell it (signed, with a key made here). Without it an ad is believed when the game says so.
+const FAKE = process.env.FAKE_ADMOB ? generateKeyPairSync('ec', { namedCurve: 'prime256v1' }) : undefined;
+let fakeCount = 0;
+function fakeReport(nonce: string): string {
+  const text = `ad_network=fake&ad_unit=fake-unit&custom_data=${encodeURIComponent(nonce)}&reward_amount=1&reward_item=credits&timestamp=${Date.now()}&transaction_id=fake-${Date.now()}-${++fakeCount}`;
+  const signature = sign('sha256', Buffer.from(text), { key: FAKE!.privateKey, dsaEncoding: 'der' }).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return `${text}&signature=${signature}&key_id=1`;
+}
 
 /** Who is listening to which room. This stands in for the cloud's publish/subscribe: one message for a room goes to every connection in it. */
 class Hub implements PubSub, Presence {
@@ -80,9 +91,10 @@ const service = new RoomService({
   presence: hub,
   clock: systemClock,
   random: new SystemRandom(),
-  // (an ad is believed here: there is no ad network on this machine, and the game only offers ads in a mobile app)
-  limits: { ...DEFAULT_LIMITS, pictureBytes: 8_000_000, adsTrusted: 1, freePhotoCredits: Number(process.env.FREE_PHOTO_CREDITS ?? DEFAULT_LIMITS.freePhotoCredits) },
+  // (an ad is believed here, unless FAKE_ADMOB stands in for AdMob: there is no ad network on this machine, and the game only offers ads in a mobile app)
+  limits: { ...DEFAULT_LIMITS, pictureBytes: 8_000_000, adsTrusted: FAKE ? 0 : 1, freePhotoCredits: Number(process.env.FREE_PHOTO_CREDITS ?? DEFAULT_LIMITS.freePhotoCredits) },
   webBase: WEB_BASE,
+  adCallbacks: FAKE ? new AdMobCallbacks(['fake-unit'], systemClock, async () => new Map([['1', FAKE.publicKey.export({ type: 'spki', format: 'pem' }).toString()]])) : undefined,
 });
 // real guests as in the cloud (signed tokens, a key made when the server starts); the accounts are the made-up ones
 const guests = new GuestTokens(new Uint8Array(randomBytes(32)), systemClock);
@@ -126,10 +138,15 @@ const server = createServer((req, res) => {
   req.on('end', () => {
     void (async () => {
       const url = new URL(req.url ?? '/', ORIGIN);
+      if (FAKE && url.pathname === '/dev/fake-admob') {
+        const done = await service.adCallback(fakeReport(url.searchParams.get('nonce') ?? ''));
+        res.writeHead(done ? 200 : 403, CORS).end();
+        return;
+      }
       const out =
         size > MAX_BODY
           ? { status: 413, body: { ok: false, error: 'bad-request' }, type: undefined }
-          : await route({ method: req.method ?? 'GET', path: url.pathname, query: url.searchParams, authorization: req.headers.authorization, body: new Uint8Array(Buffer.concat(chunks)) });
+          : await route({ method: req.method ?? 'GET', path: url.pathname, query: url.searchParams, rawQuery: url.search.slice(1), authorization: req.headers.authorization, body: new Uint8Array(Buffer.concat(chunks)) });
       if (out.body instanceof Uint8Array) res.writeHead(out.status, { ...CORS, 'Content-Type': out.type ?? 'application/octet-stream', 'Cache-Control': 'private, max-age=60' }).end(Buffer.from(out.body));
       else res.writeHead(out.status, { ...CORS, 'Content-Type': 'application/json' }).end(JSON.stringify(out.body));
     })().catch((e) => {
