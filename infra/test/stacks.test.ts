@@ -155,6 +155,12 @@ describe('auth', () => {
       Policies: { PasswordPolicy: Match.objectLike({ MinimumLength: 8, RequireSymbols: false, RequireNumbers: true }) },
     });
   });
+  it("sends the codes from Cognito's own sender while cognitoEmail is yes (SES in the sandbox), and from our domain otherwise", () => {
+    const sender = (extra: Record<string, string>) => stack(app(extra), 'PuzzleVidio-prod-Auth');
+    sender({ cognitoEmail: 'yes' }).hasResourceProperties('AWS::Cognito::UserPool', { EmailConfiguration: { EmailSendingAccount: 'COGNITO_DEFAULT' } });
+    sender({ cognitoEmail: 'no' }).hasResourceProperties('AWS::Cognito::UserPool', { EmailConfiguration: Match.objectLike({ EmailSendingAccount: 'DEVELOPER' }) });
+    sender({ cognitoEmail: '' }).hasResourceProperties('AWS::Cognito::UserPool', { EmailConfiguration: Match.objectLike({ EmailSendingAccount: 'DEVELOPER' }) });
+  });
   it('lets a local game sign in to the test stage only', () => {
     stack(app(), 'PuzzleVidio-dev-Auth').hasResourceProperties('AWS::Cognito::UserPoolClient', { CallbackURLs: ['https://dev.puzzlevid.io/', 'http://localhost:5173/', 'com.tempest.photopuzzles://signed-in'] });
   });

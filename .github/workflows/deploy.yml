@@ -6,7 +6,7 @@ name: Deploy
 # The repository needs these variables (Settings > Secrets and variables > Actions > Variables); see infra/README.md:
 #   AWS_DEPLOY_ROLE_ARN  the role that the Ops stack made
 #   HOSTED_ZONE_ID       the hosted zone of the domain
-# and may have: ALERT_EMAIL, ADMOB_AD_UNITS (the AdMob ad units whose reward calls the server believes, comma-separated), GOOGLE_CLIENT_ID, GOOGLE_SECRET_NAME, PEXELS_SECRET_NAME, PIXABAY_SECRET_NAME (which secret holds a stock site's API key; puzzlevidio/pexels and puzzlevidio/pixabay when not set, "none" leaves the site out), LIMITS (JSON, like {"freeRoomsPerWeek":0}: see docs/runbook.md)
+# and may have: ALERT_EMAIL, ADMOB_AD_UNITS (the AdMob ad units whose reward calls the server believes, comma-separated), COGNITO_EMAIL (`yes`: send the sign-up codes from Cognito's own sender while SES is in the sandbox), GOOGLE_CLIENT_ID, GOOGLE_SECRET_NAME, PEXELS_SECRET_NAME, PIXABAY_SECRET_NAME (which secret holds a stock site's API key; puzzlevidio/pexels and puzzlevidio/pixabay when not set, "none" leaves the site out), LIMITS (JSON, like {"freeRoomsPerWeek":0}: see docs/runbook.md)
 # and the words of the privacy policy and the terms (/privacy, /terms): LEGAL_OPERATOR (who runs the game), LEGAL_CONTACT (an e-mail address to write to; required for prod) and LEGAL_LAW
 # (optional: the law the terms go by). They are variables so that no name or address is in this public repository.
 on:
@@ -93,11 +93,12 @@ jobs:
           CTX_PIXABAY_SECRET: ${{ vars.PIXABAY_SECRET_NAME }}
           CTX_LIMITS: ${{ vars.LIMITS }}
           CTX_ADMOB_UNITS: ${{ vars.ADMOB_AD_UNITS }}
+          CTX_COGNITO_EMAIL: ${{ vars.COGNITO_EMAIL }}
         run: |
           npm ci --prefix ..
           npm ci
           npx cdk deploy "PuzzleVidio-$STAGE-*" --require-approval never \
-            -c "hostedZoneId=$CTX_ZONE" -c "alertEmail=$CTX_EMAIL" -c "googleClientId=$CTX_GOOGLE_ID" -c "googleSecretName=$CTX_GOOGLE_SECRET" -c "pexelsSecretName=$CTX_PEXELS_SECRET" -c "pixabaySecretName=$CTX_PIXABAY_SECRET" -c "limits=$CTX_LIMITS" -c "admobAdUnits=$CTX_ADMOB_UNITS"
+            -c "hostedZoneId=$CTX_ZONE" -c "alertEmail=$CTX_EMAIL" -c "googleClientId=$CTX_GOOGLE_ID" -c "googleSecretName=$CTX_GOOGLE_SECRET" -c "pexelsSecretName=$CTX_PEXELS_SECRET" -c "pixabaySecretName=$CTX_PIXABAY_SECRET" -c "limits=$CTX_LIMITS" -c "admobAdUnits=$CTX_ADMOB_UNITS" -c "cognitoEmail=$CTX_COGNITO_EMAIL"
 
       # Where everything is, from what the stacks said, goes into the build of the game (none of it is secret: it is in the page that every visitor gets).
       - name: Find where everything is

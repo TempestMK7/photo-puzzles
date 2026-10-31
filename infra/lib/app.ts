@@ -24,6 +24,7 @@ export function build(app: App): void {
       stage,
       origins,
       emailDomain: s.zoneName,
+      cognitoEmail: s.cognitoEmail,
       google: s.googleClientId && s.googleSecretName ? { clientId: s.googleClientId, secretName: s.googleSecretName } : undefined,
     });
     new WebStack(app, stackName(stage, 'Web'), { env, stage, zoneName: s.zoneName, hostedZoneId: s.hostedZoneId, domain: siteDomain(stage, s.zoneName) });
