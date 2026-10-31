@@ -14,6 +14,8 @@ export interface PhotoEntry {
   duration: number;
   /** Where it came from, for a picture or video of the stock library (the credit is shown with it). */
   credit?: StockCredit;
+  /** The id the online server gave this picture or video when it was sent (or when the player joined a puzzle made from it): a puzzle can be made from it again without sending it. */
+  serverFile?: string;
 }
 
 /** What a puzzle draws from: a picture, or a video element whose current frame is drawn. */
@@ -44,11 +46,14 @@ const BY_DATE = 'addedAt';
 /** How many photos are read from the store at once: the first few, so that the list starts to fill quickly, then more. */
 const FIRST_BATCH = 12;
 const BATCH = 100;
+/** The ids the online server holds the photos under, apart from the photos: a few bytes each, so that one is written without writing the picture again. */
+const SERVER_FILES = 'serverFiles';
 
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB, 2);
+    const req = indexedDB.open(DB, 3);
     req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(SERVER_FILES)) req.result.createObjectStore(SERVER_FILES, { keyPath: 'id' });
       const store = req.result.objectStoreNames.contains(STORE) ? req.transaction!.objectStore(STORE) : req.result.createObjectStore(STORE, { keyPath: 'id' });
       if (!store.indexNames.contains(BY_DATE)) store.createIndex(BY_DATE, 'addedAt');
     };
@@ -57,10 +62,10 @@ function open(): Promise<IDBDatabase> {
   });
 }
 
-function request<T>(db: IDBDatabase, mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+function request<T>(db: IDBDatabase, mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>, store = STORE): Promise<T> {
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, mode);
-    const req = fn(tx.objectStore(STORE));
+    const tx = db.transaction(store, mode);
+    const req = fn(tx.objectStore(store));
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
@@ -86,6 +91,7 @@ export class PhotoLibrary {
   private db: IDBDatabase | null = null;
   private memory: StoredPhoto[] = [];
   private urls = new Map<string, { thumb?: string; preview?: string }>();
+  private serverFiles = new Map<string, string>();
 
   /** `onRemove` is told when a photo or video is deleted (its saved puzzles go with it). */
   constructor(private readonly onRemove?: (id: string) => Promise<void>) {}
@@ -93,8 +99,9 @@ export class PhotoLibrary {
   async init(): Promise<void> {
     try {
       this.db = await open();
+      for (const r of await request<{ id: string; fileId: string }[]>(this.db, 'readonly', (s) => s.getAll(), SERVER_FILES)) this.serverFiles.set(r.id, r.fileId);
     } catch {
-      this.db = null;
+      this.db = this.db ?? null;
     }
   }
 
@@ -136,6 +143,7 @@ export class PhotoLibrary {
   /** The object URLs are made when first asked for: making one takes about a millisecond on a phone, and the full picture's is only wanted for the one that is chosen. */
   private entryOf(p: StoredPhoto): PhotoEntry {
     const urls = this.urls;
+    const files = this.serverFiles;
     const url = (which: 'thumb' | 'preview', blob: Blob): string => {
       let u = urls.get(p.id);
       if (!u) urls.set(p.id, (u = {}));
@@ -153,12 +161,36 @@ export class PhotoLibrary {
       video: !!p.video,
       duration: p.duration ?? 0,
       ...(p.credit ? { credit: p.credit } : {}),
+      /** Read when asked: the entry in the list was made before the server gave the picture its id. */
+      get serverFile() {
+        return files.get(p.id);
+      },
     };
   }
 
   /** Whether this file is in the list already (the id comes from the file's bytes, so the same file added again is not a second photo). */
   async has(file: Blob): Promise<boolean> {
-    return !!(await this.record(await hashOf(file)));
+    return !!(await this.idOf(file));
+  }
+
+  /** The id of this file in the list, if it is there. */
+  async idOf(file: Blob): Promise<string | undefined> {
+    const id = await hashOf(file);
+    return (await this.record(id)) ? id : undefined;
+  }
+
+  /** Remembers (or, with nothing, forgets) the id that the online server holds this photo under. */
+  async setServerFile(id: string, fileId: string | undefined): Promise<void> {
+    if (this.serverFiles.get(id) === fileId) return;
+    if (fileId) this.serverFiles.set(id, fileId);
+    else this.serverFiles.delete(id);
+    if (!this.db) return;
+    try {
+      if (fileId) await request(this.db, 'readwrite', (s) => s.put({ id, fileId }), SERVER_FILES);
+      else await request(this.db, 'readwrite', (s) => s.delete(id), SERVER_FILES);
+    } catch {
+      // the photo works as before: the next puzzle sends it again
+    }
   }
 
   /** One photo of the list, or null if it is gone. */
@@ -199,7 +231,7 @@ export class PhotoLibrary {
    * Adds picture files; returns the ids that were added (or already there) and the names that could not be read. `onStatus` is told what is going on when it takes a
    * while (an animated GIF is turned into a video). `credit` says where they came from, for files of the stock library.
    */
-  async add(files: File[], onStatus?: (text: string) => void, credit?: StockCredit): Promise<{ ids: string[]; failed: string[] }> {
+  async add(files: File[], onStatus?: (text: string) => void, credit?: StockCredit, serverFile?: string): Promise<{ ids: string[]; failed: string[] }> {
     const ids: string[] = [];
     const failed: string[] = [];
     for (const file of files) {
@@ -229,6 +261,7 @@ export class PhotoLibrary {
         }
         if (!saved && !this.memory.some((m) => m.id === id)) this.memory.push(rec);
         ids.push(id);
+        if (serverFile) await this.setServerFile(id, serverFile);
       } catch (e) {
         failed.push(e instanceof Error && e.message ? `${file.name} (${e.message})` : file.name);
       }
@@ -244,6 +277,7 @@ export class PhotoLibrary {
       this.urls.delete(id);
     }
     this.memory = this.memory.filter((m) => m.id !== id);
+    await this.setServerFile(id, undefined);
     if (this.db) {
       try {
         await request(this.db, 'readwrite', (s) => s.delete(id));

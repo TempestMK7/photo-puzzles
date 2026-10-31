@@ -39,7 +39,7 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       if (!made.ok) return;
       expect(made.invite.code).toMatch(/^\d{5}$/);
       expect(made.invite.link).toBe(`https://play.test/#/join/${made.invite.code}~${made.invite.secret}`);
-      expect(made.upload.url).toMatch(/^http:\/\/media\.test\/media\//);
+      expect(made.upload?.url).toMatch(/^http:\/\/media\.test\/media\//);
       const early = await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret });
       expect(early).toMatchObject({ ok: false, error: 'not-ready' });
       expect((await w.service.finishUpload(made.roomId, png(400, 300))).ok).toBe(true);

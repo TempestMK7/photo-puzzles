@@ -27,6 +27,7 @@ aws logs describe-log-groups --log-group-name-prefix PuzzleVidio-<stage> --query
 
 - **Players**: every account of the user pool (name chosen, e-mail, when it was made, its state, its id), with **Ban** and **Unban**;
 - **Puzzles**: every puzzle that exists (who made it, who is in it and who is connected right now, the pieces, how long it has been played, when it ends), with **Look** (the picture, in the page) and **End this puzzle**;
+- **Files**: every picture and video the server keeps for making another puzzle (below), newest first, as a **wall of thumbnails** to run an eye over (a page of 60 at a time, the next page loads as you scroll; a video shows its first picture and its length). Click one to see it in full, who sent it, when, and when it goes, with **Delete this file** (the file goes at once, and so does every puzzle made from it) or **Delete it and ban the player** (which also deletes everything else they sent). Both ask a second time;
 - **Reports**: the last 30 days, with **Look** at the puzzle a report names (a puzzle that has ended cannot be looked at: the report keeps the ids);
 - **Logs**: the logs of the functions of that stage, a function at a time, for the last 15 minutes to a day, with a filter (`ERROR`, or any text); the newest 200 lines.
 
@@ -85,9 +86,19 @@ fields @timestamp, @message | filter @message like /Error/ | sort @timestamp des
 
 What the logs hold: errors with ids, never pictures and never e-mail addresses. A player is named by their id (an account's is the `sub` of their token; a guest's starts with `g`).
 
+## Pictures the server keeps (for another puzzle)
+
+A picture or video that has passed the automatic check is kept as a **file**, so that its owner, and the players who joined a puzzle made from it, can make another puzzle from it without sending it again (and without paying for another check: a video costs about ten cents a minute to check). It lives apart from the puzzle: a puzzle ends and deletes its own copy as before, the file stays.
+
+- **How long:** `fileKeepMs` (a week) after it was last used to make a puzzle, at most `fileMaxAgeMs` (30 days) after it was sent (then it is sent, and checked, again). Both are limits (below); `fileKeepMs` = `0` switches keeping off (nothing new is kept; files that are there are used until they run out). The table's expiry removes the record and a stream function removes the storage's copy, which can be up to two days late; the service itself never uses or lists a file after its time. The bucket's 35-day rule is the backstop.
+- **Who may use a file:** its owner, and any signed-in player who joined a puzzle made from it (the server keeps who). Anyone else is refused (`unauthorized`). A guest cannot make puzzles.
+- **What it costs:** one more copy of each picture and video for a week (a 250 MB video is about a cent a month of storage), and a puzzle made from a file is still counted against the player's puzzles of the week (and videos of the week).
+- **Looking, deleting:** the **Files** tab of the admin page (above). Ending a puzzle from the page, or with `remove-room`, deletes the file that puzzle's picture was kept as, and ends the other puzzles made from it; **a puzzle's owner closing it does not**. A ban or a deleted account deletes everything the player sent.
+- **Privacy:** the privacy policy and the terms say that a copy is kept for a week after the last puzzle made from it (30 days at the most), and the box a player ticks says so too.
+
 ## Changing the limits, and switching creation off
 
-The limits of the service are numbers with defaults (`DEFAULT_LIMITS` in `src/online/protocol.ts`): `jigsawPieces` (1000), `playersPerRoom` (8), `activeRoomsPerPlayer` (5), `freeRoomsPerWeek` (3), `idleMs` (a day), `solvedKeepMs` (an hour), `maxAgeMs` (30 days), `pictureBytes` (4 MB in the cloud). A deployment may change any of them with the deploy setting `limits`, a JSON object:
+The limits of the service are numbers with defaults (`DEFAULT_LIMITS` in `src/online/protocol.ts`): `jigsawPieces` (1000), `playersPerRoom` (8), `activeRoomsPerPlayer` (5), `freeRoomsPerWeek` (3), `idleMs` (a day), `solvedKeepMs` (an hour), `maxAgeMs` (30 days), `pictureBytes` (4 MB in the cloud), `fileKeepMs` (a week: how long a picture is kept after it was last used for a puzzle) and `fileMaxAgeMs` (30 days: the longest it is kept). A deployment may change any of them with the deploy setting `limits`, a JSON object:
 
 - By hand: `cd infra && npx cdk deploy PuzzleVidio-<stage>-Api --exclusively -c hostedZoneId=<id> -c alertEmail=<address> -c limits="{\"freeRoomsPerWeek\":5}"`.
 - Through GitHub (what the deploy workflow reads): `gh variable set LIMITS --body '{"freeRoomsPerWeek":5}'`, then **Actions > Deploy** for the stage (about two minutes). To go back to the defaults, `gh variable delete LIMITS` and deploy.
@@ -130,7 +141,7 @@ type out.json
 |---|---|
 | `reports` (`days`, up to 90, default 30) | the reports, newest first: puzzle, who made it, who was in it, who reported, the reason, the note |
 | `room` (`id`) | the puzzle: owner, members, when it ends, and a **short-lived address of its picture** (open it in a browser to look) |
-| `remove-room` (`id`) | ends the puzzle now: the picture and codes are deleted, the players are told it was closed |
+| `remove-room` (`id`) | ends the puzzle now: the picture and codes are deleted, the players are told it was closed; **the kept copy of the picture goes too**, with any other puzzle made from it |
 | `ban` (`id`, `reason`) / `unban` (`id`) / `bans` | stops a player from playing online (they leave every puzzle, the ones they made end, and every request but their own account is refused); lifts it; lists them |
 | `delete-account` (`id`) | deletes an account the way its owner can in the game (the puzzles it made end, it leaves the others, its name and records go, then the account itself). If it answers that part could not be done, run it again |
 
@@ -138,7 +149,7 @@ The steps for a notice of copyright infringement (the published procedure is the
 
 1. Find the puzzle: the notice should name its code or link; a code only works for a day, so be quick. A code maps to a puzzle only while it lives; the reports and the notice's own ids are what is left afterwards.
 2. `room` to look at it; decide.
-3. `remove-room`: the picture is deleted at once and **no copy is kept** (a lawyer may want one: nothing keeps it yet).
+3. `remove-room`: the picture is deleted at once (and the copy the server keeps for another puzzle, if there is one) and **no copy is kept for you** (a lawyer may want one: nothing keeps it yet).
 4. Write back to the sender. If the same player is named again and again, `ban` them (the drafts say a number: it is the owner's to decide).
 5. A counter-notice: the puzzle cannot be put back (it is gone); the maker can make a new one.
 

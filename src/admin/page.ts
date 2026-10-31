@@ -1,5 +1,5 @@
 import { formatTime } from '../core/prefs';
-import type { AdminLogEvent, AdminLogGroup, AdminPlayer, AdminReport, AdminRoomDetail, AdminRoomSummary } from '../online/adminProtocol';
+import type { AdminFile, AdminLogEvent, AdminLogGroup, AdminPlayer, AdminReport, AdminRoomDetail, AdminRoomSummary } from '../online/adminProtocol';
 import { CognitoAccount } from '../online/cognito';
 import { cloudConfig } from '../online/config';
 import { h } from '../ui/dom';
@@ -7,10 +7,11 @@ import { SignInDialog } from '../ui/signin';
 import { appVersion, versionLabel } from '../version';
 import { AdminApi, sayAdminError, type AdminFailure } from './api';
 
-type Tab = 'players' | 'rooms' | 'reports' | 'logs';
+type Tab = 'players' | 'rooms' | 'files' | 'reports' | 'logs';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'players', label: 'Players' },
   { id: 'rooms', label: 'Puzzles' },
+  { id: 'files', label: 'Files' },
   { id: 'reports', label: 'Reports' },
   { id: 'logs', label: 'Logs' },
 ];
@@ -27,7 +28,8 @@ export function relative(ms: number, now = Date.now()): string {
 }
 
 /**
- * The admin page (`/admin`): sign in with an account that is in the admin group, and look at the players with accounts, the puzzles that exist, the reports and the functions' logs.
+ * The admin page (`/admin`): sign in with an account that is in the admin group, and look at the players with accounts, the puzzles that exist, the pictures and videos that the server keeps
+ * (as a wall of thumbnails to run an eye over), the reports and the functions' logs.
  * Everything is asked of the API's admin routes, which check the group again: this page only shows what they give. Ending a puzzle and banning a player ask a second time, in the page.
  */
 class AdminPage {
@@ -46,6 +48,10 @@ class AdminPage {
   private message = '';
   private logs = { groups: [] as AdminLogGroup[], group: '', minutes: 60, filter: '', events: null as AdminLogEvent[] | null };
   private players: { list: AdminPlayer[]; next: string | null } = { list: [], next: null };
+  private files: { list: AdminFile[]; next: string | null; loaded: boolean; loading: boolean } = { list: [], next: null, loaded: false, loading: false };
+  /** The file that is open in full, to be removed. */
+  private open: AdminFile | null = null;
+  private more: IntersectionObserver | null = null;
 
   constructor(private readonly root: HTMLElement, base: string, host: string, clientId: string) {
     this.account = new CognitoAccount({ host, clientId }, store('local'), store('session'));
@@ -103,6 +109,8 @@ class AdminPage {
   private signOut(): void {
     this.account.signOut();
     this.players = { list: [], next: null };
+    this.files = { list: [], next: null, loaded: false, loading: false };
+    this.open = null;
     this.look = null;
     void this.enter();
   }
@@ -152,6 +160,13 @@ class AdminPage {
         this.players = { list: res.players, next: res.next };
       }
       shown(this.playersView());
+    } else if (this.tab === 'files') {
+      if (!this.files.loaded) {
+        const res = await this.api.get<{ files: AdminFile[]; next: string | null }>('/admin/files');
+        if (!res.ok) return failed(res);
+        this.files = { list: res.files, next: res.next, loaded: true, loading: false };
+      }
+      shown(...this.filesParts());
     } else if (this.tab === 'rooms') {
       const res = await this.api.get<{ rooms: AdminRoomSummary[] }>('/admin/rooms');
       if (!res.ok) return failed(res);
@@ -234,6 +249,7 @@ class AdminPage {
   /** Draws the open tab again from what is known, without asking the server. */
   private redraw(): void {
     if (this.tab === 'players') this.pane().replaceChildren(...(this.message ? [h('p', { class: 'note' }, this.message)] : []), this.playersView());
+    else if (this.tab === 'files') this.pane().replaceChildren(...(this.message ? [h('p', { class: 'note' }, this.message)] : []), ...this.filesParts());
     else void this.fill();
   }
 
@@ -318,7 +334,7 @@ class AdminPage {
         'div',
         { class: 'row' },
         ending
-          ? h('span', { class: 'ask', role: 'alertdialog', 'aria-label': 'End this puzzle' }, 'End it for good? Its picture is deleted and the players are told it was closed. ', h('button', { type: 'button', class: 'small danger', onclick: () => void this.end(r.id) }, 'End the puzzle'), h('button', { type: 'button', class: 'small', onclick: () => this.ask('') }, 'Cancel'))
+          ? h('span', { class: 'ask', role: 'alertdialog', 'aria-label': 'End this puzzle' }, 'End it for good? Its picture is deleted (with the copy the server keeps of it, and any other puzzle made from that) and the players are told it was closed. ', h('button', { type: 'button', class: 'small danger', onclick: () => void this.end(r.id) }, 'End the puzzle'), h('button', { type: 'button', class: 'small', onclick: () => this.ask('') }, 'Cancel'))
           : h('button', { type: 'button', class: 'danger small', onclick: () => this.ask(`end:${r.id}`) }, 'End this puzzle…'),
         h('button', { type: 'button', class: 'small', onclick: () => ((this.look = null), void this.fill()) }, 'Close'),
       ),
@@ -331,6 +347,112 @@ class AdminPage {
     this.message = res.ok ? 'The puzzle was ended.' : sayAdminError(res);
     this.look = null;
     void this.fill();
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- files
+
+  /** The file that is open (if one is) and the wall of thumbnails. */
+  private filesParts(): HTMLElement[] {
+    const f = this.files;
+    const wall = h(
+      'div',
+      { class: 'files', role: 'list' },
+      ...f.list.map((file) =>
+        h(
+          'button',
+          { type: 'button', class: 'tile' + (this.open?.id === file.id ? ' on' : ''), role: 'listitem', title: `${file.ownerName || file.ownerId} · ${relative(file.createdAt)}`, onclick: () => this.openFile(file) },
+          file.type === 'video'
+            ? h('video', { src: `${file.url}#t=0.1`, preload: 'metadata', muted: true, playsInline: true, 'aria-hidden': 'true' })
+            : h('img', { src: file.url, alt: '', loading: 'lazy', decoding: 'async', referrerPolicy: 'no-referrer' }),
+          h('span', { class: 'cap' }, `${file.ownerName || short(file.ownerId)} · ${relative(file.createdAt)}`),
+          ...(file.type === 'video' ? [h('span', { class: 'mark' }, `▶ ${formatTime(file.ms ?? 0)}`)] : []),
+        ),
+      ),
+    );
+    // the next page comes by itself when the end of the wall is near (and with the button, for a browser that cannot tell)
+    this.more?.disconnect();
+    const end = h('div', { class: 'row' }, h('span', { class: 'dim' }, f.next ? (f.loading ? 'Loading…' : '') : f.list.length ? 'That is all of them.' : ''), ...(f.next ? [h('button', { type: 'button', class: 'small', onclick: () => void this.moreFiles() }, 'More')] : []));
+    if (f.next && typeof IntersectionObserver !== 'undefined') {
+      this.more = new IntersectionObserver((hits) => hits.some((x) => x.isIntersecting) && void this.moreFiles(), { root: this.root.querySelector('.admin'), rootMargin: '800px' });
+      this.more.observe(end);
+    }
+    return [
+      ...(this.open ? [this.openView()] : []),
+      h('div', { class: 'row' }, h('span', { class: 'dim' }, `${f.list.length} file${f.list.length === 1 ? '' : 's'}${f.next ? ' so far' : ''}, newest first. Each is kept for a week after a puzzle was last made from it.`), h('button', { type: 'button', class: 'small', onclick: () => ((this.files = { list: [], next: null, loaded: false, loading: false }), void this.fill()) }, 'Refresh')),
+      wall,
+      end,
+    ];
+  }
+
+  private async moreFiles(): Promise<void> {
+    const f = this.files;
+    if (!f.next || f.loading) return;
+    f.loading = true;
+    const res = await this.api.get<{ files: AdminFile[]; next: string | null }>('/admin/files', { before: f.next });
+    f.loading = false;
+    if (!res.ok) return this.say(sayAdminError(res));
+    this.files = { list: [...f.list, ...res.files], next: res.next, loaded: true, loading: false };
+    if (this.tab === 'files') this.redraw();
+  }
+
+  private openFile(file: AdminFile): void {
+    this.open = file;
+    this.asked = '';
+    this.redraw();
+    this.pane().querySelector('.look')?.scrollIntoView({ block: 'nearest' });
+  }
+
+  /** One file in full, with what can be done about it. */
+  private openView(): HTMLElement {
+    const file = this.open!;
+    const removing = this.asked === `rmfile:${file.id}`;
+    const banning = this.asked === `banfile:${file.id}`;
+    const kb = file.bytes >= 1_000_000 ? `${(file.bytes / 1_000_000).toFixed(1)} MB` : `${Math.round(file.bytes / 1000)} KB`;
+    return h(
+      'section',
+      { class: 'look' },
+      h('h2', {}, file.type === 'video' ? 'A video' : 'A picture'),
+      h('p', { class: 'dim' }, `${file.width}×${file.height} · ${kb}${file.type === 'video' ? ` · ${formatTime(file.ms ?? 0)}` : ''} · sent ${when(file.createdAt)} · last used ${when(file.usedAt)} · goes ${when(file.expiresAt)}`),
+      h('p', {}, 'Sent by ', file.ownerName ? `${file.ownerName} ` : '', this.copy(file.ownerId), ' · file ', this.copy(file.id)),
+      file.type === 'video' ? h('video', { src: file.url, controls: true, preload: 'metadata', playsInline: true, class: 'picture' }) : h('img', { src: file.url, alt: 'The picture', class: 'picture', referrerPolicy: 'no-referrer' }),
+      h(
+        'div',
+        { class: 'row wrap' },
+        removing
+          ? h('span', { class: 'ask', role: 'alertdialog', 'aria-label': 'Remove this file' }, 'Delete it for good, and end the puzzles that were made from it? ', h('button', { type: 'button', class: 'small danger', onclick: () => void this.removeFile(file, false) }, 'Delete the file'), h('button', { type: 'button', class: 'small', onclick: () => this.ask('') }, 'Cancel'))
+          : banning
+            ? h(
+                'span',
+                { class: 'ask', role: 'alertdialog', 'aria-label': 'Delete this file and ban the player' },
+                h('input', { type: 'text', class: 'plain', maxLength: 100, placeholder: 'Why (kept with the ban)', 'aria-label': 'Reason', value: this.reason, oninput: (e: Event) => (this.reason = (e.target as HTMLInputElement).value) }),
+                h('button', { type: 'button', class: 'small danger', onclick: () => void this.removeFile(file, true) }, 'Delete and ban'),
+                h('button', { type: 'button', class: 'small', onclick: () => this.ask('') }, 'Cancel'),
+              )
+            : h(
+                'span',
+                { class: 'ask' },
+                h('button', { type: 'button', class: 'danger small', onclick: () => this.ask(`rmfile:${file.id}`) }, 'Delete this file…'),
+                h('button', { type: 'button', class: 'danger small', onclick: () => this.ask(`banfile:${file.id}`) }, 'Delete it and ban the player…'),
+              ),
+        h('button', { type: 'button', class: 'small', onclick: () => ((this.open = null), this.redraw()) }, 'Close'),
+      ),
+    );
+  }
+
+  /** Deletes a file (and the puzzles made from it); with `ban`, the player who sent it is stopped as well (which also deletes everything else they sent). */
+  private async removeFile(file: AdminFile, ban: boolean): Promise<void> {
+    const reason = this.reason;
+    this.asked = '';
+    let res = await this.api.post(`/admin/file/${encodeURIComponent(file.id)}/remove`);
+    if (res.ok && ban) res = await this.api.post('/admin/ban', { id: file.ownerId, reason });
+    this.message = res.ok ? (ban ? 'Deleted, and the player is banned.' : 'The file was deleted.') : sayAdminError(res);
+    if (res.ok || res.error === 'not-found') {
+      const gone = ban ? (f: AdminFile) => f.ownerId === file.ownerId : (f: AdminFile) => f.id === file.id;
+      this.files = { ...this.files, list: this.files.list.filter((f) => !gone(f)) };
+      this.open = null;
+    }
+    if (ban) this.players = { list: [], next: null };
+    this.redraw();
   }
 
   // ---------------------------------------------------------------------------------------------------------------- reports

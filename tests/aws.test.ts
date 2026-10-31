@@ -10,7 +10,7 @@ import { clearPictures } from '../server/src/aws/cleanup';
 import { CognitoAccounts } from '../server/src/aws/cognito';
 import { DynamoPresence, DynamoStore } from '../server/src/aws/dynamo';
 import { IotPubSub } from '../server/src/aws/iot';
-import { mediaKey, S3Media } from '../server/src/aws/s3media';
+import { fileKey, mediaKey, S3Media } from '../server/src/aws/s3media';
 import { createRouter } from '../server/src/router';
 import { Signer } from '../server/src/signing';
 import { FakeDynamo } from './helpers/fakeDynamo';
@@ -198,6 +198,28 @@ describe('S3Media', () => {
     expect(sent[0].input).toMatchObject({ Bucket: 'bucket', Key: 'rooms/room1', ContentType: 'image/png' });
     expect(sent[1].input).toMatchObject({ Bucket: 'bucket', Key: 'rooms/room1' });
   });
+
+  it('keeps a file as a copy made inside the bucket, gives a puzzle a copy of its own, and says when the file is not there', async () => {
+    sent.length = 0;
+    await media.keepFile('room1', 'f1');
+    expect(await media.useFile('f1', 'room2')).toBe(true);
+    await media.deleteFile('f1');
+    expect(sent.map((s) => s.name)).toEqual(['CopyObjectCommand', 'CopyObjectCommand', 'DeleteObjectCommand']);
+    expect(sent[0].input).toMatchObject({ Bucket: 'bucket', Key: fileKey('f1'), CopySource: 'bucket/rooms/room1' });
+    expect(sent[1].input).toMatchObject({ Bucket: 'bucket', Key: 'rooms/room2', CopySource: 'bucket/files/f1' });
+    expect(sent[2].input).toMatchObject({ Bucket: 'bucket', Key: 'files/f1' });
+    const missing = new S3Media({ send: async () => Promise.reject(Object.assign(new Error('no'), { name: 'NoSuchKey' })) } as unknown as S3Client, 'bucket', signer, 'https://api.test');
+    expect(await missing.useFile('gone', 'room3')).toBe(false);
+    const broken = new S3Media({ send: async () => Promise.reject(Object.assign(new Error('down'), { name: 'ServiceUnavailable' })) } as unknown as S3Client, 'bucket', signer, 'https://api.test');
+    await expect(broken.useFile('f1', 'room3')).rejects.toThrow('down');                 // anything but "not there" is not a reason to throw the file away
+  });
+
+  it('gives the operator a signed address of a kept file', async () => {
+    const real = new S3Media(new S3Client({ region: 'us-east-1', credentials: { accessKeyId: 'AKIATEST', secretAccessKey: 'secret' } }), 'bucket', signer, 'https://api.test', 600);
+    const url = new URL(await real.fileUrl('f1'));
+    expect(url.pathname).toBe('/files/f1');
+    expect(url.searchParams.get('X-Amz-Expires')).toBe('600');
+  });
 });
 
 describe('IotPubSub', () => {
@@ -318,6 +340,16 @@ describe('the clean-up of pictures', () => {
     );
     expect(removed).toEqual(['rooms/r1', 'rooms/r4']);
     expect(n).toBe(2);
+  });
+
+  it('deletes a kept file when its item is removed, and not for the lists and records that hang on it', async () => {
+    const removed: string[] = [];
+    const n = await clearPictures(
+      stream(record('REMOVE', 'FILE#f1', 'FILE'), record('REMOVE', 'FILE#f1', 'USER#bob'), record('REMOVE', 'PLAYER#ann', 'FILE#f1'), record('REMOVE', 'FILES', '000000001000000#f1'), record('MODIFY', 'FILE#f2', 'FILE')),
+      async (key) => void removed.push(key),
+    );
+    expect(removed).toEqual(['files/f1']);
+    expect(n).toBe(1);
   });
 
   it('fails the batch if a deletion fails, so that the stream tries it again', async () => {

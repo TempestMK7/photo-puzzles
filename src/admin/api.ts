@@ -49,6 +49,7 @@ export function sayAdminError(f: AdminFailure): string {
       return 'This account is not an administrator.';
     case 'not-found':
       return 'That is gone already (a puzzle ends by itself).';
+    case 'before':
     case 'group':
     case 'minutes':
     case 'filter':

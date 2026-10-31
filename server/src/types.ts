@@ -52,6 +52,8 @@ export interface RoomRecord {
   playback?: Playback;
   /** The automatic look at the video is going on (its job's id, and when it began): the room cannot be joined until it is done. */
   checking?: { jobId: string; at: number };
+  /** The kept file (see `FileRecord`) that this puzzle's picture is a copy of: the picture the owner sent once it was checked, or the one the puzzle was made from again. Nothing if it is not kept. */
+  fileId?: string;
   /** The picture has arrived and been checked: only then can anyone join. */
   ready: boolean;
   status: 'open' | 'solved';
@@ -61,6 +63,32 @@ export interface RoomRecord {
   state: RoomState;
   /** Counts up with every write, so that two writers cannot overwrite each other (a conditional write). */
   rev: number;
+}
+
+/**
+ * A picture or video that was sent and passed the check, kept after its puzzle is gone so that a puzzle can be made from it again without sending and checking it again. The file
+ * itself is in the media storage (`Media.keepFile`); a puzzle gets a copy of its own, so that it ends as before. It is kept `fileKeepMs` after it was last used, and at most
+ * `fileMaxAgeMs` in all.
+ */
+export interface FileRecord {
+  id: string;
+  /** Who sent it. Nobody but them and the players who joined a puzzle made from it may make a puzzle from it (see `Store.addFileUser`). */
+  ownerId: string;
+  type: 'image' | 'video';
+  /** What the file is, as it was stored (image/jpeg, image/png, video/mp4, ...). */
+  mime: string;
+  bytes: number;
+  /** The size of the picture (or of each frame of the video): a puzzle made from the file has this size. */
+  width: number;
+  height: number;
+  video?: { type: VideoType; bytes: number; ms: number };
+  createdAt: number;
+  /** When a puzzle was last made from it (or it was sent). */
+  usedAt: number;
+  /** When it goes if no puzzle is made from it: `fileKeepMs` after `usedAt`, but never later than `endsBy`. */
+  expiresAt: number;
+  /** The latest it can be kept, whatever happens: `fileMaxAgeMs` after it was sent. */
+  endsBy: number;
 }
 
 /** A player's report of a puzzle, with who was in it at the time (the puzzle may be gone by the time anyone looks). */
@@ -111,6 +139,19 @@ export interface Store {
   unban(playerId: string): Promise<void>;
   getBan(playerId: string): Promise<Ban | undefined>;
   bans(): Promise<Ban[]>;
+  /** A kept file; nothing if there is none (one that has run out of time may still be here: the service looks). */
+  getFile(id: string): Promise<FileRecord | undefined>;
+  /** Writes a file (new, or with its time put forward). */
+  putFile(file: FileRecord): Promise<void>;
+  /** The file, with the record of who may use it. */
+  deleteFile(id: string): Promise<void>;
+  /** Says that the player may make a puzzle from the file (they joined a puzzle made from it). `until` (ms): after this the entry may be forgotten. */
+  addFileUser(fileId: string, playerId: string, until: number): Promise<void>;
+  hasFileUser(fileId: string, playerId: string): Promise<boolean>;
+  /** The ids of the files a player sent. */
+  filesOf(playerId: string): Promise<string[]>;
+  /** Every file there is, for the operator to look through and for clearing out those that have run out of time. */
+  allFiles(): Promise<FileRecord[]>;
   /** Everything kept about a player but their rooms (the name, the record of puzzles made): the rooms are left or ended first. */
   forgetPlayer(playerId: string): Promise<void>;
 }
@@ -153,6 +194,13 @@ export interface Media {
   videoUpload(roomId: string, type: string, bytes: number): Promise<{ url: string; headers: Record<string, string> }>;
   /** What is stored for the room: how large, and the first `peek` bytes (to tell what the file is); nothing if there is nothing. */
   inspect(roomId: string, peek: number): Promise<{ bytes: number; head: Uint8Array } | undefined>;
+  /** Keeps a copy of what is stored for the room, as the file `fileId` (see `FileRecord`). */
+  keepFile(roomId: string, fileId: string): Promise<void>;
+  /** Gives the room (a new one) its own copy of a kept file; false if the file is not there. */
+  useFile(fileId: string, roomId: string): Promise<boolean>;
+  deleteFile(fileId: string): Promise<void>;
+  /** A short-lived address of a kept file, for the operator to look at. */
+  fileUrl(fileId: string): Promise<string>;
 }
 
 /** The live side: every member of a room hears what is published for it. */
@@ -190,4 +238,7 @@ export interface Limits {
   videoRoomsPerWeek: number;
   videoBytes: number;
   videoMs: number;
+  /** A file is kept this long after it was last used to make a puzzle, and at most `fileMaxAgeMs` after it was sent. */
+  fileKeepMs: number;
+  fileMaxAgeMs: number;
 }

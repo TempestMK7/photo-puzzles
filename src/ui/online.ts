@@ -1,11 +1,11 @@
 import { findKind, optionsOf, puzzleSeedText } from '../core/kinds';
 import type { Prefs } from '../core/prefs';
 import { seedFromText } from '../core/rng';
-import type { CallError, OnlineApi } from '../online/api';
+import type { CallError, Offline, OnlineApi } from '../online/api';
 import { cloudConfig } from '../online/config';
 import { pictureForUpload } from '../online/picture';
 import { videoTypeOf } from '../online/videoFile';
-import { DEFAULT_LIMITS, NAME_MAX, VIDEO_TYPES, cleanName, parseInvite, type Invite, type RoomDescriptor, type RoomSettings, type RoomSummary } from '../online/protocol';
+import { DEFAULT_LIMITS, NAME_MAX, VIDEO_TYPES, cleanName, parseInvite, type ApiFailure, type CreateRoomResponse, type Invite, type RoomDescriptor, type RoomSettings, type RoomSummary } from '../online/protocol';
 import type { Realtime } from '../online/realtime';
 import { OnlineRoom } from '../online/room';
 import type { OnlineSession } from '../online/session';
@@ -291,8 +291,8 @@ export class OnlinePanel {
         ? `${entry.name} is longer than the ${DEFAULT_LIMITS.videoMs / 1000} seconds an online video puzzle may be: choose another, or a picture.`
         : `${entry.name}: ${entry.video ? 'a video, ' : ''}about ${Math.min(opts.pieces, DEFAULT_LIMITS.jigsawPieces)} pieces${opts.turning ? ', turned pieces' : ''}${note}. The settings are the Jigsaw settings of the main screen.`;
     this.consentText.textContent = entry?.video
-      ? 'I agree that this video is sent to the online server, where the players of this puzzle can see and download it, and that all of it is checked automatically. It is deleted when the puzzle is solved or when nobody has touched it for a day.'
-      : 'I agree that this picture is sent to the online server, where the players of this puzzle can see it. It is deleted when the puzzle is solved or when nobody has touched it for a day.';
+      ? 'I agree that this video is sent to the online server, where the players of this puzzle can see and download it, and that all of it is checked automatically. The puzzle is deleted when it is solved or when nobody has touched it for a day, but the server keeps a copy of the video for a week after you last make a puzzle from it, so that you can make another without sending it again.'
+      : 'I agree that this picture is sent to the online server, where the players of this puzzle can see it. The puzzle is deleted when it is solved or when nobody has touched it for a day, but the server keeps a copy of the picture for a week after you last make a puzzle from it, so that you can make another without sending it again.';
     this.startBtn.disabled = this.busy || !entry || tooLong || wrongKind;
   }
 
@@ -370,10 +370,9 @@ export class OnlinePanel {
     }
     if (entry.video) return this.startVideo(entry);
     this.setBusy(true, 'Preparing the picture…');
+    let src: Awaited<ReturnType<PhotoLibrary['load']>> | null = null;
     try {
-      const src = await photos.load(entry);
-      const blob = await pictureForUpload(src.source, src.width, src.height);
-      src.dispose();
+      src = await photos.load(entry);
       const kind = findKind('jigsaw')!;
       const opts: Record<string, number> = {};
       const all = optionsOf(prefs.data.settings, kind);
@@ -381,8 +380,12 @@ export class OnlinePanel {
       opts.pieces = Math.min(opts.pieces, DEFAULT_LIMITS.jigsawPieces);
       const settings: RoomSettings = { kind: 'jigsaw', seed: seedFromText(puzzleSeedText(prefs.data.seed, entry.id, 'jigsaw')), width: src.width, height: src.height, opts };
       this.say('Making the puzzle…');
+      const kept = await this.fromKept(entry, settings);
+      if (kept) return kept.ok ? this.openMade(kept.roomId, kept.invite, entry) : this.fail(kept);
+      const blob = await pictureForUpload(src.source, src.width, src.height);
       const made = await api.createRoom({ settings, sourceId: entry.id, consent: true, ...(entry.credit ? { stock: true } : {}) });
       if (!made.ok) return this.fail(made);
+      if (!made.upload) return this.fail({ error: 'bad-request' });
       this.say('Sending the picture…');
       let up = await api.upload(made.upload.url, blob);
       // the server looks at the picture before it lets anyone in; if it could not (the answer is "busy") the same picture may be sent again
@@ -392,13 +395,35 @@ export class OnlinePanel {
         up = await api.upload(made.upload.url, blob);
       }
       if (!up.ok) return this.fail(up);
-      const got = await api.getRoom(made.roomId);
-      if (!got.ok) return this.fail(got);
-      this.setBusy(false);
-      this.enter(got.room, made.invite);
+      await this.openMade(made.roomId, made.invite, entry);
     } catch (e) {
       this.setBusy(false, e instanceof Error ? e.message : 'That did not work.');
+    } finally {
+      src?.dispose();
     }
+  }
+
+  /**
+   * Makes the puzzle from the file that the server holds for this photo, if it does (nothing is sent or looked at again). Nothing if there is no such file, or it is not held any more
+   * (it is kept a week after it was last used): then the photo is sent as usual. Any other answer is the puzzle, or why it could not be made.
+   */
+  private async fromKept(entry: PhotoEntry, settings: RoomSettings): Promise<CreateRoomResponse | ApiFailure | Offline | null> {
+    if (!entry.serverFile) return null;
+    const made = await this.deps.api.createRoom({ settings, sourceId: entry.id, consent: true, fileId: entry.serverFile });
+    if (!made.ok && (made.error === 'file-gone' || made.error === 'unauthorized')) {
+      await this.deps.photos.setServerFile(entry.id, undefined);
+      return null;
+    }
+    return made;
+  }
+
+  /** The puzzle is made and its picture is in: opens it, and remembers the id that the server keeps the picture under, so that the next puzzle from it needs no sending. */
+  private async openMade(roomId: string, invite: Invite, entry: PhotoEntry): Promise<void> {
+    const got = await this.deps.api.getRoom(roomId);
+    if (!got.ok) return this.fail(got);
+    if (got.room.media.fileId) await this.deps.photos.setServerFile(entry.id, got.room.media.fileId);
+    this.setBusy(false);
+    this.enter(got.room, invite);
   }
 
   /**
@@ -425,8 +450,11 @@ export class OnlinePanel {
       opts.pieces = Math.min(opts.pieces, DEFAULT_LIMITS.jigsawPieces);
       const settings: RoomSettings = { kind: 'jigsaw', seed: seedFromText(puzzleSeedText(prefs.data.seed, entry.id, 'jigsaw')), width: src.width, height: src.height, opts };
       this.say('Making the puzzle…');
+      const kept = await this.fromKept(entry, settings);
+      if (kept) return kept.ok ? this.openMade(kept.roomId, kept.invite, entry) : this.fail(kept);
       const made = await api.createRoom({ settings, sourceId: entry.id, consent: true, ...(entry.credit ? { stock: true } : {}), video: { type: type as (typeof VIDEO_TYPES)[number], bytes: file.size, ms: Math.round(seconds * 1000) } });
       if (!made.ok) return this.fail(made);
+      if (!made.upload) return this.fail({ error: 'bad-request' });
       const sent = await api.uploadVideo(made.upload.url, made.upload.headers ?? {}, file, (f) => this.say(`Sending the video… ${Math.round(f * 100)}%`));
       if (!sent.ok) return this.fail(sent);
       // the whole video is looked at by Amazon's service, which takes a minute or two: ask every few seconds how it is going
@@ -449,10 +477,7 @@ export class OnlinePanel {
         this.say(`Checking the video… ${Math.round((Date.now() - began) / 1000)} s (it takes a minute or two)`);
         await new Promise((resolve) => window.setTimeout(resolve, CHECK_EVERY_MS));
       }
-      const got = await api.getRoom(made.roomId);
-      if (!got.ok) return this.fail(got);
-      this.setBusy(false);
-      this.enter(got.room, made.invite);
+      await this.openMade(made.roomId, made.invite, entry);
     } catch (e) {
       this.setBusy(false, e instanceof Error ? e.message : 'That did not work.');
     } finally {
