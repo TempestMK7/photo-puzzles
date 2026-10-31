@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GUEST_ACCOUNT, type AccountSummary } from '../src/online/protocol';
 import { OnlineSession } from '../src/online/session';
-import { adPlatform, platform, watchAd } from '../src/platform';
+import { adPlatform, adPrivacy, platform, prepareAds, watchAd } from '../src/platform';
 import { creditText, explainCredits } from '../src/ui/credits';
 import { costNote, sayError } from '../src/ui/online';
 
@@ -42,31 +42,62 @@ describe('watching an ad', () => {
     };
   }
 
-  it('asks the shell for the ad and waits for its word, with the proof the ad network gave', async () => {
-    const asked: string[] = [];
+  it('asks the shell for the ad, with the number the server gave for it, and waits for its word', async () => {
+    const asked: string[][] = [];
     const w = windowOf();
-    const result = watchAd('photo', { showRewardedAd: (k) => asked.push(k) }, w.target);
-    expect(asked).toEqual(['photo']);
+    const result = watchAd('photo', 'n-123', { showRewardedAd: (k, n) => asked.push([k, n]) }, w.target);
+    expect(asked).toEqual([['photo', 'n-123']]);
     w.send({ kind: 'video', rewarded: true });                                      // (another kind: not ours)
-    w.send({ kind: 'photo', rewarded: true, proof: 'abc' });
-    expect(await result).toEqual({ rewarded: true, proof: 'abc' });
+    w.send({ kind: 'photo', rewarded: true });
+    expect(await result).toEqual({ rewarded: true });
     expect(w.count()).toBe(0);
+  });
+
+  it('says why there was no ad to watch', async () => {
+    for (const error of ['no-ad', 'consent']) {
+      const w = windowOf();
+      const result = watchAd('photo', 'n', { showRewardedAd: () => undefined }, w.target);
+      w.send({ kind: 'photo', rewarded: false, error });
+      expect(await result).toEqual({ rewarded: false, error });
+    }
+    const w = windowOf();
+    const result = watchAd('photo', 'n', { showRewardedAd: () => undefined }, w.target);
+    w.send({ kind: 'photo', rewarded: false, error: 'something else' });
+    expect(await result).toEqual({ rewarded: false });
+  });
+
+  it('lets the app get ready for an ad only when the page asks, and not where there is nothing to get ready', () => {
+    const asked: string[] = [];
+    prepareAds({ prepareAds: () => asked.push('ready') });
+    expect(asked).toEqual(['ready']);
+    expect(() => prepareAds({})).not.toThrow();
+    expect(() => prepareAds({ prepareAds: () => { throw new Error('no'); } })).not.toThrow();
+  });
+
+  it('offers the player\u2019s choices about ads only where the shell says the law asks for them', () => {
+    const shown: string[] = [];
+    expect(adPrivacy({ privacyOptionsRequired: () => false, showPrivacyOptions: () => undefined })).toBeNull();
+    expect(adPrivacy({ privacyOptionsRequired: () => true })).toBeNull();
+    expect(adPrivacy({})).toBeNull();
+    expect(adPrivacy({ privacyOptionsRequired: () => { throw new Error('no'); }, showPrivacyOptions: () => undefined })).toBeNull();
+    adPrivacy({ privacyOptionsRequired: () => true, showPrivacyOptions: () => shown.push('shown') })?.();
+    expect(shown).toEqual(['shown']);
   });
 
   it('gives nothing for an ad that was not watched to the end, or one that cannot be shown', async () => {
     const w = windowOf();
-    const result = watchAd('video', { showRewardedAd: () => undefined }, w.target);
+    const result = watchAd('video', 'n', { showRewardedAd: () => undefined }, w.target);
     w.send({ kind: 'video', rewarded: false });
     expect(await result).toEqual({ rewarded: false });
-    expect(await watchAd('photo', {}, w.target)).toEqual({ rewarded: false });
-    expect(await watchAd('photo', { showRewardedAd: () => { throw new Error('no ad'); } }, w.target)).toEqual({ rewarded: false });
+    expect(await watchAd('photo', 'n', {}, w.target)).toEqual({ rewarded: false });
+    expect(await watchAd('photo', 'n', { showRewardedAd: () => { throw new Error('no ad'); } }, w.target)).toEqual({ rewarded: false });
     expect(w.count()).toBe(0);
   });
 
   it('stops waiting for a shell that never says', async () => {
     vi.useFakeTimers();
     const w = windowOf();
-    const result = watchAd('photo', { showRewardedAd: () => undefined }, w.target);
+    const result = watchAd('photo', 'n', { showRewardedAd: () => undefined }, w.target);
     await vi.advanceTimersByTimeAsync(5 * 60_000 + 1);
     expect(await result).toEqual({ rewarded: false });
     expect(w.count()).toBe(0);

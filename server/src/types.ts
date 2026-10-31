@@ -1,5 +1,5 @@
 import type { RoomState } from '../../src/core/jigsawRoom';
-import type { AdPlatform, AccountType, Member, Playback, RoomSettings, VideoType } from '../../src/online/protocol';
+import type { AccountType, Member, Playback, RoomSettings, VideoType } from '../../src/online/protocol';
 
 /**
  * What the room service needs from the world, as interfaces: the local server fills them with memory and a few Node modules, the AWS server will fill them with DynamoDB, S3
@@ -143,6 +143,13 @@ export interface Store {
   allRooms(): Promise<RoomRecord[]>;
   /** The account of a player who has one (nothing for a guest, or an account that has not been asked about yet). */
   getAccount(playerId: string): Promise<AccountRecord | undefined>;
+  /** Keeps what an ad was asked for (see `AdNonce`) until it has been watched; nothing is found once it has run out. */
+  putAdNonce(nonce: AdNonce): Promise<void>;
+  getAdNonce(nonce: string): Promise<AdNonce | undefined>;
+  deleteAdNonce(nonce: string): Promise<void>;
+  /** The ad network's numbers for the rewards it has reported (each is reported once, but may be reported again if the answer was lost). `until` (ms): when it may be forgotten. */
+  hasAdTransaction(transactionId: string): Promise<boolean>;
+  putAdTransaction(transactionId: string, until: number): Promise<void>;
   /** Writes the account if it is new (`rev` 0) or if the stored one still has `rev - 1`; false if someone else wrote in between. */
   putAccount(account: AccountRecord): Promise<boolean>;
   /** The display name a player chose (nothing if they have not). */
@@ -222,9 +229,21 @@ export interface Media {
   fileUrl(fileId: string): Promise<string>;
 }
 
-/** Tells whether a rewarded ad was really watched: the ad network's word (not built yet: see `adsTrusted` in the limits). */
-export interface AdVerifier {
-  verify(kind: 'photo' | 'video', platform: AdPlatform, proof: string | undefined, playerId: string): Promise<boolean>;
+/**
+ * What the game said it was going to show an ad for: a one-time number that the game gives the ad network with the ad (the network sends it back when the ad has been watched), so that
+ * the reward that the network reports can be matched to the account that asked for it, and only to that one.
+ */
+export interface AdNonce {
+  nonce: string;
+  playerId: string;
+  kind: 'photo' | 'video';
+  expiresAt: number;
+}
+
+/** The ad network's word that a rewarded ad was watched: it calls the server, and this says whether the call is the network's (checking its signature) and what it says. */
+export interface AdCallbacks {
+  /** `rawQuery` is the query string exactly as it came (the network signed its text). Nothing if it is not genuine, or not for one of our ad units. */
+  verify(rawQuery: string): Promise<{ transactionId: string; customData: string; at: number } | null>;
 }
 
 /** The live side: every member of a room hears what is published for it. */

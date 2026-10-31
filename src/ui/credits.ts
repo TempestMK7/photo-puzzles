@@ -1,7 +1,7 @@
-import type { OnlineApi } from '../online/api';
+import type { Offline, OnlineApi } from '../online/api';
 import { ACCOUNT_NAMES, DEFAULT_LIMITS, type AccountSummary, type ApiFailure } from '../online/protocol';
 import type { OnlineSession } from '../online/session';
-import { adPlatform, platform, watchAd, type Platform } from '../platform';
+import { adPlatform, adPrivacy, platform, prepareAds, watchAd, type Platform } from '../platform';
 import { h, svg } from './dom';
 import { sayError } from './online';
 
@@ -72,6 +72,10 @@ export function explainCredits(kind: CreditKind, a: AccountSummary, where: Platf
   return { title, paragraphs, ad: { label: `Watch an ad for ${plural(give, `${unit} credit`, `${unit} credits`)}`, note: `${plural(left, 'ad', 'ads')} left today` } };
 }
 
+/** After an ad, how often the account is asked about whether the credits have arrived, and how many times at most (about half a minute). */
+const CHECK_EVERY_MS = 2000;
+const GIVE_UP_AFTER = 15;
+
 const ICONS: Record<CreditKind, string> = {
   photo: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>',
   video: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/></svg>',
@@ -112,6 +116,7 @@ export class CreditsUi {
       h('div', { class: 'card' }, h('header', {}, this.title, h('button', { type: 'button', onclick: () => this.close() }, 'Close')), this.body),
     );
     document.addEventListener('keydown', (e) => e.key === 'Escape' && !this.dialog.hidden && this.close());
+    window.addEventListener('photopuzzles-ads-ready', () => this.open && this.draw());          // (the app knows now whether the player has choices about ads to make)
     deps.identity.onChange(() => this.refresh());
     this.refresh();
   }
@@ -132,6 +137,7 @@ export class CreditsUi {
   show(kind: CreditKind): void {
     this.open = kind;
     this.message = '';
+    if (adPlatform()) prepareAds();                       // (an app with ads gets ready for one: nothing has talked to the ad network until now)
     this.draw();
     this.dialog.hidden = false;
     this.dialog.querySelector<HTMLElement>('button')?.focus();
@@ -155,6 +161,7 @@ export class CreditsUi {
       ...(say.ad
         ? [h('div', { class: 'row' }, h('button', { type: 'button', class: 'primary', disabled: this.busy, onclick: () => void this.watch(kind) }, say.ad.label), h('span', { class: 'dim' }, say.ad.note))]
         : []),
+      ...(adPrivacy() ? [h('button', { type: 'button', class: 'small', onclick: () => adPrivacy()?.() }, 'Ad privacy choices')] : []),
       h('p', { class: 'status', role: 'status' }, this.message),
     );
   }
@@ -163,30 +170,46 @@ export class CreditsUi {
     if (await this.deps.signIn()) this.close();
   }
 
-  /** Plays an ad in the app, and asks the server for the credits it is worth. */
+  /**
+   * Plays an ad in the app. The server is asked first (an ad that would earn nothing is not shown, and it gives the number that the ad network will report the ad under); then the credits
+   * come from the ad network's report to the server, which can take a few seconds, so the account is asked about until they are there. (Where the operator takes the game's word, for trying
+   * things out, the game asks for them itself.)
+   */
   private async watch(kind: CreditKind): Promise<void> {
     const where = adPlatform();
     if (!where || this.busy) return;
     this.busy = true;
-    this.message = 'Playing the ad…';
+    this.message = 'Getting an ad ready…';
     this.draw();
+    const held = () => (kind === 'photo' ? this.deps.identity.summary().photo : this.deps.identity.summary().video);
+    const failed = (out: ApiFailure | Offline) => {
+      if ('account' in out && out.account) this.deps.identity.setSummary(out.account);
+      this.message = sayError(out.error, out as ApiFailure);
+    };
     try {
-      const seen = await watchAd(kind);
+      const before = held();
+      const begun = await this.deps.api.adStart({ kind, platform: where });
+      if (!begun.ok) return failed(begun);
+      const seen = await watchAd(kind, begun.nonce);
       if (!seen.rewarded) {
-        this.message = 'The ad was not watched to the end, so there are no credits for it.';
+        this.message = seen.error === 'no-ad' ? 'There is no ad to show right now. Try again in a little while.' : seen.error === 'consent' ? 'Ads need your choice about them first: see the ad privacy choices.' : 'The ad was not watched to the end, so there are no credits for it.';
         return;
       }
       this.message = 'Adding your credits…';
       this.draw();
-      const out = await this.deps.api.claimAd({ kind, platform: where, ...(seen.proof ? { proof: seen.proof } : {}) });
-      if (out.ok) {
+      if (begun.mode === 'trusted') {
+        const out = await this.deps.api.claimAd({ kind, platform: where });
+        if (!out.ok) return failed(out);
         this.deps.identity.setSummary(out.account);
-        const give = kind === 'photo' ? out.account.adPhoto : out.account.adVideo;
-        this.message = `You got ${plural(give, `${kind} credit`, `${kind} credits`)}.`;
       } else {
-        if ('account' in out && out.account) this.deps.identity.setSummary(out.account);
-        this.message = sayError(out.error, out as ApiFailure);
+        for (let i = 0; i < GIVE_UP_AFTER && held() <= before; i++) {
+          await new Promise((resolve) => window.setTimeout(resolve, CHECK_EVERY_MS));
+          const me = await this.deps.api.me();
+          if (me.ok) this.deps.identity.setSummary(me.account);
+        }
       }
+      const give = kind === 'photo' ? this.deps.identity.summary().adPhoto : this.deps.identity.summary().adVideo;
+      this.message = held() > before ? `You got ${plural(give, `${kind} credit`, `${kind} credits`)}.` : 'The credits are taking longer than usual. They are added when the ad network confirms the ad: look again in a minute.';
     } finally {
       this.busy = false;
       this.draw();

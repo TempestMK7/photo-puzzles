@@ -23,6 +23,8 @@ import {
   type AccountType,
   type AdRequest,
   type AdResponse,
+  type AdStartRequest,
+  type AdStartResponse,
   type ApiFailure,
   type CommandRequest,
   type CommandResponse,
@@ -45,7 +47,7 @@ import { adsToday, dayOf, GUEST_SUMMARY, newAccount, summaryOf } from './account
 import { sniffImage } from './image';
 import type { AdminFile, AdminRoomSummary } from '../../src/online/adminProtocol';
 import { playedMs } from './played';
-import type { AccountRecord, Accounts, AdVerifier, Clock, FileRecord, Limits, Media, Moderation, Player, Presence, PubSub, Random, Report, RoomRecord, Store, VideoModeration } from './types';
+import type { AccountRecord, Accounts, AdCallbacks, Clock, FileRecord, Limits, Media, Moderation, Player, Presence, PubSub, Random, Report, RoomRecord, Store, VideoModeration } from './types';
 
 export interface Deps {
   store: Store;
@@ -65,13 +67,17 @@ export interface Deps {
   videoModeration?: VideoModeration;
   /** Tells the operator something (an e-mail, in the cloud). Nothing for a server that has nobody to tell. */
   notify?: (text: string) => Promise<void>;
-  /** Checks with the ad network that a rewarded ad was watched. Nothing for a server that cannot: then an ad counts only if the limit `adsTrusted` says to take the game's word. */
-  ads?: AdVerifier;
+  /** The ad network's reports that a rewarded ad was watched (checked by their signature). Nothing for a server that has no ad network: then ads are refused, unless the limit `adsTrusted` says to take the game's word. */
+  adCallbacks?: AdCallbacks;
 }
 
 const DAY = 24 * 3600 * 1000;
 /** The record of who may use a file outlives the file by this much at most (it is only looked at once the file is found). */
 const FILE_USER_SLACK_MS = 2 * DAY;
+/** What an ad was asked for lasts this long: the time to load it, watch it and for the network to report it. */
+const AD_NONCE_MS = 30 * 60 * 1000;
+/** The network's transaction numbers are kept this long (it only repeats a call for a little while). */
+const AD_TRANSACTION_KEEP_MS = 7 * DAY;
 /** A page of the operator's list of files. */
 const ADMIN_FILES_PAGE = 60;
 /** The largest video an administrator may send: storage takes a file of up to 5 GB in one request. */
@@ -383,29 +389,36 @@ export class RoomService {
   }
 
   /**
-   * A rewarded ad was watched in one of the mobile apps (Steam, itch and the web have none): a free account gets photo credits for it and a paid one video credits, but only when it has
-   * none left, and only so many a day. The server cannot see the ad: it asks the ad network (`Deps.ads`) when it can, and otherwise believes the game only if the operator has said
-   * so (`adsTrusted`), which is for trying things out.
+   * The game is about to show a rewarded ad (in the Android or iOS app: Steam, itch and the web page have none): is this account owed credits for one? If so it is given a one-time
+   * number to give the ad network with the ad, and the credits are given when the network says that the ad was watched (`adCallback`). A player who is not owed credits is not shown
+   * an ad for nothing. `trusted` (the operator has said to take the game's word, for trying things out) means that the game asks for the credits itself (`claimAd`).
    */
-  async claimAd(player: Player, req: AdRequest): Promise<AdResponse> {
+  async adStart(player: Player, req: AdStartRequest): Promise<AdStartResponse> {
     if (player.guest) return fail('account-required');
     if (!req || (req.kind !== 'photo' && req.kind !== 'video')) return fail('bad-request');
-    const { limits, clock, ads } = this.d;
+    const { limits, clock, adCallbacks, store, random } = this.d;
     const refuse = async (f: ApiFailure): Promise<ApiFailure> => ({ ...f, account: await this.summary(player) });
     if (req.platform !== 'android' && req.platform !== 'ios') return refuse(fail('ad-refused', { reason: 'platform' }));
+    const trusted = limits.adsTrusted > 0;
+    if (!trusted && !adCallbacks) return fail('ads-off');
     const account = await this.accountOf(player.id);
     const type = this.typeOf(player, account);
     const early = this.adRefusal(type, account, req.kind);
     if (early) return refuse(early);
-    if (ads) {
-      if (!(await ads.verify(req.kind, req.platform, typeof req.proof === 'string' ? req.proof.slice(0, 2000) : undefined, player.id))) return refuse(fail('ad-refused', { reason: 'unverified' }));
-    } else if (!(limits.adsTrusted > 0)) return fail('ads-off');
-    const done = await this.changeAccount(player.id, (a) => {
+    const nonce = secretFrom(random.bytes(16));
+    await store.putAdNonce({ nonce, playerId: player.id, kind: req.kind, expiresAt: clock.now() + AD_NONCE_MS });
+    return { ok: true, nonce, mode: trusted ? 'trusted' : 'verified', account: summaryOf(type, account, limits, clock.now()) };
+  }
+
+  /** Gives an account the credits of an ad that was watched, if it is still owed them (it may have changed since the ad was asked for). */
+  private async giveAd(playerId: string, type: AccountType, kind: 'photo' | 'video'): Promise<{ account: AccountRecord } | ApiFailure> {
+    const { limits, clock } = this.d;
+    return this.changeAccount(playerId, (a) => {
       const now = clock.now();
       if (a.adDay !== dayOf(now)) Object.assign(a, { adDay: dayOf(now), photoAds: 0, videoAds: 0 });
-      const again = this.adRefusal(type, a, req.kind);                                                  // (it may have changed while the ad network was asked)
-      if (again) return again;
-      if (req.kind === 'photo') {
+      const refusal = this.adRefusal(type, a, kind);
+      if (refusal) return refusal;
+      if (kind === 'photo') {
         a.photo += limits.adPhotoCredits;
         a.photoAds++;
       } else {
@@ -414,6 +427,48 @@ export class RoomService {
       }
       return a;
     });
+  }
+
+  /**
+   * The ad network says (with a call that is signed, and checked here) that a rewarded ad was watched to the end: the account that asked for it (`adStart`) is given the credits. The
+   * network may call again for the same reward when it did not get an answer, so each of its transaction numbers counts once. True when the call is the network's (it wants 200
+   * for a call that is understood, even one that earns nothing); false when it is not, or could not be checked.
+   */
+  async adCallback(rawQuery: string): Promise<boolean> {
+    const { adCallbacks, store, clock } = this.d;
+    const reward = await adCallbacks?.verify(rawQuery);
+    if (!reward) return false;
+    if (await store.hasAdTransaction(reward.transactionId)) return true;
+    const asked = reward.customData ? await store.getAdNonce(reward.customData) : undefined;
+    if (!asked || asked.expiresAt <= clock.now()) {
+      console.log(JSON.stringify({ ad: 'reward-unclaimed', transaction: reward.transactionId }));          // a reward that nobody asked for (or too late): nothing to give
+      await store.putAdTransaction(reward.transactionId, clock.now() + AD_TRANSACTION_KEEP_MS);
+      return true;
+    }
+    const account = await this.accountOf(asked.playerId);
+    const given = await this.giveAd(asked.playerId, account.type, asked.kind);
+    console.log(JSON.stringify({ ad: 'rewarded', kind: asked.kind, given: !('error' in given), transaction: reward.transactionId }));      // (what the operator counts: the network's own report says what each ad earned)
+    await store.putAdTransaction(reward.transactionId, clock.now() + AD_TRANSACTION_KEEP_MS);
+    await store.deleteAdNonce(asked.nonce);
+    return true;
+  }
+
+  /**
+   * Only where the operator has said to take the game's word that an ad was watched (`adsTrusted`: for trying things out, with no ad network): a free account gets photo credits and a
+   * paid one video credits, but only when it has none left, and only so many a day. Anyone who can call the API could ask, which is why it is off unless it is set.
+   */
+  async claimAd(player: Player, req: AdRequest): Promise<AdResponse> {
+    if (player.guest) return fail('account-required');
+    if (!req || (req.kind !== 'photo' && req.kind !== 'video')) return fail('bad-request');
+    const { limits, clock } = this.d;
+    const refuse = async (f: ApiFailure): Promise<ApiFailure> => ({ ...f, account: await this.summary(player) });
+    if (req.platform !== 'android' && req.platform !== 'ios') return refuse(fail('ad-refused', { reason: 'platform' }));
+    if (!(limits.adsTrusted > 0)) return fail('ads-off');
+    const account = await this.accountOf(player.id);
+    const type = this.typeOf(player, account);
+    const early = this.adRefusal(type, account, req.kind);
+    if (early) return refuse(early);
+    const done = await this.giveAd(player.id, type, req.kind);
     if ('error' in done) return done.error === 'ad-refused' ? refuse(done) : done;
     return { ok: true, account: summaryOf(type, done.account, limits, clock.now()) };
   }

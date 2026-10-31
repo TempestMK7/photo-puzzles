@@ -424,9 +424,21 @@ export type AdPlatform = 'android' | 'ios';
 export interface AdRequest {
   kind: 'photo' | 'video';
   platform: AdPlatform;
-  /** What the ad network gave the app to show that the ad was watched (checked by the server when it can). */
-  proof?: string;
 }
+/** Before an ad is shown: asks whether this account may be given credits for one, and for the number that goes with the ad. */
+export interface AdStartRequest {
+  kind: 'photo' | 'video';
+  platform: AdPlatform;
+}
+export type AdStartResponse =
+  | {
+      ok: true;
+      /** What the game gives the ad network with the ad: the network sends it back when the ad has been watched, and the credits are given then (`verified`). With `trusted` the game asks for them itself. */
+      nonce: string;
+      mode: 'verified' | 'trusted';
+      account: AccountSummary;
+    }
+  | ApiFailure;
 export type AdRefusal = 'has-credits' | 'daily-limit' | 'platform' | 'plan' | 'unverified';
 export type AdResponse = { ok: true; account: AccountSummary } | ApiFailure;
 

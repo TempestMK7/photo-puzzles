@@ -3,7 +3,7 @@ import { GUEST_ACCOUNT, PROTOCOL_VERSION, type CreateRoomRequest } from '../src/
 import { DynamoStore } from '../server/src/aws/dynamo';
 import { MemoryStore } from '../server/src/memory';
 import { createRouter, DevAuth } from '../server/src/router';
-import type { AdVerifier, Moderation } from '../server/src/types';
+import type { Moderation } from '../server/src/types';
 import { FakeDynamo } from './helpers/fakeDynamo';
 import { ann, bob, cy, DAY, jpeg, joined, open, request, world as makeWorld, type MakeStore, type World } from './helpers/world';
 
@@ -180,10 +180,10 @@ describe.each(stores)('accounts and credits on %s', (_name, store) => {
   });
 
   describe('watching an ad for credits', () => {
-    const ad = (kind: 'photo' | 'video' = 'photo', extra: { platform?: 'android' | 'ios' | 'web'; proof?: string } = {}) => ({ kind, platform: 'android' as const, ...extra }) as Parameters<World['service']['claimAd']>[1];
+    const ad = (kind: 'photo' | 'video' = 'photo', extra: { platform?: 'android' | 'ios' | 'web' } = {}) => ({ kind, platform: 'android' as const, ...extra }) as Parameters<World['service']['claimAd']>[1];
     const none = async (w: World, id = 'ann', kinds: { photo?: number; video?: number } = { photo: 0 }) => w.service.adminSetAccount(id, kinds);
 
-    it('is refused for a guest, and by a server that cannot tell that an ad was watched', async () => {
+    it('is refused for a guest, and (when a game asks for them itself) by a server that does not take its word', async () => {
       const w = world();
       expect(await w.service.claimAd({ id: 'gx1', name: 'G', guest: true }, ad())).toEqual({ ok: false, error: 'account-required' });
       await none(w);
@@ -231,21 +231,6 @@ describe.each(stores)('accounts and credits on %s', (_name, store) => {
       expect(await w.service.claimAd(bob, ad('video'))).toMatchObject({ ok: false, reason: 'plan' });          // a free account cannot start a video: nothing to buy
       await type(w, 'cy', 'family', { photo: 0, video: 0 });
       expect(await w.service.claimAd(cy, ad('photo'))).toMatchObject({ ok: false, reason: 'plan' });
-    });
-
-    it('asks the ad network when the server can, only once the account is owed credits, and believes its answer', async () => {
-      const seen: unknown[][] = [];
-      let answer = false;
-      const ads: AdVerifier = { async verify(...args) { seen.push(args); return answer; } };
-      const w = makeWorld({ freePhotoCredits: 5 }, store);
-      (w.service as unknown as { d: { ads?: AdVerifier } }).d.ads = ads;
-      expect(await w.service.claimAd(ann, ad('photo', { proof: 'p1' }))).toMatchObject({ reason: 'has-credits' });
-      expect(seen).toEqual([]);                                                                            // (a proof that cannot be used is not spent)
-      await none(w);
-      expect(await w.service.claimAd(ann, ad('photo', { proof: 'p1' }))).toMatchObject({ ok: false, error: 'ad-refused', reason: 'unverified' });
-      answer = true;
-      expect(await w.service.claimAd(ann, ad('photo', { proof: 'p2' }))).toMatchObject({ ok: true, account: { photo: 5 } });
-      expect(seen).toEqual([['photo', 'android', 'p1', 'ann'], ['photo', 'android', 'p2', 'ann']]);
     });
 
     it('is told to the game as the router answers it', async () => {

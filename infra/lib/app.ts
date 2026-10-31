@@ -1,7 +1,7 @@
 import { Tags, type App } from 'aws-cdk-lib';
 import { ApiStack } from './api-stack';
 import { AuthStack } from './auth-stack';
-import { REGION, STAGES, apiDomain, settings, siteDomain, siteOrigins, stackName } from './config';
+import { APP_ORIGINS, REGION, STAGES, apiDomain, settings, siteDomain, siteOrigins, stackName } from './config';
 import { DataStack } from './data-stack';
 import { LiveStack } from './live-stack';
 import { OpsStack } from './ops-stack';
@@ -16,7 +16,9 @@ export function build(app: App): void {
 
   for (const stage of STAGES) {
     const origins = siteOrigins(stage, s.zoneName);
-    const data = new DataStack(app, stackName(stage, 'Data'), { env, stage, origins });
+    // the Android app's pages may call the API and use the picture storage too (but they are not a return address for the sign-in page)
+    const calling = [...origins, ...APP_ORIGINS];
+    const data = new DataStack(app, stackName(stage, 'Data'), { env, stage, origins: calling });
     const auth = new AuthStack(app, stackName(stage, 'Auth'), {
       env,
       stage,
@@ -32,8 +34,9 @@ export function build(app: App): void {
       hostedZoneId: s.hostedZoneId,
       domain: apiDomain(stage, s.zoneName),
       webDomain: siteDomain(stage, s.zoneName),
-      origins,
+      origins: calling,
       limits: s.limits,
+      admobAdUnits: s.admobAdUnits,
       pexelsSecretName: s.pexelsSecretName,
       pixabaySecretName: s.pixabaySecretName,
       table: data.table,

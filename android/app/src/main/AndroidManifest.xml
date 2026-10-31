@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- the game vibrates when a jigsaw piece is picked up, set down or joins (a web view needs the app to hold this permission for that) -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- The game is inside the app and the photos stay on the device; the net is used to play with friends, for the stock library, to download a picture or video from a link the player pastes, and by the ads. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- the advertising id, which the ads use (Android 13 and later want the app to say so; the Play Console's Data safety form says it too) -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:glEsVersion="0x00030000" android:required="false" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@drawable/ic_launcher"
+        android:label="PuzzleVidio"
+        android:theme="@style/AppTheme">
+        <!-- AdMob's id for this app (android/README.md says where it comes from; Google's test id is used until there is one) -->
+        <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="${admobAppId}" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|smallestScreenSize|screenLayout|density|uiMode"
+            android:launchMode="singleTask"
+            android:screenOrientation="fullSensor">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- in the system's share list for pictures and videos: "Share > PuzzleVidio" in the gallery, a file manager, a chat... adds them to the game's library -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

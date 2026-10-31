@@ -1,0 +1,4 @@
+// Top-level build file: a thin Android shell (one WebView) around the web build in app/src/main/assets/www.
+plugins {
+    id 'com.android.application' version '8.7.3' apply false
+}
