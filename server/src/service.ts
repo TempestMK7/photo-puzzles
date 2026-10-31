@@ -7,10 +7,13 @@ import {
   cleanNote,
   inviteLink,
   normalizeCode,
+  FRAME_BYTES,
   PROTOCOL_VERSION,
   REPORT_REASONS,
   secretFrom,
   topics,
+  VIDEO_FRAMES,
+  VIDEO_TYPES,
   type ApiError,
   type ApiFailure,
   type CommandRequest,
@@ -22,6 +25,8 @@ import {
   type JoinResponse,
   type Member,
   type MeResponse,
+  type PlaybackRequest,
+  type VideoDoneRequest,
   type RoomDescriptor,
   type RoomMessage,
   type RoomSettings,
@@ -52,6 +57,10 @@ export interface Deps {
 }
 
 const WEEK = 7 * 24 * 3600 * 1000;
+/** The quota of video puzzles is counted under another name than the picture puzzles' (their records are kept the same way). */
+const videoKey = (playerId: string): string => `video#${playerId}`;
+/** How many bytes at the start of a stored video are read to tell what kind of file it is. */
+const PEEK = 16;
 const COLORS = 8;
 /** A guest's chosen name is kept this long after it was last set (a little longer than their token lasts). */
 const GUEST_NAME_KEEP_MS = 100 * 24 * 3600 * 1000;
@@ -106,6 +115,7 @@ export class RoomService {
     const { store, accounts } = this.d;
     await this.releaseRooms(player);
     await store.forgetPlayer(player.id);
+    await store.forgetPlayer(videoKey(player.id));
     if (accounts && !player.guest) {
       try {
         await accounts.delete(player.id);
@@ -188,6 +198,7 @@ export class RoomService {
       expiresAt: room.expiresAt,
       pieces: room.settings.opts.pieces,
       picture: room.ready ? await this.d.media.signedUrl(room.id) : null,
+      video: room.video,
     };
   }
 
@@ -267,10 +278,22 @@ export class RoomService {
     if (req.consent !== true) return fail('bad-request');
     const settings = checkSettings(req.settings, limits);
     if ('ok' in settings) return settings;
+    let video: RoomRecord['video'];
+    if (req.video !== undefined) {
+      const v = req.video;
+      if (limits.videoRoomsPerWeek <= 0) return fail('video-off');
+      if (!v || !(VIDEO_TYPES as readonly unknown[]).includes(v.type) || !Number.isInteger(v.bytes) || v.bytes <= 0 || typeof v.ms !== 'number' || !(v.ms > 0)) return fail('bad-request');
+      if (v.bytes > limits.videoBytes || v.ms > limits.videoMs) return fail('too-big');
+      video = { type: v.type, bytes: v.bytes, ms: Math.round(v.ms) };
+    }
     const player = await this.named(who);
     const now = clock.now();
     const recent = (await store.creationsSince(player.id, now - WEEK)).sort((a, b) => a - b);
     if (recent.length >= limits.freeRoomsPerWeek) return fail('quota', { retryAt: recent[recent.length - limits.freeRoomsPerWeek] + WEEK });
+    if (video) {
+      const videos = (await store.creationsSince(videoKey(player.id), now - WEEK)).sort((a, b) => a - b);
+      if (videos.length >= limits.videoRoomsPerWeek) return fail('quota', { retryAt: videos[videos.length - limits.videoRoomsPerWeek] + WEEK });
+    }
     if ((await store.roomsOf(player.id)).length >= limits.activeRoomsPerPlayer) return fail('limit');
 
     const id = secretFrom(random.bytes(16));
@@ -286,6 +309,7 @@ export class RoomService {
       code,
       secretHash: await sha256(secret),
       knocks: [],
+      video,
       ready: false,
       status: 'open',
       createdAt: now,
@@ -295,7 +319,9 @@ export class RoomService {
     };
     if (!(await store.putRoom(room))) return fail('limit');
     await store.addCreation(player.id, now);
-    return { ok: true, roomId: id, upload: { url: await this.d.media.uploadUrl(id) }, invite: { code, secret, link: inviteLink(this.d.webBase, code, secret) } };
+    if (video) await store.addCreation(videoKey(player.id), now);
+    const upload = video ? await this.d.media.videoUpload(id, video.type, video.bytes) : { url: await this.d.media.uploadUrl(id) };
+    return { ok: true, roomId: id, upload, invite: { code, secret, link: inviteLink(this.d.webBase, code, secret) } };
   }
 
   /** A free five-digit code, claimed for the room (null if they all seem to be taken). */
@@ -336,6 +362,87 @@ export class RoomService {
       return r;
     });
     return 'error' in done ? done : { ok: true };
+  }
+
+  /**
+   * The creator's game has put a video in storage (the address `createRoom` gave) and sends a few of its pictures. The file must be exactly what was said (the size, the kind), and the
+   * pictures are looked at by the automatic check: the room can then be joined. The pictures are only what the creator's game says the video holds: this is a weaker check than one
+   * of the video itself (docs/online-play-plan.md), which is why a report, and the operator, remain.
+   */
+  async finishVideo(player: Player, roomId: string, req: VideoDoneRequest): Promise<{ ok: true } | ApiFailure> {
+    const room = await this.live(roomId);
+    if (!room || room.ownerId !== player.id || room.ready || !room.video) return fail('not-found');
+    const frames = req?.frames;
+    const valid = Array.isArray(frames) && frames.length >= VIDEO_FRAMES.min && frames.length <= VIDEO_FRAMES.max && frames.every((f) => typeof f === 'string' && f.length <= Math.ceil((FRAME_BYTES * 4) / 3) + 4);
+    if (!valid) return fail('bad-request');
+    const stored = await this.d.media.inspect(roomId, PEEK);
+    if (!stored) return fail('not-ready');                                 // the video has not arrived (yet): the creator may ask again
+    if (stored.bytes !== room.video.bytes || !looksLike(stored.head, room.video.type)) {
+      await this.cleanup(room, 'owner');                                    // not the file the puzzle was made for: nothing is kept
+      return fail('bad-request');
+    }
+    const pictures: { bytes: Uint8Array; type: string }[] = [];
+    for (const text of frames) {
+      const bytes = fromBase64(text);
+      const found = bytes && bytes.length <= FRAME_BYTES ? sniffImage(bytes) : null;
+      if (!bytes || !found) {
+        await this.cleanup(room, 'owner');
+        return fail('bad-request');
+      }
+      pictures.push({ bytes, type: found.type });
+    }
+    if (this.d.moderation) {
+      for (const p of pictures) {
+        let verdict: Awaited<ReturnType<Moderation['check']>>;
+        try {
+          verdict = await this.d.moderation.check(p.bytes, p.type);
+        } catch (e) {
+          console.error(e);
+          return fail('busy');                                              // not looked at: nothing is shown, and the creator may send it again
+        }
+        if (!verdict.ok) {
+          await this.cleanup(room, 'owner');
+          await this.tell(`A video was turned down by the automatic check of its pictures (${verdict.label}): room ${roomId}, made by ${room.ownerId}. The puzzle was ended.`);
+          return fail('rejected');
+        }
+      }
+    }
+    const done = await this.update(roomId, (r) => {
+      r.ready = true;
+      r.playback = { pos: 0, paused: false, at: this.d.clock.now() };       // it plays from the start, as of the moment it is ready
+      return r;
+    });
+    return 'error' in done ? done : { ok: true };
+  }
+
+  /** A server with no storage of its own to send a video to (the local one) is sent the file itself, to the address `createRoom` gave. */
+  async storeVideo(roomId: string, bytes: Uint8Array): Promise<{ ok: true } | ApiFailure> {
+    const room = await this.live(roomId);
+    if (!room || room.ready || !room.video) return fail('not-found');
+    if (bytes.length !== room.video.bytes) {
+      await this.cleanup(room, 'owner');
+      return fail('bad-request');
+    }
+    await this.d.media.put(roomId, bytes, room.video.type);
+    return { ok: true };
+  }
+
+  /** The host says where the video is. Only the owner may, and only in a video puzzle; the others' games hear it at once (and those who join later are told it as they join). */
+  async setPlayback(player: Player, roomId: string, req: PlaybackRequest): Promise<{ ok: true } | ApiFailure> {
+    const r = await this.memberRoom(player, roomId);
+    if ('error' in r) return r;
+    if (r.room.ownerId !== player.id) return fail('unauthorized');
+    if (!r.room.video) return fail('bad-request');
+    const duration = r.room.video.ms / 1000;
+    if (!req || typeof req.paused !== 'boolean' || typeof req.pos !== 'number' || !Number.isFinite(req.pos) || req.pos < 0 || req.pos > duration + 1) return fail('bad-request');
+    const playback = { pos: Math.min(req.pos, duration), paused: req.paused, at: this.d.clock.now() };
+    const done = await this.update(roomId, (x) => {
+      x.playback = playback;
+      return x;
+    });
+    if ('error' in done) return done;
+    await this.publish(roomId, { t: 'playback', ...playback });
+    return { ok: true };
   }
 
   // ---------------------------------------------------------------------------------------------------------------- joining
@@ -436,13 +543,14 @@ export class RoomService {
       id: room.id,
       protocol: PROTOCOL_VERSION,
       settings: room.settings,
-      media: { url: await this.d.media.signedUrl(room.id), type: 'image', sourceId: room.sourceId },
+      media: { url: await this.d.media.signedUrl(room.id), type: room.video ? 'video' : 'image', video: room.video, sourceId: room.sourceId },
       owner: room.ownerId,
       members: room.members,
       online: await this.d.presence.online(room.id),
       knocks: room.knocks.filter((k) => k.status === 'pending').map((k) => ({ id: k.id, name: k.name })),
       played: room.played,
       solvedMs: room.solvedMs,
+      playback: room.playback,
       state: room.state,
       serverTime: this.d.clock.now(),
       expiresAt: room.expiresAt,
@@ -652,5 +760,22 @@ export class RoomService {
       if (await this.d.store.putRoom(next)) return { room: next };
     }
     return fail('busy');
+  }
+}
+
+/** Does a file that starts with `head` look like a video of this kind? (Only the container's own marking: what is inside is for the player to find out.) */
+export function looksLike(head: Uint8Array, type: string): boolean {
+  const ascii = (from: number, text: string) => [...text].every((c, i) => head[from + i] === c.charCodeAt(0));
+  if (type === 'video/mp4' || type === 'video/quicktime') return head.length >= 12 && ascii(4, 'ftyp');
+  if (type === 'video/webm' || type === 'video/x-matroska') return head.length >= 4 && head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3;
+  return false;
+}
+
+function fromBase64(text: string): Uint8Array | null {
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(text) || text.length % 4 !== 0) return null;
+  try {
+    return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+  } catch {
+    return null;
   }
 }

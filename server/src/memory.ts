@@ -133,6 +133,16 @@ export class MemoryMedia implements Media {
     this.files.delete(roomId);
   }
 
+  /** The local server is sent the video itself, at the address that is signed here (see `RoomService.storeVideo`). */
+  async videoUpload(roomId: string, _type: string, _bytes: number): Promise<{ url: string; headers: Record<string, string> }> {
+    return { url: (await this.signer.address(this.base, roomId, 'put')).replace(`/media/${encodeURIComponent(roomId)}`, `/media/${encodeURIComponent(roomId)}/video`), headers: {} };
+  }
+
+  async inspect(roomId: string, peek: number): Promise<{ bytes: number; head: Uint8Array } | undefined> {
+    const f = this.files.get(roomId);
+    return f ? { bytes: f.bytes.length, head: f.bytes.slice(0, peek) } : undefined;
+  }
+
   has(roomId: string): boolean {
     return this.files.has(roomId);
   }

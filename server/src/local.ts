@@ -19,6 +19,8 @@ const WEB_BASE = process.env.WEB_BASE ?? 'http://localhost:5173';
 const ORIGIN = `http://localhost:${PORT}`;
 // a free player may make three a week; on this machine that would get in the way
 const FREE_ROOMS = Number(process.env.FREE_ROOMS_PER_WEEK ?? 50);
+/** A request may carry a video here (the local server is sent it itself: the cloud's storage takes it from the game). */
+const MAX_BODY = DEFAULT_LIMITS.videoBytes + 1_000_000;
 
 /** Who is listening to which room. This stands in for the cloud's publish/subscribe: one message for a room goes to every connection in it. */
 class Hub implements PubSub, Presence {
@@ -77,7 +79,7 @@ const service = new RoomService({
   presence: hub,
   clock: systemClock,
   random: new SystemRandom(),
-  limits: { ...DEFAULT_LIMITS, freeRoomsPerWeek: FREE_ROOMS, pictureBytes: 8_000_000 },
+  limits: { ...DEFAULT_LIMITS, freeRoomsPerWeek: FREE_ROOMS, videoRoomsPerWeek: FREE_ROOMS, pictureBytes: 8_000_000 },
   webBase: WEB_BASE,
 });
 // real guests as in the cloud (signed tokens, a key made when the server starts); the accounts are the made-up ones
@@ -87,7 +89,7 @@ const route = createRouter({ service, auth, media, guests });
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+  'Access-Control-Allow-Headers': 'Authorization, Content-Type, Cache-Control',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
 };
 
@@ -100,13 +102,13 @@ const server = createServer((req, res) => {
   let size = 0;
   req.on('data', (c: Buffer) => {
     size += c.length;
-    if (size <= 10_000_000) chunks.push(c);
+    if (size <= MAX_BODY) chunks.push(c);
   });
   req.on('end', () => {
     void (async () => {
       const url = new URL(req.url ?? '/', ORIGIN);
       const out =
-        size > 10_000_000
+        size > MAX_BODY
           ? { status: 413, body: { ok: false, error: 'bad-request' }, type: undefined }
           : await route({ method: req.method ?? 'GET', path: url.pathname, query: url.searchParams, authorization: req.headers.authorization, body: new Uint8Array(Buffer.concat(chunks)) });
       if (out.body instanceof Uint8Array) res.writeHead(out.status, { ...CORS, 'Content-Type': out.type ?? 'application/octet-stream', 'Cache-Control': 'private, max-age=60' }).end(Buffer.from(out.body));

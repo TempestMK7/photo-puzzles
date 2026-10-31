@@ -43,6 +43,8 @@ export interface AdminRoomDetail {
   expiresAt: number;
   pieces: number;
   picture: string | null;
+  /** A puzzle made from a video: `picture` is then the address of the video. */
+  video?: { type: string; ms: number; bytes: number };
 }
 
 export interface AdminReport {

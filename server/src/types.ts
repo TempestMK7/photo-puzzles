@@ -1,5 +1,5 @@
 import type { RoomState } from '../../src/core/jigsawRoom';
-import type { Member, RoomSettings } from '../../src/online/protocol';
+import type { Member, Playback, RoomSettings, VideoType } from '../../src/online/protocol';
 
 /**
  * What the room service needs from the world, as interfaces: the local server fills them with memory and a few Node modules, the AWS server will fill them with DynamoDB, S3
@@ -40,6 +40,10 @@ export interface RoomRecord {
   solvedMs?: number;
   /** Players the owner sent out: they cannot join again, with the code, a new code or the link (older rooms have none). */
   removed?: string[];
+  /** A puzzle made from a video: what the file is, as the owner said when making it (the storage holds exactly that many bytes, of that kind). */
+  video?: { type: VideoType; bytes: number; ms: number };
+  /** Where the owner's video was, as the owner last said (a video puzzle only). */
+  playback?: Playback;
   /** The picture has arrived and been checked: only then can anyone join. */
   ready: boolean;
   status: 'open' | 'solved';
@@ -129,6 +133,10 @@ export interface Media {
   signedUrl(roomId: string): Promise<string>;
   put(roomId: string, bytes: Uint8Array, type: string): Promise<void>;
   delete(roomId: string): Promise<void>;
+  /** Where the creator sends a video of this kind and size, straight to storage (the headers go with it: the storage turns away a file of another size or kind). */
+  videoUpload(roomId: string, type: string, bytes: number): Promise<{ url: string; headers: Record<string, string> }>;
+  /** What is stored for the room: how large, and the first `peek` bytes (to tell what the file is); nothing if there is nothing. */
+  inspect(roomId: string, peek: number): Promise<{ bytes: number; head: Uint8Array } | undefined>;
 }
 
 /** The live side: every member of a room hears what is published for it. */
@@ -162,4 +170,8 @@ export interface Limits {
   maxAgeMs: number;
   /** The largest picture accepted, in bytes. */
   pictureBytes: number;
+  /** Video puzzles a player may make a week (0: switched off), and the largest and longest video. */
+  videoRoomsPerWeek: number;
+  videoBytes: number;
+  videoMs: number;
 }

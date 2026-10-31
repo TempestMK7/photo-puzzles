@@ -17,6 +17,8 @@ export const DEFAULT_RATES = {
   creations: { perIp: 30, windowMs: HOUR },
   /** Reports of puzzles sent by one player. */
   reports: { perPlayer: 5, windowMs: HOUR },
+  /** Where the host says the video is: when it is played, paused or moved, and now and then while it plays. */
+  playback: { perPlayer: 60, windowMs: MIN },
 };
 
 export type Rates = typeof DEFAULT_RATES;

@@ -21,7 +21,7 @@ Local play stays exactly as it is: free, unlimited, no account, nothing leaves t
 - **Platforms:** the web version at our own domain (Route 53), itch.io, Steam (in a desktop wrapper, later) and the Android app all use the same server. A code works from any of them.
 - **Repo:** `server/` and `infra/` in this repository, importing `src/core`. No keys, tokens or AWS account ids are committed; ids that the apps need are build-time settings.
 - **Domain:** puzzlevid.io, bought by the owner (registered through Route 53; the hosted zone may still be being set up).
-- **Video puzzles (later):** the board is shared like a picture, but video playback is not synced. Each player watches the clip locally from the start, with their own pause and position bar. Only the picture of the puzzle, not the play position, is room state.
+- **Video puzzles:** the board is shared like a picture, from a video of up to 60 s and 50 MB (MP4, MOV, WebM or MKV). The owner is the host: where the video is (position and paused) is room state, so a player who joins starts there and follows the host's play, pause and seeking until they play, pause or seek by themselves; a button then takes them back to the host. **Off until the operator sets `videoRoomsPerWeek`.** The check of a video is of a few pictures that the maker's game sends, not of the video itself (Amazon's video check reads only MP4/MOV with H.264, and a stronger check for those is a later step): weaker than a picture's.
 
 ## Architecture
 

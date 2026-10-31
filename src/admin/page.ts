@@ -309,7 +309,11 @@ class AdminPage {
       h('h2', {}, 'A puzzle'),
       h('p', { class: 'dim' }, `${r.pieces} pieces · ${r.status} · made ${when(r.createdAt)} · ends ${when(r.expiresAt)}`),
       h('p', {}, 'Made by ', this.copy(r.ownerId), ' · players: ', r.members.map((m) => m.name || m.id).join(', ')),
-      r.picture ? h('img', { src: r.picture, alt: 'The picture of the puzzle', class: 'picture' }) : h('p', { class: 'dim' }, 'The picture has not arrived.'),
+      !r.picture
+        ? h('p', { class: 'dim' }, r.video ? 'The video has not arrived.' : 'The picture has not arrived.')
+        : r.video
+          ? h('video', { src: r.picture, controls: true, preload: 'metadata', playsInline: true, class: 'picture' })
+          : h('img', { src: r.picture, alt: 'The picture of the puzzle', class: 'picture' }),
       h(
         'div',
         { class: 'row' },

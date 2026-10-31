@@ -23,7 +23,20 @@ export const DEFAULT_LIMITS = {
   solvedKeepMs: 3600 * 1000,
   /** The longest a puzzle lives, however much it is played: a puzzle that is moved every day would otherwise never go (and its picture would stay on the server for ever). */
   maxAgeMs: 30 * 24 * 3600 * 1000,
+  /** Puzzles made from a video that a player may create per rolling week. 0 switches them off (they are off until the operator sets it: they cost storage, bandwidth and a look at the video). */
+  videoRoomsPerWeek: 0,
+  /** The largest video, in bytes, and the longest, in ms. */
+  videoBytes: 50_000_000,
+  videoMs: 60_000,
 } as const;
+
+/** The kinds of video file an online puzzle may be made from (what a browser can play: the game checks that again where it is played). */
+export const VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-matroska'] as const;
+export type VideoType = (typeof VIDEO_TYPES)[number];
+
+/** A video is looked at through a few of its pictures, which the game sends when the video is up: at least this many and at most that many, each no larger than `FRAME_BYTES`. */
+export const VIDEO_FRAMES = { min: 3, max: 12 } as const;
+export const FRAME_BYTES = 300_000;
 
 /** How often the player who holds a piece says where it is, and how often a hold is renewed. */
 export const HAND_INTERVAL_MS = 100;
@@ -44,9 +57,11 @@ export interface Member {
 }
 
 export interface Media {
-  /** A short-lived address of the picture, for members only. */
+  /** A short-lived address of the picture (or video), for members only. */
   url: string;
-  type: 'image';
+  type: 'image' | 'video';
+  /** For a video: the kind of file, and how long and large it is. */
+  video?: { type: VideoType; ms: number; bytes: number };
   /** The id of the picture in the library of the player who made the puzzle, so that this player's game knows it already has it. */
   sourceId?: string;
 }
@@ -72,6 +87,25 @@ export interface RoomDescriptor {
   /** When the room goes if nobody touches it. */
   expiresAt: number;
   status: 'open' | 'solved';
+  /** A video puzzle: where the owner's video was when `at` (the server's clock) came: see `playbackNow`. */
+  playback?: Playback;
+}
+
+/**
+ * Where the video of a puzzle is, as the owner (the host) last said: at `pos` seconds, and `paused` or playing, as of `at` (the server's clock, in ms). A player who joins starts there, and
+ * one who asks to sync with the host is taken there again.
+ */
+export interface Playback {
+  pos: number;
+  paused: boolean;
+  at: number;
+}
+
+/** Where the video should be now (in seconds, within a video that is `duration` long and loops), by the server's clock `now`: a playing video moves on since `at`. */
+export function playbackNow(p: Playback, now: number, duration: number): number {
+  if (!(duration > 0)) return Math.max(0, p.pos);
+  const pos = p.paused ? p.pos : p.pos + Math.max(0, now - p.at) / 1000;
+  return ((pos % duration) + duration) % duration;
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------- requests
@@ -104,7 +138,11 @@ export type ApiError =
   /** The automatic check of the picture turned it down. */
   | 'rejected'
   /** Making new puzzles is switched off for now (the operator's limit is 0); joining and playing go on. */
-  | 'paused';
+  | 'paused'
+  /** Puzzles made from a video are switched off for now (their limit is 0). */
+  | 'video-off'
+  /** The video is longer or larger than the limits allow. */
+  | 'too-big';
 
 export interface ApiFailure {
   ok: false;
@@ -121,13 +159,15 @@ export interface CreateRoomRequest {
   sourceId?: string;
   /** The player has said yes to the picture leaving the device. */
   consent: true;
+  /** A puzzle made from a video: what the file is (the board's `width` and `height` are the video's). The video goes straight to storage (`upload`), then `VideoDoneRequest` follows. */
+  video?: { type: VideoType; bytes: number; ms: number };
 }
 
 export interface CreateRoomResponse {
   ok: true;
   roomId: string;
-  /** Where to upload the picture to (a signed address), and what to send: the picture, as image/jpeg. */
-  upload: { url: string };
+  /** Where to upload the picture to (a signed address), and what to send: the picture, as image/jpeg. For a video: where to PUT the file, with these headers, and nothing else (the size and type were given above). */
+  upload: { url: string; headers?: Record<string, string> };
   invite: Invite;
 }
 
@@ -137,6 +177,17 @@ export interface Invite {
   /** Joins without a knock; goes in the link. */
   secret: string;
   link: string;
+}
+
+/** The video is up: a few of its pictures (JPEGs, base64), spread over its length, which are looked at before anyone else may see the puzzle. */
+export interface VideoDoneRequest {
+  frames: string[];
+}
+
+/** The host says where the video is (the owner's game, when they play, pause or move it, and now and then while it plays). */
+export interface PlaybackRequest {
+  pos: number;
+  paused: boolean;
 }
 
 export interface JoinRequest {
@@ -265,6 +316,8 @@ export type RoomMessage =
   | { t: 'knock'; id: string; name: string }
   /** The count of time spent on the puzzle started or stopped (someone connected to a room with nobody in it, or the last one left). */
   | { t: 'played'; ms: number; since: number | null }
+  /** The host played, paused or moved the video (see `Playback`). */
+  | ({ t: 'playback' } & Playback)
   | { t: 'solved'; at: number; ms?: number }
   /** The room is over (closed by its owner, or gone), so the game goes back to the main screen. */
   | { t: 'closed'; reason: 'owner' | 'expired' | 'solved' };
