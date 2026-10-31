@@ -108,10 +108,8 @@ button.danger:hover:not(:disabled) { background: #983028; }
 .item.video img { outline: 2px solid var(--accent); outline-offset: -2px; }
 .item .chk { display: none; flex: none; width: 20px; height: 20px; border: 2px solid var(--dim); border-radius: 4px; background: var(--bg); }
 .plist.removing .item .chk { display: block; }
-.plist.removing .item.sample { opacity: 0.35; cursor: default; }
-.plist.removing .item.sample .chk { visibility: hidden; }
 .plist.removing .item.on { border-color: transparent; background: transparent; }
-.plist.removing .item:not(.sample):hover { background: var(--panel2); }
+.plist.removing .item:hover { background: var(--panel2); }
 .item.marked { background: #4a1f1f; border-color: #c0443a; }
 .plist.removing .item.marked { background: #4a1f1f; border-color: #c0443a; }
 .item.marked .chk { background: #c0443a; border-color: #ffb4aa; box-shadow: inset 0 0 0 3px #4a1f1f; }

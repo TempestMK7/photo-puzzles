@@ -373,7 +373,7 @@ export class LibraryScreen {
   /** The list item of a photo: made the first time, after that brought up to date (selected, done, marked, best time). */
   private itemFor(e: PhotoEntry): HTMLElement {
     const best = this.recordFor(e);
-    const cls = 'item' + (e.id === this.deps.prefs.data.photo ? ' on' : '') + (best !== undefined ? ' done' : '') + (e.video ? ' video' : '') + (e.sample ? ' sample' : '') + (this.marked.has(e.id) ? ' marked' : '');
+    const cls = 'item' + (e.id === this.deps.prefs.data.photo ? ' on' : '') + (best !== undefined ? ' done' : '') + (e.video ? ' video' : '') + (this.marked.has(e.id) ? ' marked' : '');
     const text = (e.video ? `Video ${formatTime(e.duration * 1000)} · ` : '') + (best !== undefined ? `Best ${formatTime(best)}` : 'Not solved');
     const kept = this.items.get(e.id);
     if (kept) {
@@ -435,7 +435,7 @@ export class LibraryScreen {
       this.previewImg.src = shown?.url ?? '';
       this.previewImg.hidden = !shown;
     }
-    this.nameEl.textContent = shown?.name ?? (this.tab === 'stock' ? (this.stock.busy ? 'Searching…' : 'Nothing to show') : this.loading ? 'Loading photos…' : 'No photos yet');
+    this.nameEl.textContent = shown?.name ?? (this.tab === 'stock' ? (this.stock.busy ? 'Searching…' : 'Nothing to show') : this.loading ? 'Loading photos…' : this.deps.stockBase ? 'No photos yet. Add some, or try Stock Files' : 'No photos yet. Add some below');
     this.creditEl.replaceChildren(...(shown?.credit ? [creditLine(shown.credit, shown.video)] : []));
     const best = e ? this.recordFor(e) : undefined;
     this.bestEl.textContent = stock && !e ? 'Added to your library when you play it' : e ? (best !== undefined ? `Best time ${formatTime(best)}` : 'Not solved yet') : '';
@@ -490,9 +490,9 @@ export class LibraryScreen {
 
   // ---------------------------------------------------------------------------------------------------------------- actions
 
-  /** Ticks or unticks a photo that is to be removed (the sample pictures stay). */
+  /** Ticks or unticks a photo that is to be removed. */
   private mark(e: PhotoEntry): void {
-    if (e.sample || this.removing !== 'choose') return;
+    if (this.removing !== 'choose') return;
     if (this.marked.has(e.id)) this.marked.delete(e.id);
     else this.marked.add(e.id);
     this.listEl.querySelectorAll<HTMLElement>('.item').forEach((li) => li.classList.toggle('marked', this.marked.has(li.dataset.id ?? '')));
@@ -941,7 +941,7 @@ export class LibraryScreen {
       this.renderStockFoot();
       return;
     }
-    const mine = this.entries.filter((e) => !e.sample);
+    const mine = this.entries;
     const n = this.marked.size;
     const btn = (label: string, onclick: () => void, extra: Record<string, unknown> = {}) => h('button', { type: 'button', onclick, ...extra }, label);
     if (this.linkAbort) {
@@ -956,7 +956,7 @@ export class LibraryScreen {
       this.footEl.replaceChildren(
         btn('Add photos…', () => this.fileInput.click()),
         btn('From a link…', () => this.setLinking(true), { title: 'Add a picture or video from a web address' }),
-        btn('Remove photos', () => this.setRemoving('choose'), { disabled: mine.length === 0, title: mine.length ? 'Choose photos and videos to remove' : 'Only the sample pictures are here' }),
+        btn('Remove photos', () => this.setRemoving('choose'), { disabled: mine.length === 0, title: mine.length ? 'Choose photos and videos to remove' : 'There are no photos to remove' }),
       );
     } else if (this.removing === 'choose') {
       this.footEl.replaceChildren(
@@ -984,7 +984,7 @@ export class LibraryScreen {
   }
 
   private async removeNow(): Promise<void> {
-    const ids = [...this.marked].filter((id) => this.entries.some((e) => e.id === id && !e.sample));
+    const ids = [...this.marked].filter((id) => this.entries.some((e) => e.id === id));
     for (const id of ids) await this.deps.photos.remove(id);
     this.entries = this.entries.filter((e) => !ids.includes(e.id));
     this.removing = 'no';

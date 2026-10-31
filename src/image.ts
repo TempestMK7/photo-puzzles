@@ -143,11 +143,11 @@ function looksBlack(c: HTMLCanvasElement): boolean {
 }
 
 /** A square thumbnail canvas (cut from the middle of the picture). */
-function squareThumb(photo: HTMLCanvasElement, size: number, soft: boolean): HTMLCanvasElement {
+function squareThumb(photo: HTMLCanvasElement, size: number): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = size;
   c.height = size;
-  const g = c.getContext('2d', soft ? { willReadFrequently: true } : undefined)!;
+  const g = c.getContext('2d')!;
   g.imageSmoothingQuality = 'high';
   const side = Math.min(photo.width, photo.height);
   g.drawImage(photo, (photo.width - side) / 2, (photo.height - side) / 2, side, side, 0, 0, size, size);
@@ -156,75 +156,6 @@ function squareThumb(photo: HTMLCanvasElement, size: number, soft: boolean): HTM
 
 /** A square thumbnail (cut from the middle) as a JPEG blob. */
 export async function makeThumb(photo: HTMLCanvasElement, size = 160): Promise<Blob> {
-  const c = squareThumb(photo, size, false);
+  const c = squareThumb(photo, size);
   return new Promise((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new Error('no thumbnail'))), 'image/jpeg', 0.8));
-}
-
-/**
- * A sample's thumbnail as a data URL, made on the processor: a canvas on the graphics card has to wait for the card to hand its pixels back, and on a phone that wait
- * was several seconds at launch (up to 17) during which the whole list stood still. A canvas that is read back is kept in memory instead (`willReadFrequently`).
- */
-export function sampleThumbUrl(id: string, size = 160): string {
-  return squareThumb(samplePhoto(id, true), size, true).toDataURL('image/jpeg', 0.8);
-}
-
-/** A sample's full picture as a data URL, made on the processor (see `sampleThumbUrl`). */
-export function samplePreviewUrl(id: string): string {
-  return samplePhoto(id, true).toDataURL('image/jpeg', 0.9);
-}
-
-export interface SampleInfo {
-  id: string;
-  name: string;
-}
-
-interface Palette extends SampleInfo {
-  sky: [string, string, string];
-  hills: [string, string, string];
-  sun: string;
-}
-
-const PALETTES: Palette[] = [
-  { id: 'sample-dusk', name: 'Sample: Dusk', sky: ['#2b4a8f', '#f0a36b', '#fbe3a6'], hills: ['#5b3f6e', '#3d2b57', '#241a3a'], sun: '#fff3c4' },
-  { id: 'sample-meadow', name: 'Sample: Meadow', sky: ['#4a90d9', '#9fd3f5', '#e8f6ff'], hills: ['#6fae4f', '#4b8a3a', '#2f6a2c'], sun: '#fff6a8' },
-  { id: 'sample-ember', name: 'Sample: Ember', sky: ['#2a1030', '#b8412f', '#f5b55a'], hills: ['#4a2430', '#34171f', '#1d0d12'], sun: '#ffe08a' },
-];
-
-export const SAMPLES: SampleInfo[] = PALETTES.map(({ id, name }) => ({ id, name }));
-
-/** A made-up picture so there is something to play without choosing a file (no outside art). `soft`: a canvas in memory, for reading pixels back (see `sampleThumbUrl`). */
-export function samplePhoto(id = 'sample-dusk', soft = false): HTMLCanvasElement {
-  const pal = PALETTES.find((p) => p.id === id) ?? PALETTES[0];
-  const c = document.createElement('canvas');
-  c.width = 1200;
-  c.height = 800;
-  const g = c.getContext('2d', soft ? { willReadFrequently: true } : undefined)!;
-  const sky = g.createLinearGradient(0, 0, 0, 800);
-  sky.addColorStop(0, pal.sky[0]);
-  sky.addColorStop(0.55, pal.sky[1]);
-  sky.addColorStop(1, pal.sky[2]);
-  g.fillStyle = sky;
-  g.fillRect(0, 0, 1200, 800);
-  g.fillStyle = pal.sun;
-  g.beginPath();
-  g.arc(860, 330, 90, 0, Math.PI * 2);
-  g.fill();
-  pal.hills.forEach((col, k) => {
-    g.fillStyle = col;
-    g.beginPath();
-    g.moveTo(0, 800);
-    for (let x = 0; x <= 1200; x += 20) g.lineTo(x, 520 + k * 85 + Math.sin(x / 130 + k * 2) * (40 + k * 12));
-    g.lineTo(1200, 800);
-    g.fill();
-  });
-  g.fillStyle = 'rgba(255,255,255,0.9)';
-  for (let i = 0; i < 90; i++) {
-    const x = (i * 197) % 1200;
-    const y = (i * 61) % 360;
-    g.fillRect(x, y, 2 + (i % 3), 2 + (i % 3));
-  }
-  g.font = 'bold 90px system-ui, sans-serif';
-  g.fillStyle = 'rgba(20,10,30,0.8)';
-  g.fillText(pal.name.replace('Sample: ', '').toUpperCase(), 190, 700);
-  return c;
 }
