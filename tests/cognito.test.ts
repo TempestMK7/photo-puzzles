@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { APP_SIGN_IN_REDIRECTS } from '../infra/lib/config';
 import { CognitoAccount, inAdminGroup, pictureOf, type CognitoEnv } from '../src/online/cognito';
 import { APP_SIGN_IN_REDIRECT } from '../src/platform';
 
@@ -50,7 +50,9 @@ describe('signing in through the phone’s browser (the Android app: Google does
   const signedIn = (clock: { t: number }) => (_url: string, body: URLSearchParams) => (body.get('grant_type') === 'authorization_code' ? json({ id_token: jwt({ sub: 'u1', exp: exp(clock, 3600) }), refresh_token: 'r1' }) : json({}, 400));
 
   it('is the same address in the app and in the sign-in service\u2019s list of where it may send the player back', () => {
-    expect(APP_SIGN_IN_REDIRECTS).toEqual([APP_SIGN_IN_REDIRECT]);
+    // (the infrastructure's file is read as text: its own packages are not installed with the game's)
+    const listed = /APP_SIGN_IN_REDIRECTS = \[([^\]]*)\]/.exec(readFileSync('infra/lib/config.ts', 'utf8'))?.[1];
+    expect(listed?.split(',').map((a) => a.trim().replace(/^'|'$/g, ''))).toEqual([APP_SIGN_IN_REDIRECT]);
     expect(APP_SIGN_IN_REDIRECT).toBe('com.tempest.photopuzzles://signed-in');
   });
 
