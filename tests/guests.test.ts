@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PROTOCOL_VERSION, cleanName, NAME_MAX } from '../src/online/protocol';
+import { GUEST_ACCOUNT, PROTOCOL_VERSION, cleanName, NAME_MAX } from '../src/online/protocol';
 import { DynamoStore } from '../server/src/aws/dynamo';
 import { GUEST_LIFE_MS, GuestTokens, TokenAuth } from '../server/src/guest';
 import { MemoryStore } from '../server/src/memory';
@@ -88,7 +88,7 @@ const stores: [string, MakeStore][] = [
 
 describe.each(stores)('guests and names on %s', (_name, makeStore) => {
   const setup = () => {
-    const w = world({ freeRoomsPerWeek: 50 }, makeStore);
+    const w = world({}, makeStore);
     const guests = new GuestTokens(KEY, w.clock);
     const route = createRouter({ service: w.service, auth: new TokenAuth(guests, new DevAuth()), media: w.media, guests });
     const call = async (method: string, path: string, token?: string, body?: unknown) => {
@@ -117,10 +117,10 @@ describe.each(stores)('guests and names on %s', (_name, makeStore) => {
     it('is nothing until it is chosen, then is what was chosen (cleaned), for a guest and for an account', async () => {
       const { call } = setup();
       const g = (await call('POST', '/guest')).body;
-      expect((await call('GET', '/me', g.token)).body).toEqual({ ok: true, id: g.id, name: null, guest: true });
+      expect((await call('GET', '/me', g.token)).body).toEqual({ ok: true, id: g.id, name: null, guest: true, account: GUEST_ACCOUNT });
       expect((await call('PUT', '/me', g.token, { name: '  Zed   Zee ' })).body).toMatchObject({ ok: true, name: 'Zed Zee', guest: true });
       expect((await call('GET', '/me', g.token)).body.name).toBe('Zed Zee');
-      expect((await call('GET', '/me', ann)).body).toEqual({ ok: true, id: 'ann1', name: null, guest: false });
+      expect((await call('GET', '/me', ann)).body).toMatchObject({ ok: true, id: 'ann1', name: null, guest: false, account: { type: 'free' } });
       await call('PUT', '/me', ann, { name: 'Annie' });
       expect((await call('GET', '/me', ann)).body.name).toBe('Annie');
     });

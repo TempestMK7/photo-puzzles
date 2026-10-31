@@ -20,12 +20,15 @@ describe('settings', () => {
     expect(() => new App({ context: { ...context, googleClientId: 'x' } }) && build(new App({ context: { ...context, googleClientId: 'x' } }))).toThrow(/both/);
   });
   it('takes changes to the service\'s limits as JSON, and refuses a limit that does not exist or is not a number', () => {
-    expect(settings(new App({ context: { ...context, limits: '{"freeRoomsPerWeek":0}' } }).node).limits).toEqual({ freeRoomsPerWeek: 0 });
+    expect(settings(new App({ context: { ...context, limits: '{"hostingPaused":1}' } }).node).limits).toEqual({ hostingPaused: 1 });
     expect(settings(new App({ context: context }).node).limits).toBeUndefined();
     expect(() => settings(new App({ context: { ...context, limits: '{"freeRoomPerWeek":0}' } }).node)).toThrow(/not a limit/);
-    expect(() => settings(new App({ context: { ...context, limits: '{"freeRoomsPerWeek":"0"}' } }).node)).toThrow(/number/);
-    expect(() => settings(new App({ context: { ...context, limits: '{"freeRoomsPerWeek":-1}' } }).node)).toThrow(/number/);
+    expect(() => settings(new App({ context: { ...context, limits: '{"hostingPaused":"0"}' } }).node)).toThrow(/number/);
+    expect(() => settings(new App({ context: { ...context, limits: '{"hostingPaused":-1}' } }).node)).toThrow(/number/);
     expect(() => settings(new App({ context: { ...context, limits: 'nope' } }).node)).toThrow(/JSON/);
+    // the weekly counts of puzzles are gone (credits took their place): a setting that still has them is not a reason to stop a deployment
+    expect(settings(new App({ context: { ...context, limits: '{"videoRoomsPerWeek":1}' } }).node).limits).toBeUndefined();
+    expect(settings(new App({ context: { ...context, limits: '{"freeRoomsPerWeek":3,"hostingPaused":1}' } }).node).limits).toEqual({ hostingPaused: 1 });
   });
   it('serves the real game at the bare domain and the others below it', () => {
     expect(siteDomain('prod', 'puzzlevid.io')).toBe('puzzlevid.io');
@@ -87,13 +90,14 @@ describe('api limits', () => {
   it('puts the limits in the environment of the functions, only when they are given', () => {
     const none = JSON.stringify(stack(app(), 'PuzzleVidio-dev-Api').toJSON());
     expect(none).not.toContain('LIMITS');
-    const set = JSON.stringify(stack(app({ limits: '{"freeRoomsPerWeek":0}' }), 'PuzzleVidio-dev-Api').toJSON());
+    const set = JSON.stringify(stack(app({ limits: '{"hostingPaused":1}' }), 'PuzzleVidio-dev-Api').toJSON());
     expect(set).toContain('LIMITS');
-    expect(set).toContain('freeRoomsPerWeek');
+    expect(set).toContain('hostingPaused');
   });
-  it('knows the limits of video puzzles, which are off until one is set', () => {
-    const set = JSON.stringify(stack(app({ limits: '{"videoRoomsPerWeek":1,"videoBytes":20000000,"videoMs":30000}' }), 'PuzzleVidio-dev-Api').toJSON());
-    expect(set).toContain('videoRoomsPerWeek');
+  it('knows the limits of video puzzles and of credits and ads', () => {
+    const set = JSON.stringify(stack(app({ limits: '{"adsTrusted":1,"freePhotoCredits":10,"videoBytes":20000000,"videoMs":30000}' }), 'PuzzleVidio-dev-Api').toJSON());
+    expect(set).toContain('adsTrusted');
+    expect(set).toContain('freePhotoCredits');
     // the function that makes puzzles may start and read the look at a whole video (it reads the file with its own permissions on the media bucket)
     const api = stack(app(), 'PuzzleVidio-dev-Api').toJSON();
     const actions = JSON.stringify(api);
@@ -288,6 +292,7 @@ describe('api', () => {
     expect(routes.map((r) => [r.RouteKey, r.AuthorizationType ?? 'NONE']).sort()).toEqual(
       [
         ['POST /rooms', 'JWT'],                  // making a puzzle: only with an account
+        ['POST /credits/ad', 'JWT'],             // credits for an ad: an account's too
         ['GET /rooms', 'NONE'],                  // from here the function checks the token itself, a Cognito one or a guest's
         ['GET /rooms/{proxy+}', 'NONE'],
         ['POST /rooms/{proxy+}', 'NONE'],

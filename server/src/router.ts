@@ -1,4 +1,4 @@
-import type { CommandRequest, CreateRoomRequest, JoinRequest, ApiError, PlaybackRequest, ReportRequest } from '../../src/online/protocol';
+import type { AdRequest, CommandRequest, CreateRoomRequest, JoinRequest, ApiError, PlaybackRequest, ReportRequest } from '../../src/online/protocol';
 import type { RoomService } from './service';
 import { clientKey, type RateLimiter } from './ratelimit';
 import { stockSitesOf, type StockProviders } from './stock';
@@ -31,7 +31,10 @@ const STATUS: Record<ApiError, number> = {
   'bad-request': 400,
   'not-found': 404,
   expired: 410,
-  quota: 429,
+  'no-credits': 402,
+  'plan-required': 403,
+  'ad-refused': 409,
+  'ads-off': 503,
   limit: 409,
   full: 409,
   'rate-limited': 429,
@@ -47,7 +50,6 @@ const STATUS: Record<ApiError, number> = {
   removed: 403,
   rejected: 422,
   paused: 503,
-  'video-off': 503,
   'too-big': 413,
   unreadable: 422,
   'stock-off': 503,
@@ -155,6 +157,11 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
     }
     // a player whom the operator has stopped can still see and delete what is theirs (above), and nothing else
     if (await service.isBanned(player.id)) return { status: 403, body: { ok: false, error: 'banned' } };
+    // a rewarded ad that was watched in a mobile app: credits for it, if the account is owed them (the account decides: see `claimAd`)
+    if (parts[0] === 'credits' && parts[1] === 'ad' && parts.length === 2 && req.method === 'POST') {
+      const body = json<AdRequest>(req);
+      return body ? reply(await service.claimAd(player, body)) : bad;
+    }
     if (parts[0] === 'join' && req.method === 'POST') {
       const body = json<JoinRequest>(req);
       if (!body) return bad;

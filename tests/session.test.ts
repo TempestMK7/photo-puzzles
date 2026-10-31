@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Offline } from '../src/online/api';
 import { GuestAccount } from '../src/online/guestAccount';
 import type { Account } from '../src/online/identity';
-import type { ApiFailure, MeResponse } from '../src/online/protocol';
+import { GUEST_ACCOUNT, type ApiFailure, type MeResponse } from '../src/online/protocol';
 import { OnlineSession, type ProfileApi } from '../src/online/session';
 
 class MemoryStorage implements Storage {
@@ -41,14 +41,14 @@ function setup(opts: { account?: boolean; storage?: Storage } = {}) {
       server.calls.push('me');
       if (server.down) return { ok: false, error: 'offline' };
       const id = session.who()?.id ?? '';
-      return { ok: true, id, name: server.names.get(id) ?? null, guest: session.kind() === 'guest' };
+      return { ok: true, id, name: server.names.get(id) ?? null, guest: session.kind() === 'guest', account: GUEST_ACCOUNT };
     },
     async setName(name: string): Promise<MeResponse | ApiFailure | Offline> {
       server.calls.push(`setName ${name}`);
       if (server.down) return { ok: false, error: 'offline' };
       const id = session.who()!.id;
       server.names.set(id, name);
-      return { ok: true, id, name, guest: session.kind() === 'guest' };
+      return { ok: true, id, name, guest: session.kind() === 'guest', account: GUEST_ACCOUNT };
     },
   };
   session.attach(api);

@@ -74,7 +74,7 @@ describe('DynamoStore', () => {
   });
 
   it('does not count a room whose time has passed as one of the player\'s (its membership is still there for hours)', async () => {
-    const { w } = dynamoWorld({ freeRoomsPerWeek: 50 });
+    const { w } = dynamoWorld({});
     await open(w);
     expect(await w.store.roomsOf('ann')).toHaveLength(1);
     w.clock.t += DAY + 1000;
@@ -93,16 +93,21 @@ describe('DynamoStore', () => {
     expect(await w.store.roomOfCode('12345')).toBeUndefined();
   });
 
-  it('counts the puzzles made in the week for the quota', async () => {
+  it('keeps an account, and lets only one of two writers have the next revision', async () => {
     const { w } = dynamoWorld();
-    for (const t of [10_000, 20_000, 20_000, 900_000]) await w.store.addCreation('ann', t);
-    await w.store.addCreation('bob', 30_000);
-    expect((await w.store.creationsSince('ann', 15_000)).sort()).toEqual([20_000, 20_000, 900_000]);
-    expect(await w.store.creationsSince('ann', 900_000)).toEqual([]);
+    const a = { id: 'ann', type: 'free' as const, photo: 5, video: 0, adDay: '1970-01-01', photoAds: 0, videoAds: 0, createdAt: 1, rev: 0 };
+    expect(await w.store.getAccount('ann')).toBeUndefined();
+    expect(await w.store.putAccount(a)).toBe(true);
+    expect(await w.store.putAccount(a)).toBe(false);                                   // made already
+    expect(await w.store.putAccount({ ...a, photo: 4, rev: 1 })).toBe(true);
+    expect(await w.store.putAccount({ ...a, photo: 3, rev: 1 })).toBe(false);          // the other writer got there first
+    expect(await w.store.getAccount('ann')).toMatchObject({ photo: 4, rev: 1 });
+    await w.store.forgetPlayer('ann');
+    expect(await w.store.getAccount('ann')).toBeUndefined();
   });
 
   it('lists every room in a scan', async () => {
-    const { w } = dynamoWorld({ freeRoomsPerWeek: 50 });
+    const { w } = dynamoWorld({});
     for (let i = 0; i < 4; i++) await open(w);
     expect(await w.store.allRooms()).toHaveLength(4);
   });
@@ -138,7 +143,7 @@ describe('CognitoAccounts', () => {
 
 describe("the operator's function", () => {
   it('reads reports, shows and ends a puzzle, bans and lifts a ban, and refuses what it does not know', async () => {
-    const { w } = dynamoWorld({ freeRoomsPerWeek: 50 });
+    const { w } = dynamoWorld({});
     const admin = makeAdmin(w.service);
     const made = await open(w);
     await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret });

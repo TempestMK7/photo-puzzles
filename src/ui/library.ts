@@ -23,6 +23,8 @@ export interface LibraryDeps {
   onOnline?: () => void;
   /** The round badge for the profile, at the end of the top bar (only in a build that has online play). */
   badge?: HTMLElement;
+  /** The photo and video credit counters, after the title (only in a build that has online play). */
+  credits?: HTMLElement;
   /** The address of the game's server, which has the stock library: without one the "Stock Files" tab is not offered. */
   stockBase?: string;
 }
@@ -179,6 +181,7 @@ export class LibraryScreen {
         'header',
         { class: 'bar' },
         h('h1', {}, 'PuzzleVidio'),
+        ...(deps.credits ? [deps.credits] : []),
         ...(deps.onOnline ? [h('button', { type: 'button', class: 'progress-btn friends', title: 'Play a Jigsaw together over the internet', onclick: () => deps.onOnline!() }, 'Play with friends')] : []),
         this.progressBtn,
         ...(deps.badge ? [deps.badge] : []),

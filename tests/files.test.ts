@@ -3,7 +3,7 @@ import { PROTOCOL_VERSION, type CreateRoomRequest } from '../src/online/protocol
 import { DynamoStore } from '../server/src/aws/dynamo';
 import { MemoryStore } from '../server/src/memory';
 import { FakeDynamo } from './helpers/fakeDynamo';
-import { ann, bob, cy, DAY, jpeg, joined, open, request, world as makeWorld, type MakeStore, type World } from './helpers/world';
+import { ann, bob, cy, DAY, jpeg, joined, open, paid, request, world as makeWorld, type MakeStore, type World } from './helpers/world';
 
 // A picture that has been sent and checked is kept for a week after it was last used, so that a puzzle can be made from it again without sending it: the same on both stores.
 const stores: [string, MakeStore][] = [
@@ -81,16 +81,17 @@ describe.each(stores)('kept files on %s', (_name, store) => {
       expect(room.settings).toMatchObject({ width: 400, height: 300 });
     });
 
-    it('counts as one of the three puzzles a week, like any other', async () => {
-      const w = world();
-      const { fileId } = await sent(w);
+    it('costs a photo credit, like any other puzzle', async () => {
+      const w = world({ freePhotoCredits: 3 });
+      const { fileId } = await sent(w);                                   // (the first puzzle was the first credit)
       expect((await w.service.createRoom(ann, again(fileId))).ok).toBe(true);
       expect((await w.service.createRoom(ann, again(fileId))).ok).toBe(true);
-      expect(await w.service.createRoom(ann, again(fileId))).toMatchObject({ ok: false, error: 'quota' });
+      expect(await w.service.createRoom(ann, again(fileId))).toMatchObject({ ok: false, error: 'no-credits', credits: 'photo' });
+      expect((await w.store.getFile(fileId))?.usedAt).toBe(START);       // a puzzle that was not made did not use the file
     });
 
     it('keeps the file another week from the day it is used', async () => {
-      const w = world({ freeRoomsPerWeek: 99 });
+      const w = world({});
       const { fileId } = await sent(w);
       w.clock.t = START + 6 * DAY;
       expect((await w.service.createRoom(ann, again(fileId))).ok).toBe(true);
@@ -100,7 +101,7 @@ describe.each(stores)('kept files on %s', (_name, store) => {
     });
 
     it('is gone a week after it was last used, and the picture with it', async () => {
-      const w = world({ freeRoomsPerWeek: 99 });
+      const w = world({});
       const { fileId } = await sent(w);
       w.clock.t = START + 7 * DAY - 1;
       expect((await w.service.createRoom(ann, again(fileId))).ok).toBe(true);                // just in time
@@ -111,7 +112,7 @@ describe.each(stores)('kept files on %s', (_name, store) => {
     });
 
     it('is kept for as long as puzzles keep being made from it (there is no longest)', async () => {
-      const w = world({ freeRoomsPerWeek: 99, activeRoomsPerPlayer: 99 });
+      const w = world({ activeRoomsPerPlayer: 99 });
       const { fileId } = await sent(w);
       for (let day = 5; day <= 100; day += 5) {
         w.clock.t = START + day * DAY;
@@ -123,7 +124,7 @@ describe.each(stores)('kept files on %s', (_name, store) => {
     });
 
     it('stays open to a player who joined, for as long as the file is kept (their entry is put forward with it)', async () => {
-      const w = world({ freeRoomsPerWeek: 99, activeRoomsPerPlayer: 99 });
+      const w = world({ activeRoomsPerPlayer: 99 });
       const { fileId, made } = await sent(w);
       await joined(w, made, bob);
       for (let day = 5; day <= 30; day += 5) {
@@ -153,7 +154,7 @@ describe.each(stores)('kept files on %s', (_name, store) => {
     });
 
     it('is only for the player who sent it and the players who joined a puzzle made from it', async () => {
-      const w = world({ freeRoomsPerWeek: 99 });
+      const w = world({});
       const { fileId, made } = await sent(w);
       expect(await w.service.createRoom(bob, again(fileId))).toEqual({ ok: false, error: 'unauthorized' });
       expect(await w.store.allRooms().then((r) => r.length)).toBe(1);
@@ -164,7 +165,7 @@ describe.each(stores)('kept files on %s', (_name, store) => {
     });
 
     it('lets someone who joined a puzzle that was itself made from the file use it too', async () => {
-      const w = world({ freeRoomsPerWeek: 99 });
+      const w = world({});
       const { fileId } = await sent(w);
       const second = await w.service.createRoom(ann, again(fileId));
       if (!second.ok) throw new Error();
@@ -189,12 +190,12 @@ describe.each(stores)('kept files on %s', (_name, store) => {
     });
 
     it('still honours the rules of making a puzzle: a paused service, the old version, too many puzzles', async () => {
-      const w = world({ freeRoomsPerWeek: 99, activeRoomsPerPlayer: 1 });
+      const w = world({ activeRoomsPerPlayer: 1 });
       const { fileId } = await sent(w);
       expect(await w.service.createRoom(ann, again(fileId))).toMatchObject({ ok: false, error: 'limit' });
       expect(await w.service.createRoom(ann, { ...again(fileId), protocol: 0 })).toMatchObject({ ok: false, error: 'update-required' });
       expect(await w.service.createRoom(ann, { ...again(fileId), consent: false as unknown as true })).toMatchObject({ ok: false, error: 'bad-request' });
-      expect(await makeWorld({ freeRoomsPerWeek: 0 }, store).service.createRoom(ann, again(fileId))).toMatchObject({ ok: false, error: 'paused' });
+      expect(await makeWorld({ hostingPaused: 1 }, store).service.createRoom(ann, again(fileId))).toMatchObject({ ok: false, error: 'paused' });
       expect(await w.store.getFile(fileId)).toMatchObject({ usedAt: START });
     });
 
@@ -208,6 +209,7 @@ describe.each(stores)('kept files on %s', (_name, store) => {
   describe('a video', () => {
     const videoRequest = (extra: Partial<CreateRoomRequest> = {}): CreateRoomRequest => request({}, { video: { type: 'video/mp4', bytes: 5000, ms: 12_000 }, ...extra });
     async function sentVideo(w: World) {
+      await paid(w);
       const res = await w.service.createRoom(ann, videoRequest());
       if (!res.ok) throw new Error(res.error);
       await w.media.put(res.roomId, MP4(5000), 'video/mp4');
@@ -218,7 +220,7 @@ describe.each(stores)('kept files on %s', (_name, store) => {
     }
 
     it('is kept when it has passed, and a puzzle can be made from it again, playing from the start', async () => {
-      const w = world({ freeRoomsPerWeek: 99, videoRoomsPerWeek: 99 });
+      const w = world({});
       const { res, fileId } = await sentVideo(w);
       expect(await w.store.getFile(fileId)).toMatchObject({ type: 'video', mime: 'video/mp4', bytes: 5000, video: { type: 'video/mp4', bytes: 5000, ms: 12_000 } });
       await w.service.close(ann, res.roomId);
@@ -237,27 +239,28 @@ describe.each(stores)('kept files on %s', (_name, store) => {
       expect((await w.store.allFiles()).length).toBe(1);
     });
 
-    it('is still a video puzzle: switched off, or over the limits, it is not made', async () => {
-      const w = world({ freeRoomsPerWeek: 99, videoRoomsPerWeek: 99 });
+    it('is still a video puzzle: for a paid account, with video credits, and within the limits', async () => {
+      const w = world({});
       const { fileId } = await sentVideo(w);
-      (w.service as unknown as { d: { limits: { videoRoomsPerWeek: number; videoMs: number } } }).d.limits.videoRoomsPerWeek = 0;                 // (the operator switches them off)
-      expect(await w.service.createRoom(ann, again(fileId))).toEqual({ ok: false, error: 'video-off' });
-      (w.service as unknown as { d: { limits: { videoRoomsPerWeek: number; videoMs: number } } }).d.limits.videoRoomsPerWeek = 99;
-      (w.service as unknown as { d: { limits: { videoRoomsPerWeek: number; videoMs: number } } }).d.limits.videoMs = 10_000;                           // (or makes them shorter than this one)
+      await w.service.adminSetAccount('ann', { type: 'free' });                                  // (the account is no longer a paid one)
+      expect(await w.service.createRoom(ann, again(fileId))).toEqual({ ok: false, error: 'plan-required' });
+      await w.service.adminSetAccount('ann', { type: 'paid' });
+      (w.service as unknown as { d: { limits: { videoMs: number } } }).d.limits.videoMs = 10_000;                           // (or the operator makes them shorter than this one)
       expect(await w.service.createRoom(ann, again(fileId))).toEqual({ ok: false, error: 'too-big' });
-      const tight = world({ freeRoomsPerWeek: 99, videoRoomsPerWeek: 1 });
+      const tight = world({});
       const second = await sentVideo(tight);
-      expect(await tight.service.createRoom(ann, again(second.fileId))).toMatchObject({ ok: false, error: 'quota' });             // the weekly count of videos is its own
+      await tight.service.adminSetAccount('ann', { video: 0 });
+      expect(await tight.service.createRoom(ann, again(second.fileId))).toMatchObject({ ok: false, error: 'no-credits', credits: 'video' });
     });
 
-    it('is not kept when an administrator made it without the check', async () => {
+    it('is kept, marked as not looked at, when an administrator made it without the check', async () => {
       const w = world();
       const admin = { ...ann, admin: true as const };
       const res = await w.service.createRoom(admin, videoRequest());
       if (!res.ok) throw new Error();
       await w.media.put(res.roomId, MP4(5000), 'video/mp4');
       expect(await w.service.checkVideo(admin, res.roomId)).toEqual({ ok: true, state: 'ready' });
-      expect(await w.store.allFiles()).toEqual([]);
+      expect(await w.store.allFiles()).toMatchObject([{ type: 'video', ownerId: 'ann', unchecked: true }]);
     });
   });
 
@@ -276,7 +279,7 @@ describe.each(stores)('kept files on %s', (_name, store) => {
     });
 
     it('goes with the account that sent it, and with a ban (but not with the player who only joined)', async () => {
-      const w = world({ freeRoomsPerWeek: 99 });
+      const w = world({});
       const mine = await sent(w);
       const bobs = await sent(w, bob);
       await joined(w, bobs.made, ann);
@@ -290,7 +293,7 @@ describe.each(stores)('kept files on %s', (_name, store) => {
     });
 
     it('is deleted when the operator ends a puzzle for its picture, but not when the owner closes the puzzle', async () => {
-      const w = world({ freeRoomsPerWeek: 99 });
+      const w = world({});
       const { fileId, roomId } = await sent(w);
       await w.service.close(ann, roomId);
       expect(await w.store.getFile(fileId)).toBeDefined();
@@ -303,7 +306,7 @@ describe.each(stores)('kept files on %s', (_name, store) => {
     });
 
     it('is deleted by the operator, who also ends the puzzles that were made from it', async () => {
-      const w = world({ freeRoomsPerWeek: 99 });
+      const w = world({});
       const { fileId, roomId } = await sent(w);
       const second = await w.service.createRoom(ann, again(fileId));
       const other = await open(w, bob);
@@ -320,7 +323,7 @@ describe.each(stores)('kept files on %s', (_name, store) => {
 
   describe('the operator looks through them', () => {
     it('lists them newest first with the owner, the size and an address, a page at a time', async () => {
-      const w = world({ freeRoomsPerWeek: 99, activeRoomsPerPlayer: 99 });
+      const w = world({ activeRoomsPerPlayer: 99 });
       await w.store.setName('ann', 'Annie');
       const ids: string[] = [];
       for (let i = 0; i < 65; i++) {

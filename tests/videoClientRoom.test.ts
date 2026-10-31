@@ -5,7 +5,7 @@ import { PROTOCOL_VERSION, type RoomDescriptor } from '../src/online/protocol';
 import type { Connection, Realtime, RealtimeHandlers } from '../src/online/realtime';
 import { OnlineRoom, type RoomView } from '../src/online/room';
 import type { Player } from '../server/src/types';
-import { ann, bob, joined, request, world, type World } from './helpers/world';
+import { ann, bob, joined, paidWorld as world, request, type World } from './helpers/world';
 
 const mp4 = (n: number): Uint8Array => {
   const b = new Uint8Array(n);

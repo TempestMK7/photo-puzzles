@@ -1,4 +1,6 @@
 import type {
+  AdRequest,
+  AdResponse,
   ApiError,
   ApiFailure,
   CommandResponse,
@@ -86,6 +88,11 @@ export class OnlineApi implements RoomApi {
 
   createRoom(req: Omit<CreateRoomRequest, 'protocol'>): Promise<CreateRoomResponse | ApiFailure | Offline> {
     return this.call('POST', '/rooms', { protocol: PROTOCOL_VERSION, ...req });
+  }
+
+  /** A rewarded ad was watched in a mobile app: asks for the credits it is worth (the server decides whether the account is owed them). */
+  claimAd(req: AdRequest): Promise<AdResponse | Offline> {
+    return this.call('POST', '/credits/ad', req);
   }
 
   /** Sends the picture to the address the server gave. */

@@ -64,22 +64,8 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       expect(room.settings.opts).toEqual({ pieces: 100, placed: 0, edges: 0, turning: 1, snap: 0 });
     });
 
-    it('lets a free player make three a week, and tells when the next can be made', async () => {
-      for (let i = 0; i < 3; i++) {
-        const made = await open(w, ann);
-        await w.service.close(ann, made.roomId);                  // closing one does not give the quota back
-        w.clock.t += 1000;
-      }
-      const start = 1_000_000;
-      const fourth = await w.service.createRoom(ann, request());
-      expect(fourth).toMatchObject({ ok: false, error: 'quota', retryAt: start + 7 * DAY });
-      expect((await w.service.createRoom(bob, request())).ok).toBe(true);        // someone else's quota is theirs
-      w.clock.t = start + 7 * DAY + 1;
-      expect((await w.service.createRoom(ann, request())).ok).toBe(true);
-    });
-
     it('lets a player be in five puzzles at a time', async () => {
-      const w2 = world({ freeRoomsPerWeek: 99 });                       // (the quota is three a week: lifted for this check)
+      const w2 = world({});
       for (let i = 0; i < 5; i++) await open(w2, ann);
       expect(await w2.service.createRoom(ann, request())).toMatchObject({ ok: false, error: 'limit' });
       const made = await open(w2, bob);
@@ -152,10 +138,10 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       expect(after.ok && after.room.knocks).toEqual([]);
     });
 
-    it('refuses to make puzzles when the operator has set the weekly number to 0', async () => {
-      const x = makeWorld({ freeRoomsPerWeek: 0 }, store);
+    it('refuses to make puzzles when the operator has switched hosting off', async () => {
+      const x = makeWorld({ hostingPaused: 1 }, store);
       expect(await x.service.createRoom(ann, request())).toMatchObject({ ok: false, error: 'paused' });
-      expect(await x.store.creationsSince('ann', 0)).toEqual([]);                      // nothing was made or counted
+      expect(await x.store.getAccount('ann')).toBeUndefined();                         // nothing was made, spent or counted
       expect(x.media.has('anything')).toBe(false);
     });
 
@@ -421,7 +407,7 @@ describe.each(stores)('the room service on %s', (_name, store) => {
     });
 
     it('bans a player: they leave every puzzle, the ones they made end, and it holds until it is lifted (an account that is deleted stays banned)', async () => {
-      const w = worldOf({ freeRoomsPerWeek: 50 });
+      const w = worldOf({});
       const mine = await open(w, bob);
       await joined(w, mine, ann);
       const theirs = await open(w, ann);
@@ -531,9 +517,9 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       expect((await w.service.join(cy, { protocol: PROTOCOL_VERSION, code: fresh.ok ? fresh.invite.code : '', secret: fresh.ok ? fresh.invite.secret : '' })).ok).toBe(true);          // anyone else still can
     });
 
-    it('forgets a player who asks to go: the puzzles they made end, they leave the others, their name and quota record go, and the account is deleted last', async () => {
+    it('forgets a player who asks to go: the puzzles they made end, they leave the others, their name and account go, and the account is deleted last', async () => {
       const deleted: string[] = [];
-      const x = makeWorld({ freeRoomsPerWeek: 50 }, store, { delete: async (id) => void deleted.push(id) });
+      const x = makeWorld({}, store, { delete: async (id) => void deleted.push(id) });
       const mine = await open(x, ann);
       await joined(x, mine, bob);
       const theirs = await open(x, bob);
@@ -551,8 +537,8 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       expect(x.messages(theirs.roomId)).toContainEqual({ t: 'left', id: 'ann' });
       expect(await x.store.roomsOf('ann')).toEqual([]);
       expect(await x.store.getName('ann')).toBeUndefined();
-      expect(await x.store.creationsSince('ann', 0)).toEqual([]);
-      expect(await x.store.creationsSince('bob', 0)).toHaveLength(1);                     // nobody else's record is touched
+      expect(await x.store.getAccount('ann')).toBeUndefined();
+      expect(await x.store.getAccount('bob')).toBeDefined();                              // nobody else's record is touched
       expect(await x.service.deleteAccount(ann)).toEqual({ ok: true });                  // asking again is harmless
     });
 

@@ -3,7 +3,7 @@ import { playbackNow, type CreateRoomRequest, type VideoType } from '../src/onli
 import { looksLike } from '../server/src/service';
 import { createRouter, DevAuth } from '../server/src/router';
 import type { VideoModeration } from '../server/src/types';
-import { ann, bob, jpeg, joined, request, world, type World } from './helpers/world';
+import { ann, bob, jpeg, joined, paid as makePaid, paidWorld as world, request, world as plainWorld, type World } from './helpers/world';
 
 const MP4 = (n: number): Uint8Array => {
   const b = new Uint8Array(n);
@@ -43,10 +43,12 @@ function lookAt(...answers: Awaited<ReturnType<VideoModeration['result']>>[]) {
 }
 
 describe('making a puzzle from a video', () => {
-  it('is switched off until the operator sets a limit', async () => {
-    const w = world({ videoRoomsPerWeek: 0 });
-    expect(await w.service.createRoom(ann, videoRequest())).toEqual({ ok: false, error: 'video-off' });
-    expect((await w.service.createRoom(ann, request())).ok).toBe(true);                               // pictures are as before
+  it('is for paid accounts: a free account is told so, and its pictures are as before', async () => {
+    const w = plainWorld();
+    expect(await w.service.createRoom(ann, videoRequest())).toEqual({ ok: false, error: 'plan-required' });
+    expect((await w.service.createRoom(ann, request())).ok).toBe(true);
+    await makePaid(w);
+    expect((await w.service.createRoom(ann, videoRequest())).ok).toBe(true);
   });
 
   it('gives the creator a place to send the file, and the puzzle cannot be joined until it has arrived and been checked', async () => {
@@ -65,8 +67,8 @@ describe('making a puzzle from a video', () => {
     expect(room.playback).toMatchObject({ pos: 0, paused: false });
   });
 
-  it('takes only MP4 and MOV, nothing too long or too large, and counts videos by themselves', async () => {
-    const w = world({ videoRoomsPerWeek: 1, freeRoomsPerWeek: 3 });
+  it('takes only MP4 and MOV, and nothing too long or too large', async () => {
+    const w = world();
     expect(await w.service.createRoom(ann, videoRequest({ bytes: 1_000_001 }))).toEqual({ ok: false, error: 'too-big' });
     expect(await w.service.createRoom(ann, videoRequest({ ms: 30_001 }))).toEqual({ ok: false, error: 'too-big' });
     expect(await w.service.createRoom(ann, videoRequest({ type: 'video/webm' as VideoType }))).toEqual({ ok: false, error: 'bad-request' });          // it cannot be checked
@@ -75,16 +77,6 @@ describe('making a puzzle from a video', () => {
     expect(await w.service.createRoom(ann, videoRequest({ bytes: 0 }))).toEqual({ ok: false, error: 'bad-request' });
     expect(await w.service.createRoom(ann, videoRequest({ ms: Number.NaN }))).toEqual({ ok: false, error: 'bad-request' });
     expect((await w.service.createRoom(ann, videoRequest({ type: 'video/quicktime' }))).ok).toBe(true);
-    const again = await w.service.createRoom(ann, videoRequest());
-    expect(again).toMatchObject({ ok: false, error: 'quota' });                                      // one video a week
-    expect((await w.service.createRoom(ann, request())).ok).toBe(true);                               // and the pictures still have their own three
-  });
-
-  it('forgets the count of videos when the account is deleted', async () => {
-    const w = world({ videoRoomsPerWeek: 1 });
-    expect((await w.service.createRoom(ann, videoRequest())).ok).toBe(true);
-    await w.service.deleteAccount(ann);
-    expect(await w.store.creationsSince('video#ann', 0)).toEqual([]);
   });
 
   it('ends the puzzle, with its file, when the file is not what was said', async () => {
@@ -136,7 +128,7 @@ describe('the look at the whole video', () => {
         return { state: 'done', ok: true };
       },
     };
-    const w = world({ videoRoomsPerWeek: 2 }, undefined, undefined, undefined, undefined, check);
+    const w = world({}, undefined, undefined, undefined, undefined, check);
     const stock = await made(w, videoRequest({}, { stock: true }));
     await w.service.checkVideo(ann, stock.roomId);
     await w.service.checkVideo(ann, stock.roomId);
@@ -203,7 +195,7 @@ describe('the video of an administrator', () => {
   const huge = (over: Partial<NonNullable<CreateRoomRequest['video']>> = {}) => videoRequest({ bytes: 5000, ms: 12_000, ...over });
 
   it('is not held to the size and length limits, which anyone else is', async () => {
-    const w = world({ videoBytes: 1000, videoMs: 5000, videoRoomsPerWeek: 5 });
+    const w = world({ videoBytes: 1000, videoMs: 5000 });
     expect(await w.service.createRoom(ann, huge())).toEqual({ ok: false, error: 'too-big' });
     expect((await w.service.createRoom(root, huge({ bytes: 200_000_000, ms: 600_000 }))).ok).toBe(true);
     expect(await w.service.createRoom(root, huge({ bytes: 5_000_000_001 }))).toEqual({ ok: false, error: 'too-big' });          // storage takes at most 5 GB at once
@@ -211,7 +203,7 @@ describe('the video of an administrator', () => {
 
   it('is not looked at by the automatic check, but the file is still the one that was said', async () => {
     const look = lookAt({ state: 'done', ok: false, label: 'Explicit' });
-    const w = world({ videoRoomsPerWeek: 5 }, undefined, undefined, undefined, undefined, look.check);
+    const w = world({}, undefined, undefined, undefined, undefined, look.check);
     const res = await w.service.createRoom(root, huge());
     if (!res.ok) throw new Error(res.error);
     await w.media.put(res.roomId, MP4(4999), 'video/mp4');
@@ -351,11 +343,11 @@ describe('the video routes of the API', () => {
     expect(res.body).toEqual({ ok: false, error: 'unreadable' });
   });
 
-  it('answers a switched-off or oversized video with the status the game reads', async () => {
-    const off = world({ videoRoomsPerWeek: 0 });
+  it('answers a free account\u2019s video, or an oversized one, with the status the game reads', async () => {
+    const off = plainWorld();
     const route = createRouter({ service: off.service, auth: new DevAuth(), media: off.media });
     const create = (video: unknown) => route({ method: 'POST', path: '/rooms', query: new URLSearchParams(), authorization: 'Bearer dev:ann:Ann', body: new TextEncoder().encode(JSON.stringify(request({}, { video } as Partial<CreateRoomRequest>))) });
-    expect((await create({ type: 'video/mp4', bytes: 5, ms: 5 })).status).toBe(503);
+    expect((await create({ type: 'video/mp4', bytes: 5, ms: 5 })).status).toBe(403);
     const on = world();
     const route2 = createRouter({ service: on.service, auth: new DevAuth(), media: on.media });
     const big = await route2({ method: 'POST', path: '/rooms', query: new URLSearchParams(), authorization: 'Bearer dev:ann:Ann', body: new TextEncoder().encode(JSON.stringify(videoRequest({ bytes: 2_000_000 }))) });

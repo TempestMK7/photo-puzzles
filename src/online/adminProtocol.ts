@@ -1,4 +1,5 @@
 // What the admin page (src/admin/) and the admin routes of the API (server/src/adminweb.ts) say to each other. No browser or Node dependencies, like protocol.ts.
+import type { AccountType } from './protocol';
 
 /** The Cognito group whose members may use the admin page. */
 export const ADMIN_GROUP = 'admins';
@@ -15,6 +16,10 @@ export interface AdminPlayer {
   status: string;
   enabled: boolean;
   banned: boolean;
+  /** What kind of account it is and the credits it holds (see `AccountType`): the page can change them. */
+  type: AccountType;
+  photo: number;
+  video: number;
 }
 
 /** A puzzle that exists now, as the admin page lists it. */

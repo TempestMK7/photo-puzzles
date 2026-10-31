@@ -7,12 +7,22 @@ import {
   cleanNote,
   inviteLink,
   normalizeCode,
+  ACCOUNT_TYPES,
+  adGives,
+  mayStartVideos,
+  photosAreFree,
   PROTOCOL_VERSION,
   REPORT_REASONS,
+  skipsTheCheck,
+  videosAreFree,
   secretFrom,
   topics,
   VIDEO_TYPES,
   type ApiError,
+  type AccountSummary,
+  type AccountType,
+  type AdRequest,
+  type AdResponse,
   type ApiFailure,
   type CommandRequest,
   type CommandResponse,
@@ -31,10 +41,11 @@ import {
   type ReportRequest,
   type RoomSummary,
 } from '../../src/online/protocol';
+import { adsToday, dayOf, GUEST_SUMMARY, newAccount, summaryOf } from './accounts';
 import { sniffImage } from './image';
 import type { AdminFile, AdminRoomSummary } from '../../src/online/adminProtocol';
 import { playedMs } from './played';
-import type { Accounts, Clock, FileRecord, Limits, Media, Moderation, Player, Presence, PubSub, Random, Report, RoomRecord, Store, VideoModeration } from './types';
+import type { AccountRecord, Accounts, AdVerifier, Clock, FileRecord, Limits, Media, Moderation, Player, Presence, PubSub, Random, Report, RoomRecord, Store, VideoModeration } from './types';
 
 export interface Deps {
   store: Store;
@@ -54,16 +65,15 @@ export interface Deps {
   videoModeration?: VideoModeration;
   /** Tells the operator something (an e-mail, in the cloud). Nothing for a server that has nobody to tell. */
   notify?: (text: string) => Promise<void>;
+  /** Checks with the ad network that a rewarded ad was watched. Nothing for a server that cannot: then an ad counts only if the limit `adsTrusted` says to take the game's word. */
+  ads?: AdVerifier;
 }
 
-const WEEK = 7 * 24 * 3600 * 1000;
 const DAY = 24 * 3600 * 1000;
 /** The record of who may use a file outlives the file by this much at most (it is only looked at once the file is found). */
 const FILE_USER_SLACK_MS = 2 * DAY;
 /** A page of the operator's list of files. */
 const ADMIN_FILES_PAGE = 60;
-/** The quota of video puzzles is counted under another name than the picture puzzles' (their records are kept the same way). */
-const videoKey = (playerId: string): string => `video#${playerId}`;
 /** The largest video an administrator may send: storage takes a file of up to 5 GB in one request. */
 const ADMIN_VIDEO_BYTES = 5_000_000_000;
 /** How many bytes at the start of a stored video are read to tell what kind of file it is. */
@@ -104,7 +114,7 @@ export class RoomService {
 
   /** What the server knows about the player: the name they chose, if they have. (The token only says who they are.) */
   async profile(player: Player): Promise<MeResponse> {
-    return { ok: true, id: player.id, name: (await this.d.store.getName(player.id)) ?? null, guest: player.guest === true };
+    return { ok: true, id: player.id, name: (await this.d.store.getName(player.id)) ?? null, guest: player.guest === true, account: await this.summary(player) };
   }
 
   async setProfile(player: Player, name: unknown): Promise<MeResponse | ApiFailure> {
@@ -123,7 +133,6 @@ export class RoomService {
     await this.releaseRooms(player);
     await this.releaseFiles(player.id);
     await store.forgetPlayer(player.id);
-    await store.forgetPlayer(videoKey(player.id));
     if (accounts && !player.guest) {
       try {
         await accounts.delete(player.id);
@@ -326,19 +335,158 @@ export class RoomService {
     return name ? { ...player, name } : player;
   }
 
+  // ---------------------------------------------------------------------------------------------------------------- accounts and credits
+
+  /** The account's record: made (a free account with its starting credits) the first time it is asked about. */
+  private async accountOf(playerId: string): Promise<AccountRecord> {
+    const { store, limits, clock } = this.d;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const had = await store.getAccount(playerId);
+      if (had) return had;
+      await store.putAccount(newAccount(playerId, limits, clock.now()));                 // (false: someone else made it first: read it again)
+    }
+    throw new Error(`the account of ${playerId} could not be made`);
+  }
+
+  /** The type that counts: the administrators' group (the token says so) makes an account an admin whatever its record says. */
+  private typeOf(player: Player, account: AccountRecord): AccountType {
+    return player.admin ? 'admin' : account.type;
+  }
+
+  /** Where the player stands: a guest has nothing. */
+  async summary(player: Player): Promise<AccountSummary> {
+    if (player.guest) return GUEST_SUMMARY;
+    const account = await this.accountOf(player.id);
+    return summaryOf(this.typeOf(player, account), account, this.d.limits, this.d.clock.now());
+  }
+
+  /** Changes an account and writes it, again from the start if someone else wrote in between. `fn` returns the account to write, or a failure (then nothing is written). */
+  private async changeAccount(playerId: string, fn: (account: AccountRecord) => AccountRecord | ApiFailure): Promise<{ account: AccountRecord } | ApiFailure> {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const account = await this.accountOf(playerId);
+      const next = fn({ ...account });
+      if ('ok' in next) return next;
+      next.rev = account.rev + 1;
+      if (await this.d.store.putAccount(next)) return { account: next };
+    }
+    return fail('busy');
+  }
+
+  /** Why an ad cannot be counted for this account now, or nothing if it can. The count of ads is of today's (a new day starts it again). */
+  private adRefusal(type: AccountType, account: AccountRecord, kind: 'photo' | 'video'): ApiFailure | null {
+    const { limits, clock } = this.d;
+    if (!adGives(type, kind)) return fail('ad-refused', { reason: 'plan' });
+    if (account[kind] > 0) return fail('ad-refused', { reason: 'has-credits' });                       // only when there are none left
+    const used = adsToday(account, clock.now())[kind];
+    if (used >= (kind === 'photo' ? limits.adsPerDay : limits.videoAdsPerDay)) return fail('ad-refused', { reason: 'daily-limit' });
+    return null;
+  }
+
+  /**
+   * A rewarded ad was watched in one of the mobile apps (Steam, itch and the web have none): a free account gets photo credits for it and a paid one video credits, but only when it has
+   * none left, and only so many a day. The server cannot see the ad: it asks the ad network (`Deps.ads`) when it can, and otherwise believes the game only if the operator has said
+   * so (`adsTrusted`), which is for trying things out.
+   */
+  async claimAd(player: Player, req: AdRequest): Promise<AdResponse> {
+    if (player.guest) return fail('account-required');
+    if (!req || (req.kind !== 'photo' && req.kind !== 'video')) return fail('bad-request');
+    const { limits, clock, ads } = this.d;
+    const refuse = async (f: ApiFailure): Promise<ApiFailure> => ({ ...f, account: await this.summary(player) });
+    if (req.platform !== 'android' && req.platform !== 'ios') return refuse(fail('ad-refused', { reason: 'platform' }));
+    const account = await this.accountOf(player.id);
+    const type = this.typeOf(player, account);
+    const early = this.adRefusal(type, account, req.kind);
+    if (early) return refuse(early);
+    if (ads) {
+      if (!(await ads.verify(req.kind, req.platform, typeof req.proof === 'string' ? req.proof.slice(0, 2000) : undefined, player.id))) return refuse(fail('ad-refused', { reason: 'unverified' }));
+    } else if (!(limits.adsTrusted > 0)) return fail('ads-off');
+    const done = await this.changeAccount(player.id, (a) => {
+      const now = clock.now();
+      if (a.adDay !== dayOf(now)) Object.assign(a, { adDay: dayOf(now), photoAds: 0, videoAds: 0 });
+      const again = this.adRefusal(type, a, req.kind);                                                  // (it may have changed while the ad network was asked)
+      if (again) return again;
+      if (req.kind === 'photo') {
+        a.photo += limits.adPhotoCredits;
+        a.photoAds++;
+      } else {
+        a.video += limits.adVideoCredits;
+        a.videoAds++;
+      }
+      return a;
+    });
+    if ('error' in done) return done.error === 'ad-refused' ? refuse(done) : done;
+    return { ok: true, account: summaryOf(type, done.account, limits, clock.now()) };
+  }
+
+  /** Takes one credit of the kind, if the account has one. */
+  private spend(playerId: string, kind: 'photo' | 'video'): Promise<{ account: AccountRecord } | ApiFailure> {
+    return this.changeAccount(playerId, (a) => {
+      if (a[kind] < 1) return fail('no-credits', { credits: kind });
+      a[kind]--;
+      return a;
+    });
+  }
+
+  /** Gives back the credit of a puzzle that could not be made after all. */
+  private async refund(playerId: string, kind: 'photo' | 'video'): Promise<void> {
+    await this.changeAccount(playerId, (a) => {
+      a[kind]++;
+      return a;
+    });
+  }
+
+  /** A paid account's payment period has begun (the payments, when they are built, call this): it is given its video credits, which add to what it has and roll over for ever. */
+  async grantPaidPeriod(playerId: string): Promise<void> {
+    await this.changeAccount(playerId, (a) => {
+      a.video += this.d.limits.paidVideoCredits;
+      return a;
+    });
+  }
+
+  /** For the operator: the type and credits of each of these accounts (an account that has never been asked about shows what it will start with). */
+  async adminAccounts(ids: string[]): Promise<Map<string, { type: AccountType; photo: number; video: number }>> {
+    const out = new Map<string, { type: AccountType; photo: number; video: number }>();
+    for (const id of ids) {
+      const a = await this.d.store.getAccount(id);
+      out.set(id, a ? { type: a.type, photo: a.photo, video: a.video } : { type: 'free', photo: this.d.limits.freePhotoCredits, video: 0 });
+    }
+    return out;
+  }
+
+  /** For the operator: changes an account's type and/or credits (payment is not built: this is how a type is given). Credits are whole numbers from 0 to a million. */
+  async adminSetAccount(id: string, patch: { type?: unknown; photo?: unknown; video?: unknown }): Promise<{ ok: true; account: { type: AccountType; photo: number; video: number } } | ApiFailure> {
+    const credits = (v: unknown) => v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 1_000_000);
+    if (patch.type !== undefined && !(ACCOUNT_TYPES as readonly unknown[]).includes(patch.type)) return fail('bad-request');
+    if (!credits(patch.photo) || !credits(patch.video)) return fail('bad-request');
+    const done = await this.changeAccount(id, (a) => {
+      if (patch.type !== undefined) a.type = patch.type as AccountType;
+      if (patch.photo !== undefined) a.photo = patch.photo as number;
+      if (patch.video !== undefined) a.video = patch.video as number;
+      return a;
+    });
+    if ('error' in done) return done;
+    return { ok: true, account: { type: done.account.type, photo: done.account.photo, video: done.account.video } };
+  }
+
+  /** Whether the account's own record makes it an administrator (the page may then be used without being in the group). */
+  async isAdminAccount(playerId: string): Promise<boolean> {
+    return (await this.d.store.getAccount(playerId))?.type === 'admin';
+  }
+
   // ---------------------------------------------------------------------------------------------------------------- making a room
 
   async createRoom(who: Player, req: CreateRoomRequest): Promise<CreateRoomResponse | ApiFailure> {
     const { store, clock, random, limits } = this.d;
     // a guest may join puzzles but not make them (the cloud's gateway turns a guest's token away before it gets here; this is for any server that does not)
     if (who.guest) return fail('account-required');
-    if (limits.freeRoomsPerWeek <= 0) return fail('paused');                    // the operator has switched the making of puzzles off
+    if (limits.hostingPaused > 0) return fail('paused');                        // the operator has switched the making of puzzles off
     if (req?.protocol !== PROTOCOL_VERSION) return fail('update-required', { protocol: PROTOCOL_VERSION });
     if (req.consent !== true) return fail('bad-request');
     const settings = checkSettings(req.settings, limits);
     if ('ok' in settings) return settings;
+    const record = await this.accountOf(who.id);
+    const type = this.typeOf(who, record);
     let video: RoomRecord['video'];
-    let unchecked = false;
     // a file that is kept already: no picture is sent (or looked at) again. Only the player who sent it, or one who joined a puzzle made from it, may use it
     let file: FileRecord | undefined;
     if (req.fileId !== undefined) {
@@ -346,29 +494,27 @@ export class RoomService {
       file = await this.liveFile(req.fileId);
       if (!file) return fail('file-gone');
       if (file.ownerId !== who.id && !(await store.hasFileUser(file.id, who.id))) return fail('unauthorized');
+      if (file.unchecked && !skipsTheCheck(type)) return fail('unauthorized');                // (it was not looked at: only an account whose own files are not looked at may use it)
       if (settings.width !== file.width || settings.height !== file.height) return fail('file-gone');          // not the picture that is held: it has to be sent
       if (file.video) {
-        if (limits.videoRoomsPerWeek <= 0) return fail('video-off');
+        if (!mayStartVideos(type)) return fail('plan-required');
         if (file.video.bytes > limits.videoBytes || file.video.ms > limits.videoMs) return fail('too-big');
         video = { ...file.video };
       }
     } else if (req.video !== undefined) {
       const v = req.video;
-      if (limits.videoRoomsPerWeek <= 0) return fail('video-off');
+      if (!mayStartVideos(type)) return fail('plan-required');
       if (!v || !(VIDEO_TYPES as readonly unknown[]).includes(v.type) || !Number.isInteger(v.bytes) || v.bytes <= 0 || typeof v.ms !== 'number' || !(v.ms > 0)) return fail('bad-request');
-      // an administrator may try a video of any size that storage takes in one piece (and is not looked at: see `checkVideo`)
-      if (v.bytes > (who.admin ? ADMIN_VIDEO_BYTES : limits.videoBytes) || (!who.admin && v.ms > limits.videoMs)) return fail('too-big');
-      unchecked = who.admin === true;
+      // the operator may try a video of any size that storage takes in one piece
+      if (v.bytes > (type === 'admin' ? ADMIN_VIDEO_BYTES : limits.videoBytes) || (type !== 'admin' && v.ms > limits.videoMs)) return fail('too-big');
       video = { type: v.type, bytes: v.bytes, ms: Math.round(v.ms) };
     }
     const player = await this.named(who);
     const now = clock.now();
-    const recent = (await store.creationsSince(player.id, now - WEEK)).sort((a, b) => a - b);
-    if (recent.length >= limits.freeRoomsPerWeek) return fail('quota', { retryAt: recent[recent.length - limits.freeRoomsPerWeek] + WEEK });
-    if (video) {
-      const videos = (await store.creationsSince(videoKey(player.id), now - WEEK)).sort((a, b) => a - b);
-      if (videos.length >= limits.videoRoomsPerWeek) return fail('quota', { retryAt: videos[videos.length - limits.videoRoomsPerWeek] + WEEK });
-    }
+    // what it costs: a free account pays a photo credit for a picture; a paid one a video credit for a video; the family and the operator nothing (and they are not looked at: see `skipsTheCheck`)
+    const pays: 'photo' | 'video' | null = video ? (videosAreFree(type) ? null : 'video') : photosAreFree(type) ? null : 'photo';
+    const noCredits = async (kind: 'photo' | 'video'): Promise<ApiFailure> => fail('no-credits', { credits: kind, account: await this.summary(who) });
+    if (pays && record[pays] < 1) return noCredits(pays);
     if ((await store.roomsOf(player.id)).length >= limits.activeRoomsPerPlayer) return fail('limit');
 
     const id = secretFrom(random.bytes(16));
@@ -393,7 +539,7 @@ export class RoomService {
       secretHash: await sha256(secret),
       knocks: [],
       video,
-      unchecked: unchecked || undefined,
+      unchecked: skipsTheCheck(type) || undefined,
       strict: req.stock === true || undefined,
       fileId: file?.id,
       ready: !!file,
@@ -404,19 +550,28 @@ export class RoomService {
       state: new JigsawRoom(settings).state(),
       rev: 0,
     };
+    // paid for just before the room is written, so that nothing is lost when something fails before (two puzzles started at once with one credit left: one of them is turned away here)
+    if (pays) {
+      const paid = await this.spend(player.id, pays);
+      if ('error' in paid) {
+        await store.releaseCode(code);
+        if (file) await this.d.media.delete(id);
+        return paid.error === 'no-credits' ? noCredits(pays) : paid;
+      }
+    }
     if (!(await store.putRoom(room))) {
+      if (pays) await this.refund(player.id, pays);
       if (file) await this.d.media.delete(id);
       return fail('limit');
     }
-    await store.addCreation(player.id, now);
-    if (video) await store.addCreation(videoKey(player.id), now);
     const invite = { code, secret, link: inviteLink(this.d.webBase, code, secret) };
+    const account = await this.summary(who);
     if (file) {
       await store.putFile({ ...file, usedAt: now, expiresAt: now + limits.fileKeepMs });          // used: it is kept another week
-      return { ok: true, roomId: id, invite };
+      return { ok: true, roomId: id, invite, account };
     }
     const upload = video ? await this.d.media.videoUpload(id, video.type, video.bytes) : { url: await this.d.media.uploadUrl(id) };
-    return { ok: true, roomId: id, upload, invite };
+    return { ok: true, roomId: id, upload, invite, account };
   }
 
   /** The file, unless it has run out of time (then it is cleared away now: nothing waits for the table's own expiry to make a file stop being used). */
@@ -437,12 +592,12 @@ export class RoomService {
   }
 
   /**
-   * Keeps a copy of the picture or video that has just passed the check, as a file that a puzzle can be made from again (nothing is kept for a puzzle that is not looked at, or when the
-   * operator has switched keeping off). The puzzle goes on without it if it cannot be kept: the owner just has to send it again next time. Returns the file's id.
+   * Keeps a copy of the picture or video that has just passed the check (or that was not looked at: it is marked, and only the family and the operator may make a puzzle from it),
+   * as a file that a puzzle can be made from again (nothing is kept when the operator has switched keeping off). The puzzle goes on without it if it cannot be kept: the owner just has to send it again next time. Returns the file's id.
    */
   private async keep(room: RoomRecord, what: Pick<FileRecord, 'type' | 'mime' | 'bytes' | 'video'>): Promise<string | undefined> {
     const { limits, clock, random, media, store } = this.d;
-    if (room.unchecked || !(limits.fileKeepMs > 0)) return undefined;
+    if (!(limits.fileKeepMs > 0)) return undefined;
     const id = secretFrom(random.bytes(16));
     const now = clock.now();
     try {
@@ -451,6 +606,7 @@ export class RoomService {
         id,
         ownerId: room.ownerId,
         ...what,
+        ...(room.unchecked ? { unchecked: true as const } : {}),
         width: room.settings.width,
         height: room.settings.height,
         createdAt: now,
@@ -482,7 +638,7 @@ export class RoomService {
       await this.cleanup(room, 'owner');                          // not the picture the puzzle was made for: nothing is kept
       return fail('bad-request');
     }
-    if (this.d.moderation) {
+    if (this.d.moderation && !room.unchecked) {
       let verdict: Awaited<ReturnType<Moderation['check']>>;
       try {
         verdict = await this.d.moderation.check(bytes, found.type, room.strict === true);
