@@ -303,6 +303,8 @@ export interface HandMessage {
   dx: number;
   dy: number;
   rot: number;
+  /** The sorting tray the group is over (the pose is then in the tray's space); left out for the table. */
+  tray?: number;
   /** Counts up, so that a late message is not taken for a newer one. */
   n: number;
 }

@@ -76,16 +76,36 @@ export function buildJigsaw(setup: JigsawSetup): JigsawBoard {
  * What a player can do to the board that others must see. A player's screen and the server apply the very same operations with `applyOp`, so that they end up with the same
  * board. (While a piece is being dragged it only moves on the screen of the player who holds it; the operations are what is left when it is let go.)
  */
-export type JigsawOp =
+export type JigsawOp = PieceOp | TrayOp;
+
+/** Making and taking away sorting trays (no piece is named). */
+export type TrayOp =
+  /** A tray is added at the end of the list (it gets the next id, on every screen: a screen that plays with others waits for the room to say so before it applies this). */
+  | { t: 'trayAdd' }
+  /** The tray (which has to be empty) is taken away. */
+  | { t: 'trayRemove'; tray: number };
+
+export type PieceOp =
   /** The group `piece` belongs to is picked up: it goes to the front. (A group is named by one of its pieces: group numbers are not the same on every screen once a puzzle has been saved and loaded again, piece numbers always are.) */
   | { t: 'grab'; piece: number }
-  /** The group is put down where it is (turned `rot` quarter turns, offset (dx, dy)); with `tol` it then joins whatever it lies right against, within that many picture pixels. */
-  | { t: 'drop'; piece: number; dx: number; dy: number; rot: number; tol: number | null }
+  /**
+   * The group is put down where it is (turned `rot` quarter turns, offset (dx, dy)); with `tol` it then joins whatever it lies right against, within that many picture pixels.
+   * With `tray` (the id of a sorting tray) it is put in that tray instead, and the pose is in the tray's space: it joins nothing there. Without it (or -1) it is put on the table.
+   */
+  | { t: 'drop'; piece: number; dx: number; dy: number; rot: number; tol: number | null; tray?: number }
   /** A loose group is turned a quarter turn about its middle; with `tol` it then joins what it lies right against. */
   | { t: 'rotate'; piece: number; tol: number | null };
 
 /** Applies an operation. A piece that is not there, or lies in the picture already, is left alone. Returns the id of the group that now holds the operation's group (-1: none), and how many joins happened. */
 export function applyOp(game: JigsawGame, op: JigsawOp): { id: number; joins: number } {
+  if (op.t === 'trayAdd') {
+    game.addTray();
+    return { id: -1, joins: 0 };
+  }
+  if (op.t === 'trayRemove') {
+    game.removeTray(op.tray);
+    return { id: -1, joins: 0 };
+  }
   if (!Number.isInteger(op.piece) || op.piece < 0 || op.piece >= game.count) return { id: -1, joins: 0 };
   const gid = game.groupOf[op.piece];
   const g = game.groups.get(gid);
@@ -95,12 +115,17 @@ export function applyOp(game: JigsawGame, op: JigsawOp): { id: number; joins: nu
       game.bringToFront(gid);
       return { id: gid, joins: 0 };
     case 'drop':
+      if (op.tray !== undefined && op.tray >= 0 && game.trays.includes(op.tray)) {
+        game.place(gid, op.tray, op.dx, op.dy, op.rot);               // in a tray: it joins nothing
+        return { id: gid, joins: 0 };
+      }
+      g.tray = -1;
       game.setPose(gid, op.dx, op.dy, op.rot);
       return op.tol === null ? { id: gid, joins: 0 } : game.connect(gid, op.tol);
     case 'rotate': {
       const [cx, cy] = game.centre(gid);
       game.rotate(gid, cx, cy);
-      return op.tol === null ? { id: gid, joins: 0 } : game.connect(gid, op.tol);
+      return op.tol === null || g.tray >= 0 ? { id: gid, joins: 0 } : game.connect(gid, op.tol);
     }
   }
 }

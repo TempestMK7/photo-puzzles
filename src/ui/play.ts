@@ -12,7 +12,7 @@ import { needsStill, startSession, type PuzzleSession } from '../sessions';
 import type { OnlineHooks } from '../sessions/types';
 import { openVideo, type PhotoEntry, type PhotoLibrary, type PlaySource } from '../store/photos';
 import type { SaveRecord, SaveStore } from '../store/saves';
-import { h } from './dom';
+import { h, svg } from './dom';
 import { sayError } from './online';
 import { OnlineBar } from './onlinebar';
 import { RefWindow } from './refwindow';
@@ -66,7 +66,10 @@ export class PlayScreen {
     this.zoomLabel,
     h('button', { type: 'button', title: 'Zoom in', 'aria-label': 'Zoom in', onclick: () => this.zoomBy(1.4) }, '+'),
   );
-  private stage = h('div', { class: 'stage' }, this.canvas, this.dialogEl, this.viewBar, this.zoomEl);
+  /** The sorting trays (a Jigsaw): the bar of them at the left, and the title and buttons over the header of the one that is open. */
+  private trayBar = h('nav', { class: 'traybar', hidden: true, 'aria-label': 'Sorting trays' });
+  private trayHead = h('div', { class: 'trayhead', hidden: true });
+  private stage = h('div', { class: 'stage' }, this.canvas, this.dialogEl, this.viewBar, this.zoomEl, this.trayBar, this.trayHead);
   /** The original picture or video in a window of its own, for looking at while solving. */
   private ref = new RefWindow(this.stage, () => this.toggleRef(false));
   private refBtn = h('button', { type: 'button', class: 'toggle', title: 'Look at the original picture', 'aria-pressed': 'false', onclick: () => this.toggleRef() }, 'Original');
@@ -121,6 +124,11 @@ export class PlayScreen {
     if (deps.online) {
       this.bar = new OnlineBar(deps.online.api, () => void this.savePicture());
       this.stage.append(this.bar.el);
+      // the bar of trays lies under the first row of the online bar (which wraps on a narrow screen), whatever its height is
+      const row = this.bar.el.firstElementChild as HTMLElement | null;
+      if (row && typeof ResizeObserver !== 'undefined') {
+        new ResizeObserver(() => this.stage.style.setProperty('--obar', `${row.offsetHeight ? row.offsetHeight + 6 : 0}px`)).observe(row);
+      }
     }
     this.canvas.addEventListener('pointerdown', (e) => this.pointerDown(e));
     this.canvas.addEventListener('pointermove', (e) => this.pointerMove(e));
@@ -396,6 +404,7 @@ export class PlayScreen {
         flag: (key) => this.flag(key),
         requestDraw: () => this.requestDraw(),
         tabsChanged: () => this.refreshTabs(),
+        traysChanged: () => this.refreshTrays(),
         progress: () => this.after(),
       });
     this.session?.dispose?.();
@@ -420,6 +429,7 @@ export class PlayScreen {
     }
     this.buildToggles();
     this.buildTabs();
+    this.refreshTrays();
     this.rotateBtn.hidden = !session.rotatable;
     this.zoomEl.hidden = !session.zoomBy;
     this.touches.clear();
@@ -516,6 +526,7 @@ export class PlayScreen {
       flag: (key) => this.flag(key),
       requestDraw: () => this.requestDraw(),
       progress: () => this.after(),
+      traysChanged: () => this.refreshTrays(),
       online: hooks,
     });
     this.mount(0, false);
@@ -871,6 +882,75 @@ export class PlayScreen {
     if (!this.session.overlay) this.copyFrame();             // (a session that draws on the graphics card takes the video's pictures itself)
     this.syncView();
     if (this.session.draw(this.ctx, this.view, now)) this.requestDraw();
+    this.placeTray();
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- sorting trays
+
+  /** The bar of trays at the left: a tray icon, a button for each tray (open ones lit, with how many pieces lie in it), and a plus to add one. Made again whenever the list changes. */
+  private refreshTrays(): void {
+    const s = this.session;
+    const trays = s?.trays?.();
+    this.trayBar.hidden = !trays;
+    if (!s || !trays) {
+      this.trayHead.hidden = true;
+      return;
+    }
+    const icon = svg('<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M3 13l3-7h12l3 7v6H3z"/><path d="M3 13h5l1 2h6l1-2h5"/></svg>', 'tico');
+    icon.title = 'Sorting trays: put pieces in them to keep them out of the way';
+    const buttons = trays.map((t, i) =>
+      h(
+        'button',
+        { type: 'button', class: `tray${t.open ? ' on' : ''}`, 'aria-pressed': String(t.open), title: `${t.open ? 'Close' : 'Open'} tray ${i + 1}${t.pieces ? ` (${t.pieces} piece${t.pieces === 1 ? '' : 's'})` : ' (empty)'}`, onclick: () => this.openTray(t.id) },
+        h('span', { class: 'tn' }, String(i + 1)),
+        h('span', { class: 'tc' }, t.pieces ? String(t.pieces) : ''),
+      ),
+    );
+    const add = h('button', { type: 'button', class: 'tray add', title: trays.length >= 10 ? 'There are as many trays as there can be' : 'Add a tray', 'aria-label': 'Add a tray', disabled: trays.length >= 10, onclick: () => this.addTray() }, '+');
+    this.trayBar.replaceChildren(icon, ...buttons, add);
+    this.placeTray();
+  }
+
+  private openTray(id: number): void {
+    this.session?.openTray?.(id);
+    this.after();
+  }
+
+  private addTray(): void {
+    this.session?.addTray?.();
+    this.after();
+  }
+
+  /** Puts the title and buttons of the open tray over its header (which the board's canvas leaves empty), or hides them when no tray is open. */
+  private placeTray(): void {
+    const s = this.session;
+    const p = s?.trayPanel?.();
+    if (!s || !p) {
+      this.trayHead.hidden = true;
+      return;
+    }
+    const index = (s.trays?.() ?? []).findIndex((t) => t.id === p.id);
+    const st = this.trayHead.style;
+    st.left = `${p.x}px`;
+    st.top = `${p.y}px`;
+    st.width = `${p.w}px`;
+    st.height = `${p.header}px`;
+    const title = `Tray ${index + 1} · ${p.pieces ? `${p.pieces} piece${p.pieces === 1 ? '' : 's'}` : 'empty'}`;
+    if (this.trayHead.hidden || this.trayHead.dataset.title !== title) {
+      this.trayHead.dataset.title = title;
+      this.trayHead.replaceChildren(
+        h('span', { class: 'tt' }, title),
+        // a tray can be taken away only while nothing lies in it
+        h('button', { type: 'button', class: 'small', hidden: p.pieces > 0, title: 'Take this empty tray away', onclick: () => this.removeTray(p.id) }, 'Remove tray'),
+        h('button', { type: 'button', class: 'small', title: 'Close this tray', 'aria-label': 'Close this tray', onclick: () => this.openTray(p.id) }, '✕'),
+      );
+    }
+    this.trayHead.hidden = false;
+  }
+
+  private removeTray(id: number): void {
+    this.session?.removeTray?.(id);
+    this.after();
   }
 
   /** Canvas pixels under a pointer or mouse event. */

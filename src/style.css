@@ -200,6 +200,17 @@ body.dragging .library::after {
 .zoom button { border: 0; border-radius: 0; background: transparent; color: var(--text); padding: 6px 12px; font-size: 18px; line-height: 1; min-width: 40px; }
 .zoom button:hover { background: var(--panel2); }
 .zoom .zlabel { font-size: 13px; min-width: 58px; font-variant-numeric: tabular-nums; color: var(--dim); border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+/* the bar of sorting trays at the left of a Jigsaw, and the header of the open one (its panel lies at the bottom left of the canvas, beside the bar) */
+.traybar { position: absolute; left: 6px; top: calc(8px + var(--obar, 0px)); z-index: 6; width: 40px; display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5); user-select: none; }
+.traybar .tico { display: flex; align-items: center; justify-content: center; height: 26px; color: var(--accent2); }
+.traybar button.tray { position: relative; padding: 0; height: 32px; min-width: 0; border-radius: 6px; font-size: 14px; }
+.traybar button.tray .tn { font-weight: 600; }
+.traybar button.tray .tc { position: absolute; right: 1px; bottom: 0; font-size: 9px; line-height: 1; color: var(--dim); font-variant-numeric: tabular-nums; }
+.traybar button.tray.on { background: #9a4a1c; border-color: var(--accent2); }
+.traybar button.tray.add { font-size: 20px; line-height: 1; }
+.trayhead { position: absolute; z-index: 6; box-sizing: border-box; display: flex; align-items: center; gap: 6px; padding: 0 6px 0 10px; pointer-events: none; }
+.trayhead .tt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--text); }
+.trayhead button { pointer-events: auto; padding: 3px 9px; font-size: 12px; }
 .viewbar { position: absolute; left: 0; right: 0; bottom: max(14px, env(safe-area-inset-bottom)); display: flex; justify-content: center; }
 
 /* ---------------------------------------------------------------- the admin page (/admin) */

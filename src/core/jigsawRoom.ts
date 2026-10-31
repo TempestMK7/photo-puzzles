@@ -1,4 +1,5 @@
-import type { JigsawState } from './jigsaw';
+import { TRAY_MAX, type JigsawState } from './jigsaw';
+import { centreAt, traySize } from './trays';
 import { applyOp, buildJigsaw, TOL_MAX_K, TOL_MIN_K, type JigsawBoard, type JigsawOp, type JigsawSetup } from './jigsawSetup';
 
 /**
@@ -158,6 +159,15 @@ export class JigsawRoom {
       this.unreserve(player);
       return this.accept(player, undefined, 0);
     }
+    // the trays belong to the puzzle: any player may add one, or take away one that is empty (the room says which id the new one has: it is the next, on every screen)
+    if (cmd.t === 'trayAdd') {
+      if (g.trays.length >= TRAY_MAX) return { ok: false, reason: 'bad' };
+      return this.accept(player, this.run(cmd).op, 0);
+    }
+    if (cmd.t === 'trayRemove') {
+      if (!Number.isInteger(cmd.tray) || !g.trays.includes(cmd.tray) || g.piecesIn(cmd.tray) > 0) return { ok: false, reason: 'bad' };
+      return this.accept(player, this.run(cmd).op, 0);
+    }
     if (!Number.isInteger(cmd.piece) || cmd.piece < 0 || cmd.piece >= g.count) return { ok: false, reason: 'bad' };
     const grp = g.groups.get(g.groupOf[cmd.piece]);
     if (!grp || grp.anchored) return { ok: false, reason: 'no-group' };
@@ -184,7 +194,15 @@ export class JigsawRoom {
         const limit = Math.max(this.board.worldW, this.board.worldH);
         const sane = [cmd.dx, cmd.dy].every((x) => typeof x === 'number' && Number.isFinite(x) && x > -limit && x < 2 * limit) && Number.isInteger(cmd.rot) && cmd.rot >= 0 && cmd.rot <= 3;
         if (t === undefined || !sane) return { ok: false, reason: 'bad' };
-        const joins = this.run({ t: 'drop', piece: cmd.piece, dx: cmd.dx, dy: cmd.dy, rot: cmd.rot, tol: t });
+        // into a tray: one that is there, and the middle of the group inside it
+        const tray = cmd.tray ?? -1;
+        if (tray !== -1) {
+          if (!Number.isInteger(tray) || !g.trays.includes(tray)) return { ok: false, reason: 'bad' };
+          const ts = traySize(g.cols, g.size);
+          const [cx, cy] = centreAt(grp, g.cols, g.size, cmd.dx, cmd.dy, cmd.rot);
+          if (cx < 0 || cy < 0 || cx > ts.w || cy > ts.h) return { ok: false, reason: 'bad' };
+        }
+        const joins = this.run({ t: 'drop', piece: cmd.piece, dx: cmd.dx, dy: cmd.dy, rot: cmd.rot, tol: tray === -1 ? t : null, ...(tray === -1 ? {} : { tray }) });
         this.lock = null;
         if (g.groups.get(g.groupOf[cmd.piece])?.anchored) this.unreserve(player);
         else this.reserve(player, cmd.piece, now);

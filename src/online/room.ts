@@ -337,9 +337,11 @@ export class OnlineRoom {
       return;
     }
     this.version = ev.v;
-    if (ev.by !== this.me) {
-      this.dropHand();
-      this.view?.applyEvent(ev);                                      // (this player's own are applied already)
+    // (this player's own are applied already, but not the making and taking away of trays: the room says which id a new tray has, so a screen waits for it)
+    const ownTray = ev.by === this.me && (ev.op?.t === 'trayAdd' || ev.op?.t === 'trayRemove');
+    if (ev.by !== this.me || ownTray) {
+      if (!ownTray) this.dropHand();
+      this.view?.applyEvent(ev);
     }
     this.reserved = ev.reserved ?? [];
     this.setLock(ev.lock);

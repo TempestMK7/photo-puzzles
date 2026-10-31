@@ -56,6 +56,8 @@ export interface SessionInit {
   progress?(): void;
   /** Set when the puzzle is shared with other players. */
   online?: OnlineHooks;
+  /** The sorting trays changed (one was made or taken away, a piece went in or out): the list of them should be looked at again. */
+  traysChanged?(): void;
 }
 
 /** One puzzle being played. The play screen owns the canvas, the clock and the dialogs; a session owns the rules, the layout and the drawing. */
@@ -88,6 +90,14 @@ export interface PuzzleSession {
   readonly solved: boolean;
   /** A setting changed (a display switch). */
   settingsChanged(): void;
+  /** Sorting trays (a puzzle that has them): the list, with how many pieces lie in each and which one is open on this screen. */
+  trays?(): { id: number; pieces: number; open: boolean }[];
+  /** Opens a tray on this screen (and closes the one that was open), or closes it (-1). */
+  openTray?(id: number): void;
+  addTray?(): void;
+  removeTray?(id: number): void;
+  /** Where the open tray lies, in CSS pixels of the canvas, and how tall its header is (the page puts the tray's title and buttons there); nothing when none is open. */
+  trayPanel?(): { x: number; y: number; w: number; h: number; header: number; id: number; pieces: number } | null;
   /** Tabs (pages) of the board, when the puzzle has more than one: how many loose pieces each holds, and which one is showing. */
   tabInfo?(): { counts: number[]; active: number } | null;
   selectTab?(tab: number): void;

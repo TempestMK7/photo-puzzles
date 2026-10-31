@@ -21,7 +21,7 @@ the server both call it. Checked in Phase 0:
 
 ## The board is changed by operations
 
-Everything another player has to see is one of three operations (`JigsawOp`). A group is named by one of its **pieces**, not by its group number: the room is saved and loaded again between commands, which renumbers the groups, while piece numbers never change.
+Everything another player has to see is one of these operations (`JigsawOp`; the tray ones are under "Sorting trays" below). A group is named by one of its **pieces**, not by its group number: the room is saved and loaded again between commands, which renumbers the groups, while piece numbers never change.
 
 | op | meaning |
 |---|---|
@@ -55,6 +55,18 @@ The room keeps `lock = { holder, piece, until }`.
 Besides the hand, every player may have **one piece reserved** (`reserved: [{ holder, piece, until }]` in the room's state, and the whole current list in every event, which a screen takes in place of what it had). It is the piece that a player picked up last or clicked on, and it is theirs until they click somewhere else (`unselect`), pick up another piece, or `RESERVE_MS` (15 s) pass since they last touched it; nobody has to renew it. While it is reserved no other player can `grab`, `select` or `rotate` it (`busy`, with the holder); the others see it in the holder's colour. `select` `{ piece }` reserves a piece without picking it up (nothing changes on the board); `release` and `drop` keep the reservation (and start the time again) unless the piece has become part of the picture; `unselect` lets it go. A player who leaves, or is sent out, loses it (no event: the others' copy runs out by itself). A room from before reservations has none. The hand is still one for the whole room.
 
 When the last piece joins, the event says `solved` and the room refuses everything else (`ended`).
+
+## Sorting trays
+
+A puzzle has up to `TRAY_MAX` (10) sorting trays, a list shared by everybody (`game.trays`, ids in list order; a new puzzle has one). A group lies in a tray (`Group.tray` = the tray's id) or on the table (`-1`); a group in a tray is out of the board and joins nothing, and a piece that belongs to the picture cannot be put in one.
+
+| op | meaning |
+|---|---|
+| `trayAdd` | adds a tray (refused when there are 10); the room's event gives it the next id, so every screen ends up with the same ids |
+| `trayRemove tray` | takes a tray away; refused (`bad`) unless it is empty |
+| `drop piece dx dy rot tol tray` | with `tray` the pose is in that tray's own space (below); the group's middle must lie inside it, and it joins nothing (`tol` is ignored) |
+
+**One space for every screen.** A tray is a fixed logical rectangle, `traySize(cols, size)` in picture pixels (origin at its top left, a group's pose `dx dy rot` is as on the table). Each screen fits that rectangle into its panel (`trayView` in `src/core/trays.ts`): half the width and half the height of the canvas in landscape, the full width and half the height in portrait, beside the 46 px bar of trays and under a 34 px header, scaled to fit and centred. Only the scale and the margins differ between screens, never the positions, so a piece lies at the same place of the tray on a phone and on a wide monitor. Which tray is open is each screen's own business (nothing is sent); a piece that is moved around in a tray is shown to the others like one on the table (hand messages carry `tray`), and a `drop` into or out of a tray is an event like any other.
 
 ## Events, order, catching up
 
