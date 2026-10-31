@@ -175,6 +175,43 @@ describe('the look at the whole video', () => {
   });
 });
 
+describe('the video of an administrator', () => {
+  const root = { id: 'root', name: 'Root', admin: true as const };
+  const huge = (over: Partial<NonNullable<CreateRoomRequest['video']>> = {}) => videoRequest({ bytes: 5000, ms: 12_000, ...over });
+
+  it('is not held to the size and length limits, which anyone else is', async () => {
+    const w = world({ videoBytes: 1000, videoMs: 5000, videoRoomsPerWeek: 5 });
+    expect(await w.service.createRoom(ann, huge())).toEqual({ ok: false, error: 'too-big' });
+    expect((await w.service.createRoom(root, huge({ bytes: 200_000_000, ms: 600_000 }))).ok).toBe(true);
+    expect(await w.service.createRoom(root, huge({ bytes: 5_000_000_001 }))).toEqual({ ok: false, error: 'too-big' });          // storage takes at most 5 GB at once
+  });
+
+  it('is not looked at by the automatic check, but the file is still the one that was said', async () => {
+    const look = lookAt({ state: 'done', ok: false, label: 'Explicit' });
+    const w = world({ videoRoomsPerWeek: 5 }, undefined, undefined, undefined, undefined, look.check);
+    const res = await w.service.createRoom(root, huge());
+    if (!res.ok) throw new Error(res.error);
+    await w.media.put(res.roomId, MP4(4999), 'video/mp4');
+    expect(await w.service.checkVideo(root, res.roomId)).toEqual({ ok: false, error: 'bad-request' });                      // another size: still turned away
+    const again = await w.service.createRoom(root, huge());
+    if (!again.ok) throw new Error(again.error);
+    await w.media.put(again.roomId, MP4(5000), 'video/mp4');
+    expect(await w.service.checkVideo(root, again.roomId)).toEqual({ ok: true, state: 'ready' });
+    expect(look.calls).toEqual({ started: 0, asked: 0 });                                                                         // and no one paid for a look
+    const joinedBy = await joined(w, again, bob);
+    expect(joinedBy.media.type).toBe('video');
+    expect(JSON.stringify(joinedBy)).not.toContain('unchecked');                                                               // the players are not told
+  });
+
+  it('does not make the video of anyone else unchecked', async () => {
+    const look = lookAt({ state: 'done', ok: true });
+    const w = world({}, undefined, undefined, undefined, undefined, look.check);
+    const res = await made(w);
+    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: true, state: 'checking' });
+    expect(look.calls.started).toBe(1);
+  });
+});
+
 describe('the local server', () => {
   it('is sent the file itself, of exactly the size that was said', async () => {
     const w = world();

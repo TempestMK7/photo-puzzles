@@ -3,7 +3,7 @@ import type { Identity } from './api';
 /** Who the player is, as the rest of the game needs to know it: the local build's stand-in, a guest, and the cloud's Cognito account all are one. */
 export interface Account {
   /** Who is signed in, from what is kept here (no network); nothing when nobody is. `email` and `picture` (the address of a profile picture) are what the sign-in service knows, if it says. */
-  who(): { id: string; name: string; email?: string; picture?: string } | null;
+  who(): { id: string; name: string; email?: string; picture?: string; admin?: true } | null;
   /** What goes in the `Authorization` header and in the broker's address: made fresh if it is about to run out. Nothing when nobody is signed in (or the sign-in has ended). */
   token(): Promise<string | null>;
   /** Only an account that needs signing in has these. */

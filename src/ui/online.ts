@@ -280,7 +280,8 @@ export class OnlinePanel {
     const kind = findKind('jigsaw')!;
     const opts = optionsOf(this.deps.prefs.data.settings, kind);
     const note = opts.pieces > DEFAULT_LIMITS.jigsawPieces ? ` (online puzzles have at most ${DEFAULT_LIMITS.jigsawPieces} pieces: it will have that many)` : '';
-    const tooLong = !!entry?.video && entry.duration * 1000 > DEFAULT_LIMITS.videoMs;
+    const admin = this.deps.identity.isAdmin();                                  // an administrator may try a video of any length and size
+    const tooLong = !admin && !!entry?.video && entry.duration * 1000 > DEFAULT_LIMITS.videoMs;
     const wrongKind = !!entry?.video && /[.](webm|mkv)$/i.test(entry.name);          // plays here, but cannot be checked to be shared (the check reads MP4 and MOV)
     this.chosenEl.textContent = !entry
       ? 'Choose a picture or video on the main screen first.'
@@ -415,7 +416,7 @@ export class OnlinePanel {
       if (!(VIDEO_TYPES as readonly string[]).includes(type)) throw new Error('Online puzzles take MP4 or MOV videos (made with H.264). Others play here, but cannot be checked to share.');
       const seconds = src.video?.duration ?? 0;
       if (!(seconds > 0) || !Number.isFinite(seconds)) throw new Error('This browser cannot tell how long that video is.');
-      if (seconds * 1000 > DEFAULT_LIMITS.videoMs || file.size > DEFAULT_LIMITS.videoBytes) throw new Error(sayError('too-big'));
+      if (!this.deps.identity.isAdmin() && (seconds * 1000 > DEFAULT_LIMITS.videoMs || file.size > DEFAULT_LIMITS.videoBytes)) throw new Error(sayError('too-big'));
       if (src.width > 4096 || src.height > 4096) throw new Error('That video is too large (over 4096 pixels) for an online puzzle.');
       const kind = findKind('jigsaw')!;
       const opts: Record<string, number> = {};

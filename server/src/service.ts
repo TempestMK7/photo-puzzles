@@ -59,6 +59,8 @@ export interface Deps {
 const WEEK = 7 * 24 * 3600 * 1000;
 /** The quota of video puzzles is counted under another name than the picture puzzles' (their records are kept the same way). */
 const videoKey = (playerId: string): string => `video#${playerId}`;
+/** The largest video an administrator may send: storage takes a file of up to 5 GB in one request. */
+const ADMIN_VIDEO_BYTES = 5_000_000_000;
 /** How many bytes at the start of a stored video are read to tell what kind of file it is. */
 const PEEK = 16;
 const COLORS = 8;
@@ -279,11 +281,14 @@ export class RoomService {
     const settings = checkSettings(req.settings, limits);
     if ('ok' in settings) return settings;
     let video: RoomRecord['video'];
+    let unchecked = false;
     if (req.video !== undefined) {
       const v = req.video;
       if (limits.videoRoomsPerWeek <= 0) return fail('video-off');
       if (!v || !(VIDEO_TYPES as readonly unknown[]).includes(v.type) || !Number.isInteger(v.bytes) || v.bytes <= 0 || typeof v.ms !== 'number' || !(v.ms > 0)) return fail('bad-request');
-      if (v.bytes > limits.videoBytes || v.ms > limits.videoMs) return fail('too-big');
+      // an administrator may try a video of any size that storage takes in one piece (and is not looked at: see `checkVideo`)
+      if (v.bytes > (who.admin ? ADMIN_VIDEO_BYTES : limits.videoBytes) || (!who.admin && v.ms > limits.videoMs)) return fail('too-big');
+      unchecked = who.admin === true;
       video = { type: v.type, bytes: v.bytes, ms: Math.round(v.ms) };
     }
     const player = await this.named(who);
@@ -310,6 +315,7 @@ export class RoomService {
       secretHash: await sha256(secret),
       knocks: [],
       video,
+      unchecked: unchecked || undefined,
       ready: false,
       status: 'open',
       createdAt: now,
@@ -381,7 +387,7 @@ export class RoomService {
         await this.cleanup(room, 'owner');                                  // not the file the puzzle was made for: nothing is kept
         return fail('bad-request');
       }
-      if (!videoModeration) return this.videoReady(roomId);
+      if (!videoModeration || room.unchecked) return this.videoReady(roomId);
       let job: Awaited<ReturnType<VideoModeration['start']>>;
       try {
         job = await videoModeration.start(roomId);
@@ -400,7 +406,7 @@ export class RoomService {
       if ('error' in started) return started;
       return { ok: true, state: 'checking' };
     }
-    if (!videoModeration) return this.videoReady(roomId);
+    if (!videoModeration || room.unchecked) return this.videoReady(roomId);
     let verdict: Awaited<ReturnType<VideoModeration['result']>>;
     try {
       verdict = await videoModeration.result(room.checking.jobId);

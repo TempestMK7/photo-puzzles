@@ -11,6 +11,8 @@ export interface Player {
   name: string;
   /** Someone who joins with no account: they may join puzzles, not make them. */
   guest?: boolean;
+  /** The token says this account is in the administrators' group (the admin page's): it may make a video puzzle that is not limited in size or looked at (for trying things out). */
+  admin?: true;
 }
 
 /** Turns what a request carries into a player; `null`: not signed in. */
@@ -40,6 +42,8 @@ export interface RoomRecord {
   solvedMs?: number;
   /** Players the owner sent out: they cannot join again, with the code, a new code or the link (older rooms have none). */
   removed?: string[];
+  /** An administrator made this video puzzle: it is not held to the size limits and the automatic look at the video is skipped. */
+  unchecked?: true;
   /** A puzzle made from a video: what the file is, as the owner said when making it (the storage holds exactly that many bytes, of that kind). */
   video?: { type: VideoType; bytes: number; ms: number };
   /** Where the owner's video was, as the owner last said (a video puzzle only). */
