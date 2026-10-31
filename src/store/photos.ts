@@ -1,13 +1,11 @@
 import { gifToWebm, isGifFile } from '../gif';
 import type { StockCredit } from './stock';
-import { isVideoFile, loadPhoto, makeThumb, readVideo, samplePhoto, samplePreviewUrl, sampleThumbUrl, SAMPLES } from '../image';
+import { isVideoFile, loadPhoto, makeThumb, readVideo } from '../image';
 
-/** One photo in the list: the built-in samples and the player's own. */
+/** One photo in the list. */
 export interface PhotoEntry {
   id: string;
   name: string;
-  /** Samples are made in code and cannot be removed. */
-  sample: boolean;
   thumbUrl: string;
   /** Object URL of the full picture (or the video file), for the preview. */
   previewUrl: string;
@@ -81,14 +79,13 @@ async function hashOf(blob: Blob): Promise<string> {
 }
 
 /**
- * The photo library: samples plus whatever the player added, kept in the browser's IndexedDB (nothing leaves the device). If the browser refuses storage the
+ * The photo library: whatever the player added, kept in the browser's IndexedDB (nothing leaves the device). If the browser refuses storage the
  * photos still work for this visit.
  */
 export class PhotoLibrary {
   private db: IDBDatabase | null = null;
   private memory: StoredPhoto[] = [];
   private urls = new Map<string, { thumb?: string; preview?: string }>();
-  private sampleUrls = new Map<string, { thumb?: string; preview?: string }>();
 
   /** `onRemove` is told when a photo or video is deleted (its saved puzzles go with it). */
   constructor(private readonly onRemove?: (id: string) => Promise<void>) {}
@@ -136,29 +133,6 @@ export class PhotoLibrary {
     }
   }
 
-  /** The pictures are made when first asked for, as data URLs on the processor (see `sampleThumbUrl`): the list does not wait for them, and the full one is only wanted for the sample that is chosen. */
-  private sampleEntry(s: { id: string; name: string }): PhotoEntry {
-    const urls = this.sampleUrls;
-    const url = (which: 'thumb' | 'preview'): string => {
-      let u = urls.get(s.id);
-      if (!u) urls.set(s.id, (u = {}));
-      return (u[which] ??= which === 'thumb' ? sampleThumbUrl(s.id) : samplePreviewUrl(s.id));
-    };
-    return {
-      id: s.id,
-      name: s.name,
-      sample: true,
-      get thumbUrl() {
-        return url('thumb');
-      },
-      get previewUrl() {
-        return url('preview');
-      },
-      video: false,
-      duration: 0,
-    };
-  }
-
   /** The object URLs are made when first asked for: making one takes about a millisecond on a phone, and the full picture's is only wanted for the one that is chosen. */
   private entryOf(p: StoredPhoto): PhotoEntry {
     const urls = this.urls;
@@ -170,7 +144,6 @@ export class PhotoLibrary {
     return {
       id: p.id,
       name: p.name,
-      sample: false,
       get thumbUrl() {
         return url('thumb', p.thumb);
       },
@@ -190,20 +163,17 @@ export class PhotoLibrary {
 
   /** One photo of the list, or null if it is gone. */
   async entry(id: string): Promise<PhotoEntry | null> {
-    const sample = SAMPLES.find((s) => s.id === id);
-    if (sample) return this.sampleEntry(sample);
     const rec = await this.record(id);
     return rec ? this.entryOf(rec) : null;
   }
 
   /**
-   * Hands over the photos of the list one at a time, in order (the samples, then the player's by date added), waiting for `onEntry` before reading the next, so that a
+   * Hands over the photos of the list one at a time, in order (by date added), waiting for `onEntry` before reading the next, so that a
    * long library can show up as it is read. `total` is how many there will be; it is known before the first.
    */
   async each(onEntry: (entry: PhotoEntry, done: number, total: number) => void | Promise<void>): Promise<void> {
-    const total = SAMPLES.length + (await this.count());
+    const total = await this.count();
     let done = 0;
-    for (const s of SAMPLES) await onEntry(this.sampleEntry(s), ++done, total);
     const seen = new Set<string>();
     let from: number | undefined;
     let size = FIRST_BATCH;                                        // a few first, so that the list starts to fill at once
@@ -287,7 +257,7 @@ export class PhotoLibrary {
   /** The picture or video, ready to play (a picture is at most 1600 px on its longest side). */
   async load(entry: PhotoEntry): Promise<PlaySource> {
     if (entry.video) return openVideo(entry.previewUrl);
-    const canvas = entry.sample ? samplePhoto(entry.id) : await loadPhoto(await (await fetch(entry.previewUrl)).blob());
+    const canvas = await loadPhoto(await (await fetch(entry.previewUrl)).blob());
     return { source: canvas, width: canvas.width, height: canvas.height, video: null, dispose() {} };
   }
 }

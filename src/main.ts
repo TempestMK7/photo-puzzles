@@ -46,6 +46,7 @@ async function main(): Promise<void> {
   const saves = new SaveStore();
   const photos = new PhotoLibrary((id) => saves.removeForPhoto(id));
   await photos.init();
+  for (const id of ['sample-dusk', 'sample-meadow', 'sample-ember']) void saves.removeForPhoto(id);    // the pictures that came with the game are gone: so are the puzzles that were left on them
 
   const root = document.getElementById('app')!;
   // Playing with friends, in a build that knows where the server is: the real thing (Cognito accounts, the API and the broker on AWS) when the build has all of that, otherwise the local
