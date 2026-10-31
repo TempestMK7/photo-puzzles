@@ -182,6 +182,7 @@ The steps for a notice of copyright infringement (the published procedure is the
 ## Sign-up e-mail
 
 - The codes come from `no-reply@<domain>` through Amazon SES. **While the SES account is in the sandbox** (`aws sesv2 get-account` says `ProductionAccessEnabled: false`) only addresses verified one by one receive anything: `aws sesv2 create-email-identity --email-identity <address>`, then they click the link. A request to leave the sandbox was filed by the owner on 2026-10-30 (it can take up to 96 hours).
+- **Until AWS lets SES out of the sandbox**, the repository variable `COGNITO_EMAIL=yes` (then deploy a stage again) sends the codes from Cognito's own sender, `no-reply@verificationemail.com`, which reaches any address but is limited to **50 e-mails a day for the whole pool** and is more likely to land in spam. Delete the variable and deploy again once `aws sesv2 get-account` says `ProductionAccessEnabled: true`.
 - If sign-ups say they got no code once the sandbox is gone: `aws sesv2 get-account` (sending enabled? a pause for bounces or complaints shows there), the domain `aws sesv2 get-email-identity --email-identity <domain>` (`VerifiedForSendingStatus`, DKIM `SUCCESS`), and the spam folder.
 - A player who forgot the password uses **Forgot your password?** in the sign-in window (a code by e-mail). The operator can also set one: `aws cognito-idp admin-set-user-password --user-pool-id <id> --username <address> --password <new> --permanent` (then tell them to change it; do not send it in clear).
 

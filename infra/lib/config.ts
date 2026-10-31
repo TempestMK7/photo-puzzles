@@ -42,6 +42,11 @@ export interface Settings {
    * only a call that is about one of these. Without them no ad is accepted (unless the limit `adsTrusted` is set).
    */
   admobAdUnits?: string;
+  /**
+   * `yes` sends the sign-up and password codes from Cognito's own sender (no-reply@verificationemail.com; 50 a day for the whole pool) instead of from our domain through SES. It is for while
+   * the SES account is still in the sandbox (only addresses verified one by one get e-mail from it): take it out and deploy again once AWS has given production access.
+   */
+  cognitoEmail?: boolean;
   /** Changes to the service's limits (see `Limits` in server/src/types.ts), as numbers by name: `hostingPaused: 1` switches the making of puzzles off. */
   limits?: Record<string, number>;
 }
@@ -102,6 +107,7 @@ export function settings(node: Node): Settings {
     googleClientId,
     googleSecretName,
     admobAdUnits: text(node, 'admobAdUnits'),
+    cognitoEmail: text(node, 'cognitoEmail') === 'yes',
     pexelsSecretName: stockSecret(node, 'pexelsSecretName', DEFAULT_STOCK_SECRETS.pexels),
     pixabaySecretName: stockSecret(node, 'pixabaySecretName', DEFAULT_STOCK_SECRETS.pixabay),
     limits: parseLimits(text(node, 'limits')),

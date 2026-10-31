@@ -9,6 +9,8 @@ export interface AuthStackProps extends StackProps {
   origins: string[];
   /** The domain whose SES identity the e-mails are sent from (the Ops stack verifies it). */
   emailDomain: string;
+  /** Send from Cognito's own sender instead (see `cognitoEmail` in config.ts). */
+  cognitoEmail?: boolean;
   google?: { clientId: string; secretName: string };
 }
 
@@ -38,8 +40,10 @@ export class AuthStack extends Stack {
         emailSubject: 'Your PuzzleVidio code',
         emailBody: 'Your PuzzleVidio code is {####}. If you did not ask for it, you can ignore this message.',
       },
-      // From our own domain, through SES (Cognito's own sender is limited to 50 a day and shows an amazon address).
-      email: cognito.UserPoolEmail.withSES({ fromEmail: mailFrom(props.emailDomain), fromName: MAIL_FROM_NAME, sesRegion: REGION, sesVerifiedDomain: props.emailDomain }),
+      // From our own domain, through SES (Cognito's own sender is limited to 50 a day and shows an amazon address; it is used only while SES is in the sandbox: `cognitoEmail`).
+      email: props.cognitoEmail
+        ? cognito.UserPoolEmail.withCognito()
+        : cognito.UserPoolEmail.withSES({ fromEmail: mailFrom(props.emailDomain), fromName: MAIL_FROM_NAME, sesRegion: REGION, sesVerifiedDomain: props.emailDomain }),
       deletionProtection: prod,
       removalPolicy: prod ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
     });
