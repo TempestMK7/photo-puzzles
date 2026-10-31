@@ -46,8 +46,11 @@ async function fetchOnce(url: URL, signal: AbortSignal): Promise<Response> {
   return fetch(url.href, { signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
 }
 
-/** Downloads a picture or video, telling `onStatus` how far it is. Throws an Error whose message can be shown as it is. */
-export async function fetchLink(url: URL, onStatus?: (text: string) => void, signal: AbortSignal = new AbortController().signal): Promise<File> {
+/**
+ * Downloads a picture or video, telling `onStatus` how far it is. Throws an Error whose message can be shown as it is. `assume` is what the file is when the site does not say
+ * (a stock site's download address has no extension and comes as plain bytes).
+ */
+export async function fetchLink(url: URL, onStatus?: (text: string) => void, signal: AbortSignal = new AbortController().signal, assume = ''): Promise<File> {
   let res: Response;
   try {
     try {
@@ -87,7 +90,7 @@ export async function fetchLink(url: URL, onStatus?: (text: string) => void, sig
   } catch {
     throw new Error(signal.aborted ? 'Download stopped' : 'The download was cut off');
   }
-  const kind = type.startsWith('image/') || type.startsWith('video/') ? type : '';
+  const kind = type.startsWith('image/') || type.startsWith('video/') ? type : assume;
   const file = new File(parts, nameFromLink(url, kind), { type: kind });
   if (!kind && !isVideoFile(file) && !/\.(jpe?g|png|gif|webp|avif|bmp)$/i.test(file.name)) {
     throw new Error('That link is not a picture or a video');

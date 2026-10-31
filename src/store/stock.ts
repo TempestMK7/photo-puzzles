@@ -59,7 +59,7 @@ export async function downloadStock(item: StockItem, onStatus?: (text: string) =
   if (!href) throw new Error('That file cannot be downloaded');
   let got: File;
   try {
-    got = await fetchLink(new URL(href), onStatus, signal);
+    got = await fetchLink(new URL(href), onStatus, signal, item.fileType);
   } catch (e) {
     throw e instanceof Error && e.message !== LINK_REFUSED ? e : new Error(`Could not download that from ${STOCK_NAMES[item.source]}. Check the connection and try again.`);
   }

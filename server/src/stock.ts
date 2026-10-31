@@ -108,6 +108,24 @@ abstract class CachedStock implements StockProvider {
   }
 }
 
+/**
+ * The providers for the sites whose key can be read. `names` says where each site's key is kept; `read` gives the key, or nothing when there is none (no such secret, or an empty
+ * one). A site with no key, or whose key cannot be read, is left out without a fuss, so that the game does not offer it.
+ */
+export async function loadStockProviders(names: Partial<Record<StockSite, string>>, read: (name: string) => Promise<string | undefined>, log: (e: unknown) => void = console.error): Promise<StockProviders> {
+  const key = async (name: string | undefined): Promise<string | undefined> => {
+    if (!name) return undefined;
+    try {
+      return (await read(name))?.trim() || undefined;
+    } catch (e) {
+      log(e);
+      return undefined;
+    }
+  };
+  const [pexels, pixabay] = await Promise.all([key(names.pexels), key(names.pixabay)]);
+  return { ...(pexels ? { pexels: new PexelsStock(pexels) } : {}), ...(pixabay ? { pixabay: new PixabayStock(pixabay) } : {}) };
+}
+
 // ---------------------------------------------------------------------------------------------------------------- Pexels
 
 /** A small square version of a Pexels picture (their image servers resize by the address). */

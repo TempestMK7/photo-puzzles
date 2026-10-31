@@ -86,7 +86,17 @@ describe('downloading from the stock library', () => {
     expect(file.size).toBe(3);
   });
 
-  it('will not fetch an address that is not Pexels’, and gives a plain message when the download fails', async () => {
+  it('takes a file that comes as plain bytes from an address with no extension (Pixabay\'s picture downloads do)', async () => {
+    const px = { source: 'pixabay', thumb: 'https://cdn.pixabay.com/a_150.jpg', preview: 'https://pixabay.com/get/gabc', file: 'https://pixabay.com/get/gabc', url: 'https://pixabay.com/photos/a/', byUrl: 'https://pixabay.com/users/u-1/' };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { 'content-type': 'binary/octet-stream' } })));
+    const file = await downloadStock(trustedItem(item({ ...px, title: 'Tree, nature' })) as StockItem);
+    expect([file.name, file.type, file.size]).toEqual(['Tree, nature.jpg', 'image/jpeg', 3]);
+    const clip = { ...px, type: 'video', file: 'https://cdn.pixabay.com/video/2025/07/22/292827_medium.mp4' };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1, 2]), { status: 200, headers: { 'content-type': 'binary/octet-stream' } })));
+    expect((await downloadStock(trustedItem(item({ ...clip, title: 'Lake' })) as StockItem)).type).toBe('video/mp4');
+  });
+
+  it('will not fetch an address that is not its site’s, and gives a plain message when the download fails', async () => {
     const f = vi.fn();
     vi.stubGlobal('fetch', f);
     await expect(downloadStock({ ...(trustedItem(item()) as StockItem), file: 'https://evil.example/a.jpg' })).rejects.toThrow(/cannot be downloaded/);

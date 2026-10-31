@@ -31,9 +31,11 @@ export interface Settings {
   /** Google sign-in: the OAuth client id and the name of the Secrets Manager secret that holds its client secret. Both, or neither. */
   googleClientId?: string;
   googleSecretName?: string;
-  /** The stock library (Pexels): the name of the Secrets Manager secret that holds the API key. Without it the game does not offer the library. */
+  /**
+   * The stock library: the name of the Secrets Manager secret that holds each site's API key (`puzzlevidio/pexels` and `puzzlevidio/pixabay` unless the deploy says otherwise; `none`
+   * leaves a site out). A site whose secret is not there, or is empty, is skipped when the API starts: the game offers the sites that have a key.
+   */
   pexelsSecretName?: string;
-  /** The same for Pixabay (either, both, or neither). */
   pixabaySecretName?: string;
   /** Changes to the service's limits (see `Limits` in server/src/types.ts), as numbers by name: `freeRoomsPerWeek: 0` switches the making of puzzles off. */
   limits?: Record<string, number>;
@@ -58,10 +60,19 @@ function parseLimits(raw: string | undefined): Record<string, number> | undefine
   return Object.keys(parsed).length ? (parsed as Record<string, number>) : undefined;
 }
 
+/** Where the stock sites' keys are looked for. */
+export const DEFAULT_STOCK_SECRETS = { pexels: 'puzzlevidio/pexels', pixabay: 'puzzlevidio/pixabay' };
+
 const text = (node: Node, key: string, fallback?: string): string | undefined => {
   const v = node.tryGetContext(key) ?? process.env[`PUZZLEVIDIO_${key.replace(/[A-Z]/g, (c) => `_${c}`).toUpperCase()}`] ?? fallback;
   return v === undefined || v === '' ? undefined : String(v);
 };
+
+/** The name of a stock site's secret: the one that is given, else the usual one; `none` is no secret at all. */
+function stockSecret(node: Node, key: string, usual: string): string | undefined {
+  const v = text(node, key);
+  return v === 'none' ? undefined : (v ?? usual);
+}
 
 export function settings(node: Node): Settings {
   const hostedZoneId = text(node, 'hostedZoneId');
@@ -81,8 +92,8 @@ export function settings(node: Node): Settings {
     githubProviderArn: text(node, 'githubProviderArn'),
     googleClientId,
     googleSecretName,
-    pexelsSecretName: text(node, 'pexelsSecretName'),
-    pixabaySecretName: text(node, 'pixabaySecretName'),
+    pexelsSecretName: stockSecret(node, 'pexelsSecretName', DEFAULT_STOCK_SECRETS.pexels),
+    pixabaySecretName: stockSecret(node, 'pixabaySecretName', DEFAULT_STOCK_SECRETS.pixabay),
     limits: parseLimits(text(node, 'limits')),
   };
 }

@@ -15,7 +15,7 @@ import { createRouter, type Req, type Res } from '../router';
 import { RoomService } from '../service';
 import { GuestTokens, TokenAuth } from '../guest';
 import { Signer } from '../signing';
-import { PexelsStock, PixabayStock, type StockProviders } from '../stock';
+import { loadStockProviders, type StockProviders } from '../stock';
 import type { Auth, Limits } from '../types';
 import { playerFrom } from './claims';
 import { CognitoAccounts } from './cognito';
@@ -109,21 +109,22 @@ export async function buildService() {
   return { service, media, guests, auth: new TokenAuth(guests, accounts), db, table };
 }
 
-/** The stock library: each site that the deployment has a key for (a secret that only this function may read). Without any the game does not offer it. */
+/**
+ * The stock library: each site whose key is in Secrets Manager (a secret that only this function may read). A site with no secret, or an empty one, is left out (nothing is logged for a
+ * secret that is not there: that is how a site is switched off), and without any site the game does not offer the library. Read when the function starts, so a key added later is found
+ * by the functions that start after it.
+ */
 async function stockLibrary(): Promise<StockProviders> {
   const secrets = new SecretsManagerClient({});
-  const key = async (variable: string): Promise<string | undefined> => {
-    const id = process.env[variable];
-    if (!id) return undefined;
+  const names = { pexels: process.env.PEXELS_SECRET_ID, pixabay: process.env.PIXABAY_SECRET_ID };
+  return loadStockProviders(names, async (name) => {
     try {
-      return (await secrets.send(new GetSecretValueCommand({ SecretId: id }))).SecretString?.trim() || undefined;
+      return (await secrets.send(new GetSecretValueCommand({ SecretId: name }))).SecretString;
     } catch (e) {
-      console.error(e);
-      return undefined;
+      if ((e as { name?: string }).name === 'ResourceNotFoundException') return undefined;
+      throw e;
     }
-  };
-  const [pexels, pixabay] = await Promise.all([key('PEXELS_SECRET_ID'), key('PIXABAY_SECRET_ID')]);
-  return { ...(pexels ? { pexels: new PexelsStock(pexels) } : {}), ...(pixabay ? { pixabay: new PixabayStock(pixabay) } : {}) };
+  });
 }
 
 async function build(): Promise<(req: Req) => Promise<Res>> {

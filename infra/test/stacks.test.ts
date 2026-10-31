@@ -338,7 +338,7 @@ describe('api', () => {
     expect(look.map((x) => actionsOf([x]).join())).toEqual(['rekognition:DetectModerationLabels,rekognition:StartContentModeration,rekognition:GetContentModeration']);          // it looks at pictures and at whole videos, and does nothing else with the service
     expect(statementsOf(prod, /^AdminServiceRole|AdminDefaultPolicy|AdminServiceRoleDefaultPolicy/).some((x) => actionsOf([x]).some((a) => a.startsWith('rekognition:')))).toBe(false);
     expect(actionsOf(st)).not.toContain('*');
-    expect(actionsOf(st).filter((a) => a.startsWith('secretsmanager:')).sort()).toEqual(['secretsmanager:DescribeSecret', 'secretsmanager:GetSecretValue']);
+    expect([...new Set(actionsOf(st).filter((a) => a.startsWith('secretsmanager:')))].sort()).toEqual(['secretsmanager:DescribeSecret', 'secretsmanager:GetSecretValue']);          // (for the signing key, and for the keys of the stock sites)
   });
 
   it('has a function for the operator that no address reaches, and can tell only the alarm topic that a puzzle was reported', () => {
@@ -439,26 +439,34 @@ describe('the stock library', () => {
     return fn![1].Properties.Environment!.Variables;
   };
 
-  it('has an open route for searching, with or without a key (without one it answers that the library is off)', () => {
-    for (const t of [stack(app(), 'PuzzleVidio-dev-Api'), stack(app({ pexelsSecretName: 'puzzlevidio/pexels' }), 'PuzzleVidio-dev-Api')]) {
+  it('has an open route for searching, whichever sites are left in (with none the function answers that the library is off)', () => {
+    for (const t of [stack(app(), 'PuzzleVidio-dev-Api'), stack(app({ pexelsSecretName: 'none', pixabaySecretName: 'none' }), 'PuzzleVidio-dev-Api')]) {
       const route = routes(t).find((r) => r.Properties.RouteKey === 'GET /stock/search');
       expect(route).toBeDefined();
       expect(route!.Properties.AuthorizationType ?? 'NONE').toBe('NONE');
     }
   });
 
-  it('gives only the API function the name of each key and the right to read it, when a secret is named', () => {
-    const plain = apiEnvironment(stack(app(), 'PuzzleVidio-dev-Api'));
-    expect([plain.PEXELS_SECRET_ID, plain.PIXABAY_SECRET_ID]).toEqual([undefined, undefined]);
-    const pixabay = stack(app({ pixabaySecretName: 'puzzlevidio/pixabay' }), 'PuzzleVidio-dev-Api');
-    expect([apiEnvironment(pixabay).PEXELS_SECRET_ID, apiEnvironment(pixabay).PIXABAY_SECRET_ID]).toEqual([undefined, 'puzzlevidio/pixabay']);
-    expect(Object.entries(pixabay.findResources('AWS::IAM::Policy')).filter(([, p]) => JSON.stringify(p).includes('puzzlevidio/pixabay')).map(([id]) => id)).toEqual([expect.stringMatching(/^Api/)]);
-    const t = stack(app({ pexelsSecretName: 'puzzlevidio/pexels' }), 'PuzzleVidio-dev-Api');
-    expect(apiEnvironment(t).PEXELS_SECRET_ID).toBe('puzzlevidio/pexels');
+  it('looks for each site\'s key in the usual secret (puzzlevidio/pexels, puzzlevidio/pixabay) without being told, and says the function alone may read them', () => {
+    const t = stack(app(), 'PuzzleVidio-dev-Api');
+    const env = apiEnvironment(t);
+    expect([env.PEXELS_SECRET_ID, env.PIXABAY_SECRET_ID]).toEqual(['puzzlevidio/pexels', 'puzzlevidio/pixabay']);
     const policies = Object.entries(t.findResources('AWS::IAM::Policy')) as [string, { Properties: { PolicyDocument: { Statement: Statement[] } } }][];
-    const readers = policies.filter(([, p]) => JSON.stringify(p.Properties.PolicyDocument.Statement).includes('puzzlevidio/pexels')).map(([id]) => id);
-    expect(readers).toHaveLength(1);
-    expect(readers[0]).toMatch(/^Api/);
-    expect(readers[0]).not.toMatch(/^Admin/);
+    for (const name of ['puzzlevidio/pexels', 'puzzlevidio/pixabay']) {
+      const readers = policies.filter(([, p]) => JSON.stringify(p.Properties.PolicyDocument.Statement).includes(name)).map(([id]) => id);
+      expect(readers, name).toHaveLength(1);
+      expect(readers[0]).toMatch(/^Api/);
+      expect(readers[0]).not.toMatch(/^Admin/);
+    }
+  });
+
+  it('takes other names for the secrets, and `none` leaves a site out (nothing to read, nothing allowed)', () => {
+    const named = apiEnvironment(stack(app({ pixabaySecretName: 'other/pixabay-key' }), 'PuzzleVidio-dev-Api'));
+    expect([named.PEXELS_SECRET_ID, named.PIXABAY_SECRET_ID]).toEqual(['puzzlevidio/pexels', 'other/pixabay-key']);
+    const off = stack(app({ pexelsSecretName: 'none' }), 'PuzzleVidio-dev-Api');
+    expect([apiEnvironment(off).PEXELS_SECRET_ID, apiEnvironment(off).PIXABAY_SECRET_ID]).toEqual([undefined, 'puzzlevidio/pixabay']);
+    expect(JSON.stringify(off.toJSON())).not.toContain('puzzlevidio/pexels');
+    expect(settings(new App({ context }).node)).toMatchObject({ pexelsSecretName: 'puzzlevidio/pexels', pixabaySecretName: 'puzzlevidio/pixabay' });
+    expect(settings(new App({ context: { ...context, pixabaySecretName: '' } }).node).pixabaySecretName).toBe('puzzlevidio/pixabay');          // (an empty deploy variable is no choice)
   });
 });
