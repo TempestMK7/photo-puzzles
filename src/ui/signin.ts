@@ -56,6 +56,8 @@ export class SignInDialog {
     private readonly passwords: PasswordAccount,
     /** Goes to Google's sign-in page (and comes back to the game signed in), in a build whose accounts can. */
     private readonly google?: () => Promise<void>,
+    /** Google's page opens in the phone's browser and the player comes back to the app (which is not taken away): `externalDone` says how it went. */
+    private readonly external = false,
   ) {
     this.body.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -82,6 +84,14 @@ export class SignInDialog {
     this.el.hidden = false;
     this.render(note);
     return new Promise((resolve) => (this.done = resolve));
+  }
+
+  /** The player came back from Google's page in the phone's browser (the app's own address, with the answer): signed in, or not. */
+  externalDone(signedIn: boolean): void {
+    if (this.el.hidden) return;
+    this.setBusy(false);
+    if (signedIn) this.finish(true);
+    else this.say('Signing in with Google did not work. Try again.');
   }
 
   private finish(signedIn: boolean): void {
@@ -162,9 +172,13 @@ export class SignInDialog {
   private async goGoogle(): Promise<void> {
     if (this.busy || !this.google) return;
     this.setBusy(true);
-    this.say('Going to Google…');
+    this.say(this.external ? 'Opening Google in your browser…' : 'Going to Google…');
     try {
       await this.google();
+      if (this.external) {
+        this.setBusy(false);                         // (the page is still here: nothing is lost if the player does not go through with it)
+        this.say('Sign in with Google in your browser. It brings you back here.');
+      }
     } catch {
       this.setBusy(false);
       this.say('Could not start the sign-in with Google.');

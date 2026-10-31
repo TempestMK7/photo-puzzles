@@ -113,6 +113,9 @@ export function siteDomain(stage: Stage, zoneName: string): string {
   return stage === 'prod' ? zoneName : `${stage}.${zoneName}`;
 }
 
+/** Where the sign-in service sends a player back to the Android app (the app's own address: the app receives it; `src/platform.ts`), for the game's sign-in with Google through the phone's browser. */
+export const APP_SIGN_IN_REDIRECTS = ['com.tempest.photopuzzles://signed-in'];
+
 /** The address that the Android app's pages come from (the app serves its own files under it): it may call the API and fetch and upload pictures, but is not a place to sign in from. */
 export const APP_ORIGINS = ['https://appassets.androidplatform.net'];
 

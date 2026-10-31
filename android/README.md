@@ -45,6 +45,14 @@ A thin shell around the game: one `WebView` that shows the web build packed in `
 
 Without a key of its own the release build is signed with the debug key (private builds, which then install on any device). For the store make a keystore **outside the repository** and describe it in `android/keystore.properties` (not kept): `storeFile`, `storePassword`, `keyAlias`, `keyPassword`. The build uses it when that file is there.
 
+## Signing in
+
+E-mail and password work inside the app. **Google does not let its sign-in page open in an app's web view**, so "Sign in with Google" goes through the phone's browser instead:
+1. the page asks the app to open the sign-in service's address (`PhotoPuzzlesNative.openSignIn(url)`): a **Chrome Custom Tab** (only `https://*.amazoncognito.com` addresses are opened);
+2. the player chooses their Google account there; Google sends them to the sign-in service, which sends them back to **`com.tempest.photopuzzles://signed-in?code=...&state=...`**: the app's own made-up address (an intent filter in the manifest, and one of the addresses the user pool's app client lists, `infra/lib/auth-stack.ts`);
+3. the app keeps that address until the page takes it (`takeSignIn()`; the window event `photopuzzles-signin` says there is one, and a page that starts afterwards, because the system closed the app meanwhile, asks at start), and the page finishes the sign-in with the same code exchange as in a browser (`CognitoAccount.completeSignIn`). What the exchange needs (a random secret and a state, PKCE) is kept on the device while the player is away: an address sent to the app by another app is useless without it.
+Signing out of a Google account also ends the browser's session through the same trip (the app's page is not taken away). The build has the Google button when the stage has Google (`scripts/android-web.mjs` reads the repository's variables, as the Deploy workflow does).
+
 ## What the page may reach
 
 `MainActivity` refuses every request that is not to the app's own address, https, or a `blob:`/`data:` picture, and opens a link to another site in the browser instead of in the WebView (which has the app's bridge, and must only ever show the game's own page). The server lets the app's pages call it (`https://appassets.androidplatform.net` is one of the origins in `infra/lib/config.ts`: the API and the picture storage; it is not a return address for the sign-in page, and Google sign-in does not work inside an app's web view, so the app has e-mail and password only).

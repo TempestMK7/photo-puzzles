@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { CognitoAccount, inAdminGroup, pictureOf, type CognitoEnv } from '../src/online/cognito';
+import { APP_SIGN_IN_REDIRECT } from '../src/platform';
 
 class MemoryStorage implements Storage {
   private m = new Map<string, string>();
@@ -19,7 +21,7 @@ const jwt = (claims: Record<string, unknown>) => `${b64({ alg: 'RS256', kid: 'k'
 const HOST = 'https://pool.auth.example.com';
 const REDIRECT = 'https://dev.example/';
 
-function setup(opts: { local?: Storage | null; reply?: (url: string, body: URLSearchParams) => Response | Promise<Response> } = {}) {
+function setup(opts: { local?: Storage | null; reply?: (url: string, body: URLSearchParams) => Response | Promise<Response>; external?: boolean } = {}) {
   const clock = { t: 1_700_000_000_000 };
   const calls: { url: string; body: URLSearchParams }[] = [];
   const went: string[] = [];
@@ -31,7 +33,8 @@ function setup(opts: { local?: Storage | null; reply?: (url: string, body: URLSe
     }) as never,
     now: () => clock.t,
     go: (url) => void went.push(url),
-    redirect: () => REDIRECT,
+    redirect: () => (opts.external ? APP_SIGN_IN_REDIRECT : REDIRECT),
+    external: opts.external,
   };
   const local = opts.local === undefined ? new MemoryStorage() : opts.local;
   const session = new MemoryStorage();
@@ -41,6 +44,70 @@ function setup(opts: { local?: Storage | null; reply?: (url: string, body: URLSe
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const exp = (clock: { t: number }, secondsLeft: number) => clock.t / 1000 + secondsLeft;
+
+describe('signing in through the phone’s browser (the Android app: Google does not let its page open in an app)', () => {
+  const FLOW = 'photo-puzzles/online/auth-flow';
+  const signedIn = (clock: { t: number }) => (_url: string, body: URLSearchParams) => (body.get('grant_type') === 'authorization_code' ? json({ id_token: jwt({ sub: 'u1', exp: exp(clock, 3600) }), refresh_token: 'r1' }) : json({}, 400));
+
+  it('is the same address in the app and in the sign-in service\u2019s list of where it may send the player back', () => {
+    // (the infrastructure's file is read as text: its own packages are not installed with the game's)
+    const listed = /APP_SIGN_IN_REDIRECTS = \[([^\]]*)\]/.exec(readFileSync('infra/lib/config.ts', 'utf8'))?.[1];
+    expect(listed?.split(',').map((a) => a.trim().replace(/^'|'$/g, ''))).toEqual([APP_SIGN_IN_REDIRECT]);
+    expect(APP_SIGN_IN_REDIRECT).toBe('com.tempest.photopuzzles://signed-in');
+  });
+
+  it('opens Google\u2019s sign-in with the app\u2019s own address to come back to, and keeps what it needs on the device (the app may be closed meanwhile)', async () => {
+    const t = setup({ external: true });
+    await t.account.signInWithGoogle('#/join/1~x');
+    const url = new URL(t.went[0]);
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({ identity_provider: 'Google', redirect_uri: APP_SIGN_IN_REDIRECT, response_type: 'code', code_challenge_method: 'S256' });
+    expect(t.session.getItem(FLOW)).toBeNull();
+    expect(JSON.parse((t.local as MemoryStorage).getItem(FLOW)!)).toMatchObject({ hash: '#/join/1~x', state: url.searchParams.get('state') });
+  });
+
+  it('is signed in by the address that the app received, even in a new visit (the first was closed), and keeps nothing of the flow', async () => {
+    const t = setup({ external: true });
+    await t.account.signInWithGoogle();
+    const state = new URL(t.went[0]).searchParams.get('state');
+    // the system closed the app while the player was in the browser: a new account object with a new visit's session storage, the same device
+    const again = new CognitoAccount({ host: HOST, clientId: 'client1' }, t.local, new MemoryStorage(), {
+      fetch: (async (url: string, init: RequestInit) => {
+        t.calls.push({ url, body: new URLSearchParams(String(init.body)) });
+        return signedIn(t.clock)(url, new URLSearchParams(String(init.body)));
+      }) as never,
+      now: () => t.clock.t,
+      go: () => undefined,
+      redirect: () => APP_SIGN_IN_REDIRECT,
+      external: true,
+    });
+    expect(await again.completeSignIn(`${APP_SIGN_IN_REDIRECT}?code=the-code&state=${state}`)).toEqual({ handled: true, ok: true, hash: '' });
+    expect(again.who()).toMatchObject({ id: 'u1' });
+    expect(t.calls[0].body.get('redirect_uri')).toBe(APP_SIGN_IN_REDIRECT);           // the same address it was sent from
+    expect(t.calls[0].body.get('code')).toBe('the-code');
+    expect((t.local as MemoryStorage).getItem(FLOW)).toBeNull();
+  });
+
+  it('does not take an address with another state, or one that comes with nothing asked for', async () => {
+    const t = setup({ external: true, reply: (u, b) => signedIn(t.clock)(u, b) });
+    await t.account.signInWithGoogle();
+    expect(await t.account.completeSignIn(`${APP_SIGN_IN_REDIRECT}?code=c&state=another`)).toMatchObject({ handled: true, ok: false });
+    expect(t.account.who()).toBeNull();
+    expect(await t.account.completeSignIn(`${APP_SIGN_IN_REDIRECT}?code=c&state=s`)).toMatchObject({ handled: true, ok: false });     // (the first try used the flow up)
+    expect(t.calls).toHaveLength(0);
+  });
+
+  it('takes no notice of the address that signing out comes back with, and signs out without taking the page away', async () => {
+    const t = setup({ external: true, reply: (u, b) => signedIn(t.clock)(u, b) });
+    await t.account.signInWithGoogle();
+    await t.account.completeSignIn(`${APP_SIGN_IN_REDIRECT}?code=c&state=${new URL(t.went[0]).searchParams.get('state')}`);
+    expect(t.account.signOut()).toBe(false);                                           // the page stays: only the browser's session is ended
+    const out = new URL(t.went.at(-1)!);
+    expect(`${out.origin}${out.pathname}`).toBe(`${HOST}/logout`);
+    expect(out.searchParams.get('logout_uri')).toBe(APP_SIGN_IN_REDIRECT);
+    expect(await t.account.completeSignIn(APP_SIGN_IN_REDIRECT)).toEqual({ handled: false, ok: false, hash: '' });
+    expect(t.account.who()).toBeNull();
+  });
+});
 
 describe('signing in', () => {
   it('goes to the sign-in page with the code flow and a PKCE challenge, and keeps the secret half for coming back', async () => {

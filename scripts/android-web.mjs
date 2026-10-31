@@ -18,6 +18,15 @@ if (!['dev', 'prod', 'offline'].includes(stage)) {
   process.exit(1);
 }
 
+/** A repository variable (what the Deploy workflow reads), or nothing if it is not set or the GitHub CLI cannot say. */
+const variable = (name) => {
+  try {
+    return execFileSync('gh', ['variable', 'get', name], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], shell: process.platform === 'win32' }).trim();
+  } catch {
+    return '';
+  }
+};
+
 const env = { ...process.env, VITE_BUILD: String(Math.floor(Date.now() / 1000)), VITE_STAGE: stage === 'offline' ? 'local' : stage };
 if (stage !== 'offline') {
   const out = (stack, key) =>
@@ -31,8 +40,9 @@ if (stage !== 'offline') {
     VITE_IOT_AUTHORIZER: out('Live', 'AuthorizerName'),
     VITE_COGNITO_HOST: out('Auth', 'SignInHost'),
     VITE_COGNITO_CLIENT_ID: out('Auth', 'ClientId'),
-    // (no Google button in the app: Google does not let its sign-in page open inside an app's web view)
-    VITE_GOOGLE_SIGNIN: '',
+    // the Google button, when the stage has Google (the Deploy workflow's own rule: the repository's GOOGLE_CLIENT_ID and GOOGLE_SECRET_NAME are set). In the app the page opens Google in the
+    // phone's browser and the player comes back (android/README.md); VITE_GOOGLE_SIGNIN=yes or no in the environment decides otherwise.
+    VITE_GOOGLE_SIGNIN: process.env.VITE_GOOGLE_SIGNIN ?? (variable('GOOGLE_CLIENT_ID') && variable('GOOGLE_SECRET_NAME') ? 'yes' : ''),
   });
   for (const [k, v] of Object.entries(env)) if (k.startsWith('VITE_') && v === '' && k !== 'VITE_GOOGLE_SIGNIN') throw new Error(`The ${stage} stage did not say ${k}: is it deployed, and are these the right credentials?`);
 }

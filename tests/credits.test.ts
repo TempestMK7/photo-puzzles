@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GUEST_ACCOUNT, type AccountSummary } from '../src/online/protocol';
 import { OnlineSession } from '../src/online/session';
-import { adPlatform, adPrivacy, platform, prepareAds, watchAd } from '../src/platform';
+import { adPlatform, adPrivacy, browserSignIn, openSignIn, platform, prepareAds, takeSignIn, watchAd } from '../src/platform';
 import { creditText, explainCredits } from '../src/ui/credits';
 import { costNote, sayError } from '../src/ui/online';
 
@@ -28,6 +28,26 @@ describe('where the game is running', () => {
     expect(adPlatform({}, undefined)).toBeNull();                                  // an app with no ads in it yet
     expect(adPlatform(undefined, 'steam')).toBeNull();
     expect(adPlatform(undefined, undefined)).toBeNull();
+  });
+});
+
+describe('signing in through the phone’s browser', () => {
+  it('is possible only where the shell can both open the page and hand the player’s way back over', () => {
+    expect(browserSignIn({ openSignIn: () => undefined, takeSignIn: () => '' })).toBe(true);
+    expect(browserSignIn({ openSignIn: () => undefined })).toBe(false);
+    expect(browserSignIn({})).toBe(false);
+    expect(browserSignIn(undefined)).toBe(false);
+  });
+
+  it('opens an address, and takes the address that the player came back with (nothing when there is none, or the shell fails)', () => {
+    const opened: string[] = [];
+    openSignIn('https://pool.auth.example/oauth2/authorize?x=1', { openSignIn: (u) => opened.push(u) });
+    expect(opened).toEqual(['https://pool.auth.example/oauth2/authorize?x=1']);
+    expect(() => openSignIn('https://x', {})).not.toThrow();
+    expect(takeSignIn({ takeSignIn: () => 'com.tempest.photopuzzles://signed-in?code=c&state=s' })).toBe('com.tempest.photopuzzles://signed-in?code=c&state=s');
+    expect(takeSignIn({ takeSignIn: () => '' })).toBe('');
+    expect(takeSignIn({})).toBe('');
+    expect(takeSignIn({ takeSignIn: () => { throw new Error('gone'); } })).toBe('');
   });
 });
 
