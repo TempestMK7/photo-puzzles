@@ -198,6 +198,8 @@ export interface StockItem {
   height: number;
   /** Seconds, for a video. */
   duration: number;
+  /** The site says that an AI made it (Pixabay does for its pictures and videos: they are shown with a badge). */
+  ai?: true;
 }
 
 export interface StockResponse {

@@ -244,6 +244,9 @@ function tagsTitle(tags: unknown, fallback: string): string {
 /** Where a Pixabay user's page is (their name and number make the address). */
 const userPage = (name: string, id: number): string | null => (id > 0 ? pixabayUrl(`https://pixabay.com/users/${encodeURIComponent(name)}-${id}/`) : null);
 
+/** Pixabay says whether an AI made a picture or video (`isAiGenerated`), and tags it "ai generated" too. */
+const madeByAi = (o: Record<string, unknown>): boolean => o.isAiGenerated === true || /(^|,)\s*ai[ -]generated\s*(,|$)/i.test(text(o.tags, 400));
+
 function pixabayPhoto(p: unknown): StockItem | null {
   const o = rec(p);
   if (!o) return null;
@@ -257,6 +260,7 @@ function pixabayPhoto(p: unknown): StockItem | null {
     id: String(num(o.id)),
     source: 'pixabay',
     type: 'photo',
+    ...(madeByAi(o) ? { ai: true as const } : {}),
     title: tagsTitle(o.tags, `Photo by ${by}`),
     by,
     byUrl: userPage(by, num(o.user_id)) ?? url,
@@ -296,6 +300,7 @@ function pixabayVideo(v: unknown): StockItem | null {
     id: String(num(o.id)),
     source: 'pixabay',
     type: 'video',
+    ...(madeByAi(o) ? { ai: true as const } : {}),
     title: tagsTitle(o.tags, `Video by ${by}`),
     by,
     byUrl: userPage(by, num(o.user_id)) ?? url,

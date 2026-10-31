@@ -11,7 +11,7 @@ import type { PhotoEntry, PhotoLibrary } from '../store/photos';
 import { appVersion, versionLabel } from '../version';
 import { h, svg } from './dom';
 import { KIND_ICONS } from './icons';
-import { attribution, creditLine, siteMark } from './stocksite';
+import { aiMark, attribution, creditLine, siteMark } from './stocksite';
 
 export interface LibraryDeps {
   prefs: Prefs;
@@ -411,7 +411,7 @@ export class LibraryScreen {
         ondblclick: () => (this.removing === 'no' ? this.play() : undefined),
       },
       h('span', { class: 'chk', 'aria-hidden': 'true' }),
-      h('span', { class: 'thumb' }, this.thumbFor(e), e.credit ? siteMark(e.credit.source, 14) : null),
+      h('span', { class: 'thumb' }, this.thumbFor(e), e.credit ? siteMark(e.credit.source, 14) : null, e.credit?.ai ? aiMark() : null),
       h('span', { class: 'txt' }, h('span', { class: 'n' }, e.name), h('span', { class: 'b' }, text)),
     );
     this.items.set(e.id, li);
@@ -773,7 +773,7 @@ export class LibraryScreen {
           onclick: () => this.chooseStock(i.id),
           ondblclick: () => void this.playStock(),
         },
-        h('span', { class: 'thumb' }, h('img', { src: i.thumb, alt: '', width: 56, height: 56, loading: 'lazy', referrerPolicy: 'no-referrer' }), siteMark(i.source, 14)),
+        h('span', { class: 'thumb' }, h('img', { src: i.thumb, alt: '', width: 56, height: 56, loading: 'lazy', referrerPolicy: 'no-referrer' }), siteMark(i.source, 14), i.ai ? aiMark() : null),
         h('span', { class: 'txt' }, h('span', { class: 'n' }, i.title), h('span', { class: 'b' }, (video ? `Video ${formatTime(i.duration * 1000)} · ` : '') + (have ? 'In your library' : `by ${i.by}`))),
       );
     });

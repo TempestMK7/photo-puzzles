@@ -98,6 +98,9 @@ input[type='email'], input[type='password'] { text-transform: none; letter-spaci
 .stockbar button { flex: 1; }
 .thumb { position: relative; display: block; flex: none; width: 56px; height: 56px; }
 .thumb .pmark { position: absolute; right: -4px; bottom: -4px; display: flex; }
+.thumb .aimark { position: absolute; left: -4px; bottom: -4px; }
+.aimark { display: inline-flex; flex: none; align-items: center; padding: 0 5px; border-radius: 999px; font-size: 10px; font-weight: 700; line-height: 14px; letter-spacing: 0.03em; color: #fff; background: #6b4aa8; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55); }
+.aimark.long { font-size: 11px; padding: 0 7px; }
 .pmark { display: inline-flex; flex: none; }
 .pmark svg { display: block; border-radius: 4px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55); }
 .pcreditbox:empty { display: none; }

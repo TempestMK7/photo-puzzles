@@ -15,12 +15,18 @@ export function siteMark(site: StockSite, size = 16, className = 'pmark'): HTMLE
   return s;
 }
 
+/** A small badge that says that an AI made the picture or video (the sites that know say so): "AI" on a thumbnail, "AI generated" in a line of text. */
+export function aiMark(label = false): HTMLElement {
+  const m = h('span', { class: label ? 'aimark long' : 'aimark', title: 'Made by an AI', 'aria-label': 'AI generated' }, label ? 'AI generated' : 'AI');
+  return m;
+}
+
 const link = (site: StockSite, href: string, ...children: (Node | string)[]): HTMLElement =>
   h('a', { href: stockUrl(site, href) ?? STOCK_HOMES[site], target: '_blank', rel: 'noopener noreferrer' }, ...children);
 
 /** "Photo by Ada on Pexels", with both names as links to the site (the sites ask that the credit is shown where their pictures are). */
 export function creditLine(c: StockCredit, video: boolean): HTMLElement {
-  return h('div', { class: 'pcredit' }, video ? 'Video by ' : 'Photo by ', link(c.source, c.byUrl, c.by), ' on ', siteMark(c.source, 14), link(c.source, c.url, STOCK_NAMES[c.source]));
+  return h('div', { class: 'pcredit' }, video ? 'Video by ' : 'Photo by ', link(c.source, c.byUrl, c.by), ' on ', siteMark(c.source, 14), link(c.source, c.url, STOCK_NAMES[c.source]), ...(c.ai ? [aiMark(true)] : []));
 }
 
 /** "Photos and videos provided by Pexels", under the stock list. */
