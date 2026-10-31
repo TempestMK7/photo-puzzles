@@ -2,8 +2,8 @@
  * What keeps adult pictures out of the stock library. The sites' own switches are not enough: Pixabay's `safesearch` still returns pictures tagged "nude woman", "lingerie" or
  * "eroticism" (it leaves out much, not all; its site keeps such pictures behind a "sensitive content" cover that the API does not offer). So a search that asks for such things is
  * answered with nothing, and a picture whose tags, description or page address (which carries its title) use such a word is left out, whatever the site says. It is a list of words
- * and so it misses some and catches some that are harmless ("naked eye"); it is the first of two layers, the second being the stricter automatic look that a puzzle made from a stock
- * picture gets before anyone else can join (`strict` in `server/src/aws/rekognition.ts`).
+ * and so it misses some and catches some that are harmless ("naked eye"); it is the first of two layers, the second being the stricter automatic look (for nudity that is not explicit) that a puzzle
+ * made from a stock picture gets before anyone else can join (`strict` in `server/src/aws/rekognition.ts`).
  */
 const TERMS = [
   'nude[sd]?',

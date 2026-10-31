@@ -23,24 +23,33 @@ describe('blockedLabel', () => {
 });
 
 describe('the stricter look at a picture from the stock library', () => {
-  const nonExplicit = [{ Name: 'Partially Exposed Female Breast', ParentName: 'Non-Explicit Nudity of Intimate parts and Kissing', Confidence: 90 }];
+  // (a label of the third level comes with the ones above it, as the service sends them)
+  const implied = [{ Name: 'Non-Explicit Nudity of Intimate parts and Kissing', ParentName: '', Confidence: 90 }, { Name: 'Non-Explicit Nudity', ParentName: 'Non-Explicit Nudity of Intimate parts and Kissing', Confidence: 90 }, { Name: 'Implied Nudity', ParentName: 'Non-Explicit Nudity', Confidence: 90 }];
+  const kiss = [{ Name: 'Non-Explicit Nudity of Intimate parts and Kissing', ParentName: '', Confidence: 95 }, { Name: 'Kissing on the Lips', ParentName: 'Non-Explicit Nudity of Intimate parts and Kissing', Confidence: 95 }];
 
   it('also turns down nudity that is not explicit, which a family\'s own photographs are not held to', () => {
-    expect(blockedLabel(nonExplicit)).toBeUndefined();
-    expect(blockedLabel(nonExplicit, BLOCKED, true)).toBe('Non-Explicit Nudity of Intimate parts and Kissing / Partially Exposed Female Breast');
-    expect(blockedLabel([{ Name: 'Non-Explicit Nudity of Intimate parts and Kissing', ParentName: '', Confidence: 90 }], BLOCKED, true)).toBe('Non-Explicit Nudity of Intimate parts and Kissing');
-    expect(blockedLabel([{ Name: 'Implied Nudity', ParentName: 'Suggestive', Confidence: 90 }], BLOCKED, true)).toBe('Suggestive / Implied Nudity');          // (the older names)
-    expect([...STRICT_ALSO]).toEqual(['Non-Explicit Nudity', 'Suggestive']);
+    expect(blockedLabel(implied)).toBeUndefined();
+    expect(blockedLabel(implied, BLOCKED, true)).toBe('Non-Explicit Nudity / Implied Nudity');
+    expect(blockedLabel([{ Name: 'Partially Exposed Buttocks', ParentName: 'Non-Explicit Nudity', Confidence: 90 }], BLOCKED, true)).toBe('Non-Explicit Nudity / Partially Exposed Buttocks');
+    expect(blockedLabel([{ Name: 'Obstructed Intimate Parts', ParentName: 'Non-Explicit Nudity', Confidence: 90 }], BLOCKED, true)).toBeDefined();
+    expect([...STRICT_ALSO]).toEqual(['Implied Nudity', 'Partially Exposed Buttocks', 'Partially Exposed Female Breast', 'Obstructed Intimate Parts']);
+  });
+
+  it('lets a kiss, a bare back, a bare chest, swimwear and underwear through, as the usual look does', () => {
+    expect(blockedLabel(kiss, BLOCKED, true)).toBeUndefined();
+    const bareBack = [{ Name: 'Non-Explicit Nudity of Intimate parts and Kissing', ParentName: '', Confidence: 90 }, { Name: 'Non-Explicit Nudity', ParentName: 'Non-Explicit Nudity of Intimate parts and Kissing', Confidence: 90 }, { Name: 'Bare Back', ParentName: 'Non-Explicit Nudity', Confidence: 90 }, { Name: 'Exposed Male Nipple', ParentName: 'Non-Explicit Nudity', Confidence: 90 }];
+    expect(blockedLabel(bareBack, BLOCKED, true)).toBeUndefined();
+    expect(blockedLabel([{ Name: 'Swimwear or Underwear', ParentName: '', Confidence: 99 }, { Name: 'Female Swimwear or Underwear', ParentName: 'Swimwear or Underwear', Confidence: 99 }], BLOCKED, true)).toBeUndefined();
   });
 
   it('is as sure as before, and swimwear and drinks still go through', () => {
-    expect(blockedLabel([{ ...nonExplicit[0], Confidence: MIN_CONFIDENCE - 1 }], BLOCKED, true)).toBeUndefined();
+    expect(blockedLabel([{ ...implied[2], Confidence: MIN_CONFIDENCE - 1 }], BLOCKED, true)).toBeUndefined();
     expect(blockedLabel([{ Name: 'Swimwear or Underwear', ParentName: '', Confidence: 99 }, { Name: 'Alcohol', ParentName: '', Confidence: 99 }], BLOCKED, true)).toBeUndefined();
-    expect(blockedLabel([{ Name: 'Explicit', ParentName: '', Confidence: 99 }, ...nonExplicit], BLOCKED, true)).toBe('Explicit');          // the first label that counts
+    expect(blockedLabel([{ Name: 'Explicit', ParentName: '', Confidence: 99 }, ...implied], BLOCKED, true)).toBe('Explicit');          // the first label that counts
   });
 
   it('is asked for by the caller: the same answer from the service is let through or turned down', async () => {
-    const send = vi.fn().mockResolvedValue({ ModerationLabels: nonExplicit });
+    const send = vi.fn().mockResolvedValue({ ModerationLabels: implied });
     const check = new RekognitionModeration({ send });
     expect(await check.check(new Uint8Array([1]), 'image/jpeg')).toEqual({ ok: true });
     expect(await check.check(new Uint8Array([1]), 'image/jpeg', true)).toMatchObject({ ok: false });
