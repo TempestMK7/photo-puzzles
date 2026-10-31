@@ -42,7 +42,7 @@ export interface Settings {
 }
 
 /** The limits that may be set, and nothing else (a misspelt one would silently do nothing). */
-export const LIMIT_NAMES = ['jigsawPieces', 'playersPerRoom', 'activeRoomsPerPlayer', 'freeRoomsPerWeek', 'idleMs', 'solvedKeepMs', 'maxAgeMs', 'pictureBytes', 'videoRoomsPerWeek', 'videoBytes', 'videoMs', 'fileKeepMs', 'fileMaxAgeMs'];
+export const LIMIT_NAMES = ['jigsawPieces', 'playersPerRoom', 'activeRoomsPerPlayer', 'freeRoomsPerWeek', 'idleMs', 'solvedKeepMs', 'maxAgeMs', 'pictureBytes', 'videoRoomsPerWeek', 'videoBytes', 'videoMs', 'fileKeepMs'];
 
 function parseLimits(raw: string | undefined): Record<string, number> | undefined {
   if (!raw) return undefined;

@@ -67,8 +67,7 @@ export interface RoomRecord {
 
 /**
  * A picture or video that was sent and passed the check, kept after its puzzle is gone so that a puzzle can be made from it again without sending and checking it again. The file
- * itself is in the media storage (`Media.keepFile`); a puzzle gets a copy of its own, so that it ends as before. It is kept `fileKeepMs` after it was last used, and at most
- * `fileMaxAgeMs` in all.
+ * itself is in the media storage (`Media.keepFile`); a puzzle gets a copy of its own, so that it ends as before. It is kept `fileKeepMs` after it was last used.
  */
 export interface FileRecord {
   id: string;
@@ -85,10 +84,8 @@ export interface FileRecord {
   createdAt: number;
   /** When a puzzle was last made from it (or it was sent). */
   usedAt: number;
-  /** When it goes if no puzzle is made from it: `fileKeepMs` after `usedAt`, but never later than `endsBy`. */
+  /** When it goes if no puzzle is made from it: `fileKeepMs` after `usedAt`. */
   expiresAt: number;
-  /** The latest it can be kept, whatever happens: `fileMaxAgeMs` after it was sent. */
-  endsBy: number;
 }
 
 /** A player's report of a puzzle, with who was in it at the time (the puzzle may be gone by the time anyone looks). */
@@ -238,7 +235,6 @@ export interface Limits {
   videoRoomsPerWeek: number;
   videoBytes: number;
   videoMs: number;
-  /** A file is kept this long after it was last used to make a puzzle, and at most `fileMaxAgeMs` after it was sent. */
+  /** A file is kept this long after it was last used to make a puzzle. */
   fileKeepMs: number;
-  fileMaxAgeMs: number;
 }

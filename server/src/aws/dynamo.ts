@@ -17,7 +17,7 @@ export interface Sender {
  *   FILE#<id>     / FILE            a kept picture or video (`body` is the record as JSON; `ttl` is when it runs out)
  *   FILE#<id>     / USER#<player>   a player who may make a puzzle from the file (they joined a puzzle made from it)
  *   PLAYER#<id>   / FILE#<id>       a file the player sent
- *   FILES         / <ms>#<id>       every kept file, in the order they were sent (to list them; the last two have a `ttl` that is the latest the file can be kept)
+ *   FILES         / <ms>#<id>       every kept file, in the order they were sent (to list them). The last three have a `ttl` a little after the file's own, put forward each time the file is used
  *   REPORTS       / <ms>#<tag>      a report of a puzzle (with a `ttl`)
  *   BANS          / <player>        a player who may not play online (no `ttl`)
  *   RATE#<key>#<n> / COUNT          how many times something happened in one window of time (see DynamoRates)
@@ -39,7 +39,7 @@ const SLACK = 6 * HOUR;
 const CLAIM_MS = HOUR;
 /** The quota looks back a week; the records stay a day longer. */
 const CREATION_KEEP_MS = 8 * 24 * HOUR;
-/** What hangs on a kept file (who may use it, the lists it is in) outlives the latest the file can be kept by this much. */
+/** What hangs on a kept file (who may use it, the lists it is in) outlives the file by this much (and is put forward when the file is used). */
 const FILE_SLACK_MS = 2 * 24 * HOUR;
 /** A report is kept this long: long enough to be looked at, and to be found again if the same puzzle or player is reported later. */
 const REPORT_KEEP_MS = 90 * 24 * HOUR;
@@ -301,9 +301,18 @@ export class DynamoStore implements Store {
 
   async putFile(file: FileRecord): Promise<void> {
     // what hangs on the file first: if this stops half way, the file is not there to be used, and what was written goes by itself
-    const ttl = seconds(file.endsBy + FILE_SLACK_MS);
+    const ttl = seconds(file.expiresAt + FILE_SLACK_MS);
     await this.db.send(new PutCommand({ TableName: this.table, Item: { ...ownerFileKey(file.ownerId, file.id), ttl } }));
     await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: 'FILES', sk: `${pad(file.createdAt)}#${file.id}`, id: file.id, ttl } }));
+    // the players who may use it: their entries are put forward with the file (they would otherwise run out while the file is still kept)
+    let start: Record<string, unknown> | undefined;
+    do {
+      const page = await this.db.send(
+        new QueryCommand({ TableName: this.table, KeyConditionExpression: 'pk = :pk AND begins_with(sk, :user)', ExpressionAttributeValues: { ':pk': `FILE#${file.id}`, ':user': 'USER#' }, ExclusiveStartKey: start }),
+      );
+      for (const it of page.Items ?? []) await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: it.pk, sk: it.sk, ttl } }));
+      start = page.LastEvaluatedKey;
+    } while (start);
     await this.db.send(new PutCommand({ TableName: this.table, Item: { ...fileItem(file.id), body: JSON.stringify(file), expiresAt: file.expiresAt, ttl: seconds(file.expiresAt) } }));
   }
 

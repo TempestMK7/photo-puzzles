@@ -290,9 +290,11 @@ export class OnlinePanel {
         : tooLong
         ? `${entry.name} is longer than the ${DEFAULT_LIMITS.videoMs / 1000} seconds an online video puzzle may be: choose another, or a picture.`
         : `${entry.name}: ${entry.video ? 'a video, ' : ''}about ${Math.min(opts.pieces, DEFAULT_LIMITS.jigsawPieces)} pieces${opts.turning ? ', turned pieces' : ''}${note}. The settings are the Jigsaw settings of the main screen.`;
-    this.consentText.textContent = entry?.video
-      ? 'I agree that this video is sent to the online server, where the players of this puzzle can see and download it, and that all of it is checked automatically. The puzzle is deleted when it is solved or when nobody has touched it for a day, but the server keeps a copy of the video for a week after you last make a puzzle from it, so that you can make another without sending it again.'
-      : 'I agree that this picture is sent to the online server, where the players of this puzzle can see it. The puzzle is deleted when it is solved or when nobody has touched it for a day, but the server keeps a copy of the picture for a week after you last make a puzzle from it, so that you can make another without sending it again.';
+    const said = entry?.video
+      ? 'I agree that this video is sent to the online server, where the players of this puzzle can see and download it, and that all of it is checked automatically. The puzzle is deleted when it is solved or when nobody has touched it for a day, but the server keeps a copy of the video for a week after you last make a puzzle from it, so that you can make another without sending it again. I confirm that it has no sexual or adult content: that is not allowed in online puzzles.'
+      : 'I agree that this picture is sent to the online server, where the players of this puzzle can see it. The puzzle is deleted when it is solved or when nobody has touched it for a day, but the server keeps a copy of the picture for a week after you last make a puzzle from it, so that you can make another without sending it again. I confirm that it has no sexual or adult content: that is not allowed in online puzzles.';
+    // (the link opens the terms in a page of its own: the box and the puzzle being made stay as they are)
+    this.consentText.replaceChildren(said, ' ', h('a', { href: 'terms.html', target: '_blank', rel: 'noopener' }, 'Read the terms of service.'));
     this.startBtn.disabled = this.busy || !entry || tooLong || wrongKind;
   }
 

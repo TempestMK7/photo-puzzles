@@ -412,7 +412,7 @@ export class RoomService {
     if (video) await store.addCreation(videoKey(player.id), now);
     const invite = { code, secret, link: inviteLink(this.d.webBase, code, secret) };
     if (file) {
-      await store.putFile({ ...file, usedAt: now, expiresAt: Math.min(now + limits.fileKeepMs, file.endsBy) });          // used: it is kept another week
+      await store.putFile({ ...file, usedAt: now, expiresAt: now + limits.fileKeepMs });          // used: it is kept another week
       return { ok: true, roomId: id, invite };
     }
     const upload = video ? await this.d.media.videoUpload(id, video.type, video.bytes) : { url: await this.d.media.uploadUrl(id) };
@@ -424,7 +424,7 @@ export class RoomService {
     const file = await this.d.store.getFile(id);
     if (!file) return undefined;
     const now = this.d.clock.now();
-    if (file.expiresAt <= now || file.endsBy <= now) {
+    if (file.expiresAt <= now) {
       await this.removeFile(id);
       return undefined;
     }
@@ -455,8 +455,7 @@ export class RoomService {
         height: room.settings.height,
         createdAt: now,
         usedAt: now,
-        expiresAt: Math.min(now + limits.fileKeepMs, now + limits.fileMaxAgeMs),
-        endsBy: now + limits.fileMaxAgeMs,
+        expiresAt: now + limits.fileKeepMs,
       });
       return id;
     } catch (e) {
@@ -673,7 +672,7 @@ export class RoomService {
     if ('error' in done) return done;
     await this.publish(roomId, { t: 'joined', member: member! });
     // whoever is in a puzzle may make one of their own from its picture (a guest cannot make puzzles)
-    if (done.room.fileId && !player.guest) await store.addFileUser(done.room.fileId, player.id, this.d.clock.now() + limits.fileMaxAgeMs + FILE_USER_SLACK_MS);
+    if (done.room.fileId && !player.guest) await store.addFileUser(done.room.fileId, player.id, this.d.clock.now() + limits.fileKeepMs + FILE_USER_SLACK_MS);
     return { ok: true, room: await this.describe(done.room) };
   }
 
@@ -882,7 +881,7 @@ export class RoomService {
       }
     }
     for (const file of await this.d.store.allFiles()) {
-      if (file.expiresAt <= now || file.endsBy <= now) {
+      if (file.expiresAt <= now) {
         await this.removeFile(file.id);
         n++;
       }

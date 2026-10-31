@@ -123,7 +123,7 @@ describe('data', () => {
   it('has a private bucket for pictures, with a backstop that deletes old ones', () => {
     prod.hasResourceProperties('AWS::S3::Bucket', {
       PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true },
-      LifecycleConfiguration: { Rules: Match.arrayWith([Match.objectLike({ ExpirationInDays: 35 })]) },
+      LifecycleConfiguration: { Rules: Match.arrayWith([Match.objectLike({ ExpirationInDays: 35, Prefix: 'rooms/' }), Match.objectLike({ ExpirationInDays: 365, Prefix: 'files/' })]) },
       CorsConfiguration: { CorsRules: [Match.objectLike({ AllowedOrigins: ['https://puzzlevid.io'] })] },
     });
     prod.hasResourceProperties('AWS::S3::BucketPolicy', {

@@ -295,6 +295,7 @@ body.dragging .library::after {
 .online .chosen { font-size: 13px; color: var(--dim); }
 .online .consent { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--dim); cursor: pointer; }
 .online .consent input { margin-top: 3px; flex: none; }
+.online .consent a { color: var(--accent2); white-space: nowrap; }
 .online .status { min-height: 1.3em; font-size: 13px; color: var(--accent2); }
 .online .rooms { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .online .rooms li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; }

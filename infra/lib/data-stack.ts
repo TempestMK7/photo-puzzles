@@ -56,8 +56,12 @@ export class DataStack extends Stack {
           maxAge: 3000,
         },
       ],
-      // A backstop: a room ends within a day (or at most about a month) and its picture is deleted then; this removes anything that was missed.
-      lifecycleRules: [{ expiration: Duration.days(35), abortIncompleteMultipartUploadAfter: Duration.days(1) }],
+      // Backstops. A room ends within a day (or at most about a month) and its picture is deleted then; this removes anything that was missed. A kept file (`files/`) is deleted a week after it
+      // was last used, however long that takes (the table's expiry says when, so there is no rule that could cut a file short while it is in use); the year is only for one that is missed.
+      lifecycleRules: [
+        { prefix: 'rooms/', expiration: Duration.days(35), abortIncompleteMultipartUploadAfter: Duration.days(1) },
+        { prefix: 'files/', expiration: Duration.days(365), abortIncompleteMultipartUploadAfter: Duration.days(1) },
+      ],
       removalPolicy: removal,
       autoDeleteObjects: !prod,
     });

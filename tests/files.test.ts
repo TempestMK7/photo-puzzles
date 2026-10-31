@@ -34,7 +34,7 @@ describe.each(stores)('kept files on %s', (_name, store) => {
     it('keeps the picture once it has passed, and tells everybody in the puzzle its id', async () => {
       const w = world();
       const { fileId, made } = await sent(w);
-      expect(await w.store.getFile(fileId)).toMatchObject({ id: fileId, ownerId: 'ann', type: 'image', mime: 'image/jpeg', width: 400, height: 300, createdAt: START, usedAt: START, expiresAt: START + 7 * DAY, endsBy: START + 30 * DAY });
+      expect(await w.store.getFile(fileId)).toMatchObject({ id: fileId, ownerId: 'ann', type: 'image', mime: 'image/jpeg', width: 400, height: 300, createdAt: START, usedAt: START, expiresAt: START + 7 * DAY });
       expect((await joined(w, made, bob)).media.fileId).toBe(fileId);
       expect((await w.service.getRoom(ann, made.roomId))).toMatchObject({ ok: true, room: { media: { fileId } } });
     });
@@ -110,16 +110,27 @@ describe.each(stores)('kept files on %s', (_name, store) => {
       expect(w.media.has(`file~${fileId}`)).toBe(false);
     });
 
-    it('is never kept past the longest it may be, however often it is used', async () => {
+    it('is kept for as long as puzzles keep being made from it (there is no longest)', async () => {
       const w = world({ freeRoomsPerWeek: 99, activeRoomsPerPlayer: 99 });
       const { fileId } = await sent(w);
-      for (let day = 5; day <= 29; day += 4) {
+      for (let day = 5; day <= 100; day += 5) {
         w.clock.t = START + day * DAY;
         expect((await w.service.createRoom(ann, again(fileId))).ok, `day ${day}`).toBe(true);
       }
-      expect((await w.store.getFile(fileId))?.expiresAt).toBe(START + 30 * DAY);              // a week on from day 29 would be later: the cap holds
-      w.clock.t = START + 30 * DAY;
+      expect((await w.store.getFile(fileId))?.expiresAt).toBe(START + 107 * DAY);
+      w.clock.t = START + 107 * DAY;
       expect(await w.service.createRoom(ann, again(fileId))).toEqual({ ok: false, error: 'file-gone' });
+    });
+
+    it('stays open to a player who joined, for as long as the file is kept (their entry is put forward with it)', async () => {
+      const w = world({ freeRoomsPerWeek: 99, activeRoomsPerPlayer: 99 });
+      const { fileId, made } = await sent(w);
+      await joined(w, made, bob);
+      for (let day = 5; day <= 30; day += 5) {
+        w.clock.t = START + day * DAY;
+        expect((await w.service.createRoom(ann, again(fileId))).ok, `day ${day}`).toBe(true);        // the owner keeps it alive
+      }
+      expect((await w.service.createRoom(bob, again(fileId))).ok).toBe(true);                      // long after the entry made when he joined would have run out
     });
 
     it('says the file is gone for an id that was never given, and when the stored picture itself has gone', async () => {

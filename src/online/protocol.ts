@@ -30,8 +30,6 @@ export const DEFAULT_LIMITS = {
   videoMs: 120_000,
   /** A picture or video that has been uploaded and checked is kept this long after it was last used to make a puzzle, so that its owner (and anyone who joined a puzzle made from it) can make another from it without sending it again. */
   fileKeepMs: 7 * 24 * 3600 * 1000,
-  /** The longest a file is kept however often it is used (it then has to be sent, and checked, again). */
-  fileMaxAgeMs: 30 * 24 * 3600 * 1000,
 } as const;
 
 /**
