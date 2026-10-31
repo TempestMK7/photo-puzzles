@@ -1,6 +1,7 @@
 import { formatTime } from '../core/prefs';
 import type { AdminFile, AdminLogEvent, AdminLogGroup, AdminPlayer, AdminReport, AdminRoomDetail, AdminRoomSummary } from '../online/adminProtocol';
 import { CognitoAccount } from '../online/cognito';
+import { ACCOUNT_NAMES, ACCOUNT_TYPES, type AccountType } from '../online/protocol';
 import { cloudConfig } from '../online/config';
 import { h } from '../ui/dom';
 import { SignInDialog } from '../ui/signin';
@@ -48,6 +49,8 @@ class AdminPage {
   private message = '';
   private logs = { groups: [] as AdminLogGroup[], group: '', minutes: 60, filter: '', events: null as AdminLogEvent[] | null };
   private players: { list: AdminPlayer[]; next: string | null } = { list: [], next: null };
+  /** What the administrator has typed for an account (its type and credits) and not saved yet, by account id. */
+  private edits = new Map<string, { type: AccountType; photo: string; video: string }>();
   private files: { list: AdminFile[]; next: string | null; loaded: boolean; loading: boolean } = { list: [], next: null, loaded: false, loading: false };
   /** The file that is open in full, to be removed. */
   private open: AdminFile | null = null;
@@ -109,6 +112,7 @@ class AdminPage {
   private signOut(): void {
     this.account.signOut();
     this.players = { list: [], next: null };
+    this.edits.clear();
     this.files = { list: [], next: null, loaded: false, loading: false };
     this.open = null;
     this.look = null;
@@ -214,18 +218,62 @@ class AdminPage {
       {},
       h('div', { class: 'row' }, h('span', { class: 'dim' }, `${p.list.length} account${p.list.length === 1 ? '' : 's'}${p.next ? ' so far' : ''}`), this.refreshButton()),
       this.table(
-        ['Name', 'E-mail', 'Joined', 'Status', 'Id', ''],
-        p.list.map((u) => [
-          u.name || h('span', { class: 'dim' }, 'no name'),
-          u.email,
-          when(u.created),
-          h('span', {}, u.status.toLowerCase().replace(/_/g, ' '), ...(u.enabled ? [] : [h('span', { class: 'badge' }, 'disabled')]), ...(u.banned ? [h('span', { class: 'badge bad' }, 'banned')] : [])),
-          this.copy(u.id),
-          this.banControl(u),
-        ]),
+        ['Name', 'E-mail', 'Joined', 'Status', 'Type', 'Photo credits', 'Video credits', 'Id', '', ''],
+        p.list.map((u) => {
+          const edit = this.editOf(u);
+          return [
+            u.name || h('span', { class: 'dim' }, 'no name'),
+            u.email,
+            when(u.created),
+            h('span', {}, u.status.toLowerCase().replace(/_/g, ' '), ...(u.enabled ? [] : [h('span', { class: 'badge' }, 'disabled')]), ...(u.banned ? [h('span', { class: 'badge bad' }, 'banned')] : [])),
+            h(
+              'select',
+              { 'aria-label': `Account type of ${u.email}`, onchange: (e: Event) => (edit.type = (e.target as HTMLSelectElement).value as AccountType) },
+              ...ACCOUNT_TYPES.map((t) => h('option', { value: t, selected: t === edit.type }, ACCOUNT_NAMES[t])),
+            ),
+            this.creditInput(u, edit, 'photo'),
+            this.creditInput(u, edit, 'video'),
+            this.copy(u.id),
+            h('button', { type: 'button', class: 'small', onclick: () => void this.saveAccount(u) }, 'Save'),
+            this.banControl(u),
+          ];
+        }),
       ),
       ...(p.next ? [h('button', { type: 'button', onclick: () => void this.morePlayers() }, 'More')] : []),
     );
+  }
+
+  /** What is typed for an account so far: what it is now, until the administrator changes it. */
+  private editOf(u: AdminPlayer): { type: AccountType; photo: string; video: string } {
+    let e = this.edits.get(u.id);
+    if (!e) this.edits.set(u.id, (e = { type: u.type, photo: String(u.photo), video: String(u.video) }));
+    return e;
+  }
+
+  private creditInput(u: AdminPlayer, edit: { photo: string; video: string }, kind: 'photo' | 'video'): HTMLElement {
+    return h('input', {
+      type: 'number',
+      class: 'num',
+      min: 0,
+      max: 1_000_000,
+      step: 1,
+      value: edit[kind],
+      'aria-label': `${kind === 'photo' ? 'Photo' : 'Video'} credits of ${u.email}`,
+      oninput: (e: Event) => (edit[kind] = (e.target as HTMLInputElement).value),            // (nothing is drawn again: the box would lose the cursor)
+    });
+  }
+
+  /** Gives the account the type and credits that were typed (there is no payment yet: this is how an account is made a paid one, the family's or an admin). */
+  private async saveAccount(u: AdminPlayer): Promise<void> {
+    const e = this.editOf(u);
+    const num = (t: string) => (/^\d{1,7}$/.test(t.trim()) ? Number(t) : NaN);
+    if (!Number.isInteger(num(e.photo)) || !Number.isInteger(num(e.video))) return this.say('Credits are whole numbers, from 0.');
+    const res = await this.api.post<{ account: { type: AccountType; photo: number; video: number } }>('/admin/account', { id: u.id, type: e.type, photo: num(e.photo), video: num(e.video) });
+    if (!res.ok) return this.say(sayAdminError(res));
+    Object.assign(u, res.account);
+    this.edits.delete(u.id);
+    this.message = `${u.email}: ${ACCOUNT_NAMES[res.account.type]} account, ${res.account.photo} photo and ${res.account.video} video credits.`;
+    this.redraw();
   }
 
   private banControl(u: AdminPlayer): Node {

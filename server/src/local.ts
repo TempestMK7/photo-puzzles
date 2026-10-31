@@ -1,14 +1,14 @@
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { DEFAULT_LIMITS, topics, type RoomMessage } from '../../src/online/protocol';
+import { ACCOUNT_TYPES, DEFAULT_LIMITS, topics, type RoomMessage } from '../../src/online/protocol';
 import { GuestTokens, TokenAuth } from './guest';
 import { MemoryMedia, MemoryPubSub, MemoryStore, SystemRandom, systemClock } from './memory';
 import { setActive } from './played';
 import { createRouter, DevAuth } from './router';
 import { RoomService } from './service';
 import { PexelsStock, PixabayStock, type StockProviders } from './stock';
-import type { Player, Presence, PubSub } from './types';
+import type { Auth, Player, Presence, PubSub } from './types';
 
 /**
  * The online server on this machine: `npm run server`. The same RoomService the cloud will run, with memory for storage (everything is forgotten when it stops), an HTTP
@@ -18,8 +18,8 @@ import type { Player, Presence, PubSub } from './types';
 const PORT = Number(process.env.PORT ?? 8787);
 const WEB_BASE = process.env.WEB_BASE ?? 'http://localhost:5173';
 const ORIGIN = `http://localhost:${PORT}`;
-// a free player may make three a week; on this machine that would get in the way
-const FREE_ROOMS = Number(process.env.FREE_ROOMS_PER_WEEK ?? 50);
+// every account made here is a free one (5 photo credits, or FREE_PHOTO_CREDITS) unless this says another type: `ACCOUNT_TYPE=paid npm run server` (free, paid, family or admin), to try what each can do
+const ACCOUNT = ACCOUNT_TYPES.find((t) => t === process.env.ACCOUNT_TYPE);
 /** A request may carry a video here (the local server is sent it itself: the cloud's storage takes it from the game). */
 const MAX_BODY = DEFAULT_LIMITS.videoBytes + 1_000_000;
 
@@ -80,12 +80,25 @@ const service = new RoomService({
   presence: hub,
   clock: systemClock,
   random: new SystemRandom(),
-  limits: { ...DEFAULT_LIMITS, freeRoomsPerWeek: FREE_ROOMS, videoRoomsPerWeek: FREE_ROOMS, pictureBytes: 8_000_000 },
+  // (an ad is believed here: there is no ad network on this machine, and the game only offers ads in a mobile app)
+  limits: { ...DEFAULT_LIMITS, pictureBytes: 8_000_000, adsTrusted: 1, freePhotoCredits: Number(process.env.FREE_PHOTO_CREDITS ?? DEFAULT_LIMITS.freePhotoCredits) },
   webBase: WEB_BASE,
 });
 // real guests as in the cloud (signed tokens, a key made when the server starts); the accounts are the made-up ones
 const guests = new GuestTokens(new Uint8Array(randomBytes(32)), systemClock);
-const auth = new TokenAuth(guests, new DevAuth());
+const dev = new DevAuth();
+const typed = new Set<string>();
+const accounts: Auth = {
+  async verify(token) {
+    const player = await dev.verify(token);
+    if (player && ACCOUNT && !typed.has(player.id)) {
+      typed.add(player.id);
+      await service.adminSetAccount(player.id, { type: ACCOUNT });
+    }
+    return player;
+  },
+};
+const auth = new TokenAuth(guests, accounts);
 // the stock library, for each site that this machine has a key for (PEXELS_API_KEY, PIXABAY_API_KEY; PEXELS_API_BASE and PIXABAY_API_BASE point them at stand-ins for trying the game without one)
 const stock: StockProviders = {
   ...(process.env.PEXELS_API_KEY ? { pexels: new PexelsStock(process.env.PEXELS_API_KEY, { base: process.env.PEXELS_API_BASE }) } : {}),
@@ -169,7 +182,7 @@ wss.on('connection', (ws, req) => {
 setInterval(() => void service.sweep().catch((e) => console.error(e)), 60_000).unref();
 
 server.listen(PORT, () => {
-  console.log(`Online server on ${ORIGIN}  (the game is expected at ${WEB_BASE}; ${FREE_ROOMS} free puzzles a week)`);
+  console.log(`Online server on ${ORIGIN}  (the game is expected at ${WEB_BASE}; accounts are ${ACCOUNT ?? 'free'})`);
   console.log('Nothing is kept: stopping the server forgets every room.');
   if (!Object.keys(stock).length) console.log('No stock library: set PIXABAY_API_KEY (or PEXELS_API_KEY) to turn it on.');
 });

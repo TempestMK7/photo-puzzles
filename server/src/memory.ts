@@ -1,11 +1,11 @@
 import { Signer } from './signing';
-import type { Ban, Clock, FileRecord, Media, PubSub, RateCounter, Random, Report, RoomRecord, Store } from './types';
+import type { AccountRecord, Ban, Clock, FileRecord, Media, PubSub, RateCounter, Random, Report, RoomRecord, Store } from './types';
 
 /** Everything in memory: for the tests and for the local server (which forgets it all when it stops). */
 export class MemoryStore implements Store {
   private rooms = new Map<string, RoomRecord>();
   private codes = new Map<string, string>();
-  private creations = new Map<string, number[]>();
+  private accounts = new Map<string, AccountRecord>();
   private names = new Map<string, string>();
   private reports: Report[] = [];
   private banned = new Map<string, Ban>();
@@ -50,12 +50,16 @@ export class MemoryStore implements Store {
     return [...this.rooms.values()].map((r) => structuredClone(r));
   }
 
-  async creationsSince(playerId: string, since: number): Promise<number[]> {
-    return (this.creations.get(playerId) ?? []).filter((t) => t > since);
+  async getAccount(playerId: string): Promise<AccountRecord | undefined> {
+    const a = this.accounts.get(playerId);
+    return a && { ...a };
   }
 
-  async addCreation(playerId: string, at: number): Promise<void> {
-    this.creations.set(playerId, [...(this.creations.get(playerId) ?? []), at]);
+  async putAccount(account: AccountRecord): Promise<boolean> {
+    const had = this.accounts.get(account.id);
+    if (had ? had.rev !== account.rev - 1 : account.rev !== 0) return false;
+    this.accounts.set(account.id, { ...account });
+    return true;
   }
 
   async getName(playerId: string): Promise<string | undefined> {
@@ -124,7 +128,7 @@ export class MemoryStore implements Store {
 
   async forgetPlayer(playerId: string): Promise<void> {
     this.names.delete(playerId);
-    this.creations.delete(playerId);
+    this.accounts.delete(playerId);
   }
 }
 

@@ -6,7 +6,7 @@ import type { Accounts, Clock, Limits, Moderation, Player, Presence, Random, Sto
 
 /** A room service on memory with a clock the test moves, and the helpers to open rooms on it: shared by the tests of the server and of the game's side of a room. */
 export const DAY = 24 * 3600 * 1000;
-export const limits: Limits = { jigsawPieces: 1000, playersPerRoom: 8, activeRoomsPerPlayer: 5, freeRoomsPerWeek: 3, idleMs: DAY, solvedKeepMs: 3600 * 1000, maxAgeMs: 30 * DAY, pictureBytes: 5_000_000, videoRoomsPerWeek: 1, videoBytes: 1_000_000, videoMs: 30_000, fileKeepMs: 7 * DAY };
+export const limits: Limits = { jigsawPieces: 1000, playersPerRoom: 8, activeRoomsPerPlayer: 5, idleMs: DAY, solvedKeepMs: 3600 * 1000, maxAgeMs: 30 * DAY, pictureBytes: 5_000_000, videoBytes: 1_000_000, videoMs: 30_000, fileKeepMs: 7 * DAY, hostingPaused: 0, freePhotoCredits: 1000, adPhotoCredits: 5, adVideoCredits: 1, adsPerDay: 5, videoAdsPerDay: 5, adsTrusted: 0, paidVideoCredits: 20 };
 
 export const jpeg = (w: number, h: number): Uint8Array =>
   new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0, 0, 0xff, 0xc0, 0x00, 0x11, 0x08, h >> 8, h & 255, w >> 8, w & 255, 0x03, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1, 0xff, 0xd9]);
@@ -56,6 +56,21 @@ export const request = (o: Partial<CreateRoomRequest['settings']['opts']> = {}, 
 });
 
 export type World = ReturnType<typeof world>;
+
+/**
+ * A world on the memory store whose Ann and Bob are paid accounts with plenty of video credits (a video puzzle is only for those): the account is written at once, so a test that is not
+ * about accounts can go on as if every account could make videos.
+ */
+export function paidWorld(...args: Parameters<typeof world>): World {
+  const w = world(...args);
+  for (const id of ['ann', 'bob']) void w.store.putAccount({ id, type: 'paid', photo: 1000, video: 100, adDay: '1970-01-01', photoAds: 0, videoAds: 0, createdAt: 0, rev: 0 });
+  return w;
+}
+
+/** Makes these players (Ann, unless they are named) paid accounts with plenty of video credits. */
+export async function paid(w: World, ...ids: string[]): Promise<void> {
+  for (const id of ids.length ? ids : ['ann']) await w.service.adminSetAccount(id, { type: 'paid', video: 100 });
+}
 
 export async function open(w: World, owner = ann, req = request()) {
   const made = await w.service.createRoom(owner, req);

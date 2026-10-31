@@ -15,16 +15,26 @@ export const DEFAULT_LIMITS = {
   jigsawPieces: 1000,
   playersPerRoom: 8,
   activeRoomsPerPlayer: 5,
-  /** Online puzzles a free player may create per rolling week. */
-  freeRoomsPerWeek: 3,
+  /** 1 switches the starting of new puzzles off for everybody (joining and playing go on). */
+  hostingPaused: 0,
+  /** Photo credits a new account starts with (a free account pays one for every puzzle it starts from a photo). */
+  freePhotoCredits: 5,
+  /** What watching a rewarded ad gives (in the mobile apps): photo credits to a free account, video credits to a paid one. */
+  adPhotoCredits: 5,
+  adVideoCredits: 1,
+  /** How many ads a day may be watched for each kind (counted from midnight UTC). */
+  adsPerDay: 5,
+  videoAdsPerDay: 5,
+  /** 1: take the game's word that an ad was watched (for trying things out: there is no check with the ad network yet). 0: refuse, unless the server has a way to check. */
+  adsTrusted: 0,
+  /** The video credits a paid account is given for each payment period (what the payments, when they are built, will add). */
+  paidVideoCredits: 20,
   /** A puzzle nobody has touched for this long is gone, with its picture and its codes. */
   idleMs: 24 * 3600 * 1000,
   /** After a puzzle is solved, how long it stays for those who are still watching. */
   solvedKeepMs: 3600 * 1000,
   /** The longest a puzzle lives, however much it is played: a puzzle that is moved every day would otherwise never go (and its picture would stay on the server for ever). */
   maxAgeMs: 30 * 24 * 3600 * 1000,
-  /** Puzzles made from a video that a player may create per rolling week. 0 switches them off (they are off until the operator sets it: they cost storage, bandwidth and a look at the video). */
-  videoRoomsPerWeek: 0,
   /** The largest video, in bytes, and the longest, in ms (two minutes of a phone's video is about 150 to 250 MB). */
   videoBytes: 250_000_000,
   videoMs: 120_000,
@@ -119,10 +129,17 @@ export type ApiError =
   | 'bad-request'
   | 'not-found'
   | 'expired'
-  | 'quota'
   | 'limit'
   | 'full'
   | 'rate-limited'
+  /** A puzzle (or an ad) needs credits that the account has not got: see `ApiFailure.credits`. */
+  | 'no-credits'
+  /** Video puzzles are for paid accounts (and those of the family and the operator). */
+  | 'plan-required'
+  /** An ad could not be counted: see `ApiFailure.reason`. */
+  | 'ad-refused'
+  /** Ads are not accepted by this server (it cannot tell that one was watched). */
+  | 'ads-off'
   /** Joining by code waits for a member to say yes. */
   | 'knock-pending'
   | 'knock-denied'
@@ -142,8 +159,6 @@ export type ApiError =
   | 'rejected'
   /** Making new puzzles is switched off for now (the operator's limit is 0); joining and playing go on. */
   | 'paused'
-  /** Puzzles made from a video are switched off for now (their limit is 0). */
-  | 'video-off'
   /** The video is longer or larger than the limits allow. */
   | 'too-big'
   /** The automatic check could not read the video (it reads MP4 and MOV made with H.264). */
@@ -214,10 +229,16 @@ export const pixabayUrl = (v: unknown): string | null => stockUrl('pixabay', v);
 export interface ApiFailure {
   ok: false;
   error: ApiError;
-  /** For `busy`: who holds the piece. For `quota`: when the next puzzle can be made (ms). For `update-required`: the version the server wants. */
+  /** For `busy`: who holds the piece. For `rate-limited`: when to try again (ms). For `update-required`: the version the server wants. */
   holder?: string;
   retryAt?: number;
   protocol?: number;
+  /** For `no-credits`: which credits ran out. */
+  credits?: 'photo' | 'video';
+  /** For `ad-refused`: why. */
+  reason?: AdRefusal;
+  /** Where the account stands now, when a refusal is about credits (so that the game's display is right). */
+  account?: AccountSummary;
 }
 
 export interface CreateRoomRequest {
@@ -241,6 +262,8 @@ export interface CreateRoomRequest {
 export interface CreateRoomResponse {
   ok: true;
   roomId: string;
+  /** The account after the puzzle was paid for. */
+  account?: AccountSummary;
   /** Where to upload the picture to (a signed address), and what to send: the picture, as image/jpeg. For a video: where to PUT the file, with these headers, and nothing else (the size and type were given above). Nothing when the puzzle was made from a `fileId`: it is ready to be joined. */
   upload?: { url: string; headers?: Record<string, string> };
   invite: Invite;
@@ -347,7 +370,65 @@ export interface MeResponse {
   id: string;
   name: string | null;
   guest: boolean;
+  /** The account's type and credits (a guest has none: it is all zeros). */
+  account: AccountSummary;
 }
+
+// ------------------------------------------------------------------------------------------------------------------------------- accounts and credits
+
+/**
+ * What an account is. Everybody, guests too, plays alone as much as they like and joins any puzzle. **Starting** a puzzle for others costs credits: a free account pays a photo credit for
+ * each puzzle made from a picture and cannot start one from a video; a paid account starts as many picture puzzles as it likes and pays a video credit for each video; the family and the
+ * operator pay nothing, and what they send is not looked at by the automatic check (the operator looks at it by hand); the operator can also use the admin page. A guest cannot start any.
+ */
+export const ACCOUNT_TYPES = ['free', 'paid', 'family', 'admin'] as const;
+export type AccountType = (typeof ACCOUNT_TYPES)[number];
+
+/** The account types as the player and the operator read them. */
+export const ACCOUNT_NAMES: Record<AccountType | 'guest', string> = { guest: 'Guest', free: 'Free', paid: 'Paid', family: 'Family', admin: 'Admin' };
+
+/** A puzzle from a picture costs a credit only for a free account. */
+export const photosAreFree = (type: AccountType): boolean => type !== 'free';
+/** A puzzle from a video is only for a paid account, the family and the operator... */
+export const mayStartVideos = (type: AccountType): boolean => type !== 'free';
+/** ...and costs a video credit unless the account is the family's or the operator's. */
+export const videosAreFree = (type: AccountType): boolean => type === 'family' || type === 'admin';
+/** What the account sends is not looked at by the automatic check. */
+export const skipsTheCheck = (type: AccountType): boolean => type === 'family' || type === 'admin';
+/** Watching an ad gives a free account photo credits and a paid account video credits, and nobody else anything. */
+export const adGives = (type: AccountType, kind: 'photo' | 'video'): boolean => (kind === 'photo' ? type === 'free' : type === 'paid');
+
+/** Where an account stands, as the server counts it: what the game shows at the top of the main screen and in the dialogs about credits. */
+export interface AccountSummary {
+  /** `guest` for someone with no account. */
+  type: AccountType | 'guest';
+  /** The credits held (a paid, family or admin account's photo credits and a family or admin account's video credits are not spent: shown as the infinity sign). */
+  photo: number;
+  video: number;
+  photoInfinite: boolean;
+  videoInfinite: boolean;
+  /** The account may start a video puzzle (it is not a free account or a guest). */
+  canVideo: boolean;
+  /** How many more ads may be watched today for each kind of credit (0 when the account gets nothing for them), and what one gives. */
+  photoAdsLeft: number;
+  videoAdsLeft: number;
+  adPhoto: number;
+  adVideo: number;
+}
+
+/** What a guest (or somebody who has not signed in) sees: nothing to spend, and nothing to get. */
+export const GUEST_ACCOUNT: AccountSummary = { type: 'guest', photo: 0, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 0, videoAdsLeft: 0, adPhoto: 0, adVideo: 0 };
+
+/** What a watched ad needs to say: which credits it is for, and which app it was watched in (only the mobile apps have ads: Steam, itch and the web do not). */
+export type AdPlatform = 'android' | 'ios';
+export interface AdRequest {
+  kind: 'photo' | 'video';
+  platform: AdPlatform;
+  /** What the ad network gave the app to show that the ad was watched (checked by the server when it can). */
+  proof?: string;
+}
+export type AdRefusal = 'has-credits' | 'daily-limit' | 'platform' | 'plan' | 'unverified';
+export type AdResponse = { ok: true; account: AccountSummary } | ApiFailure;
 
 /** A guest's token: someone who joins puzzles without an account. The same token (and so the same player) is asked for again before it runs out. */
 export interface GuestResponse {

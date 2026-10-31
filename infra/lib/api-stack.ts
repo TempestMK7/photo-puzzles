@@ -162,6 +162,8 @@ export class ApiStack extends Stack {
     for (const [path, methods] of [['/guest', [POST]], ['/me', [GET, PUT]], ['/me/delete', [POST]], ['/join', [POST]], ['/rooms', [GET]], ['/rooms/{proxy+}', [GET, POST]]] as const) {
       this.api.addRoutes({ path, methods: [...methods], integration });
     }
+    // credits for a rewarded ad: an account's, like making a puzzle (the gateway turns a guest's token away)
+    this.api.addRoutes({ path: '/credits/ad', methods: [POST], integration, authorizer: jwt });
     this.api.addRoutes({ path: '/media/{id}', methods: [PUT], integration });
     this.api.addRoutes({ path: '/stock/search', methods: [GET], integration });
     // the admin page: nothing without a Cognito ID token (the function looks for the admin group besides)

@@ -1,7 +1,7 @@
 import type { Offline } from './api';
 import type { GuestAccount } from './guestAccount';
 import type { Account, PasswordAccount } from './identity';
-import { cleanName, type ApiFailure, type MeResponse } from './protocol';
+import { cleanName, GUEST_ACCOUNT, type AccountSummary, type ApiFailure, type MeResponse } from './protocol';
 
 const NAME_KEY = 'photo-puzzles/online/player-name';
 
@@ -24,6 +24,9 @@ export class OnlineSession implements Account {
   private api: ProfileApi | null = null;
   /** What the server said about the account that is signed in: loaded once for each account. */
   private profile: { id: string; name: string | null } | null = null;
+  /** What the server said the signed-in account has (its type and credits), as of the last time it was asked or told. */
+  private standing: { id: string; summary: AccountSummary } | null = null;
+  private listeners = new Set<() => void>();
   private saved: { name: string; chosen: boolean };
   /** The guest whose name the server has been given. */
   private pushedFor = '';
@@ -108,9 +111,36 @@ export class OnlineSession implements Account {
     return a?.signInWithGoogle && a.hasGoogle ? () => a.signInWithGoogle!() : undefined;
   }
 
-  /** The account is in the administrators' group (it may try a video of any size, which is not looked at). Only the account of a sign-in that says so. */
+  /** The account is an administrator (the server says so, or the sign-in is in the administrators' group): it may try a video of any size. */
   isAdmin(): boolean {
-    return this.account?.who()?.admin === true;
+    return this.summary().type === 'admin' || this.account?.who()?.admin === true;
+  }
+
+  /**
+   * The type and credits of the player: a guest, or somebody who has not signed in, has none (all zeros), and an account shows zeros until the server has been asked (`refreshProfile`).
+   */
+  summary(): AccountSummary {
+    const who = this.account?.who();
+    return who && this.standing?.id === who.id ? this.standing.summary : GUEST_ACCOUNT;
+  }
+
+  /** The server has said where the account stands (after a puzzle was started, or an ad watched): the displays follow. */
+  setSummary(summary: AccountSummary): void {
+    const who = this.account?.who();
+    if (!who) return;
+    this.standing = { id: who.id, summary };
+    this.changed();
+  }
+
+  /** Calls `fn` whenever the account's type or credits may have changed (or who is signed in has). Returns the way to stop. */
+  onChange(fn: () => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  /** Tells those who show the account's standing that it may have changed. */
+  changed(): void {
+    for (const fn of this.listeners) fn();
   }
 
   /** The address of the account's profile picture, if the sign-in service has one (a Google sign-in does). */
@@ -148,6 +178,8 @@ export class OnlineSession implements Account {
     const res = await this.api.me();
     if (!res.ok) return;
     this.profile = { id: who.id, name: res.name };
+    this.standing = { id: who.id, summary: res.account };
+    this.changed();
     if (res.name !== null) return;
     // only the server is told: on this device the name stays what it was, so that it is not taken for a name that the player chose (a guest on the same device would be called by it)
     const given = await this.api.setName(this.name());

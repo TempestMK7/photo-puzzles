@@ -2,10 +2,11 @@ import { findKind, optionsOf, puzzleSeedText } from '../core/kinds';
 import type { Prefs } from '../core/prefs';
 import { seedFromText } from '../core/rng';
 import type { CallError, Offline, OnlineApi } from '../online/api';
+import type { CreditKind } from './credits';
 import { cloudConfig } from '../online/config';
 import { pictureForUpload } from '../online/picture';
 import { videoTypeOf } from '../online/videoFile';
-import { DEFAULT_LIMITS, NAME_MAX, VIDEO_TYPES, cleanName, parseInvite, type ApiFailure, type CreateRoomResponse, type Invite, type RoomDescriptor, type RoomSettings, type RoomSummary } from '../online/protocol';
+import { DEFAULT_LIMITS, NAME_MAX, VIDEO_TYPES, cleanName, parseInvite, type AccountSummary, type AdRefusal, type ApiFailure, type CreateRoomResponse, type Invite, type RoomDescriptor, type RoomSettings, type RoomSummary } from '../online/protocol';
 import type { Realtime } from '../online/realtime';
 import { OnlineRoom } from '../online/room';
 import type { OnlineSession } from '../online/session';
@@ -26,6 +27,8 @@ export interface OnlineDeps {
   openProfile(): void;
   /** Asks the player to sign in or make an account; true when they have. */
   signIn(): Promise<boolean>;
+  /** Opens the dialog that explains the credits of this kind (when starting a puzzle needs credits the account has not got). */
+  openCredits?(kind: CreditKind): void;
 }
 
 /** How long the owner's game waits for the check of a video (it takes a minute or two) before it stops asking, and how often it asks. */
@@ -42,7 +45,25 @@ export function timeLeft(at: number, now = Date.now()): string {
 }
 
 /** What to tell the player when the server said no. */
-export function sayError(error: CallError, failure?: { retryAt?: number }): string {
+/** What starting the chosen picture or video would cost this account, for the line under its name. */
+export function costNote(video: boolean, a: AccountSummary): string {
+  if (a.type === 'guest') return '';
+  if (video) {
+    if (!a.canVideo) return 'Video puzzles are for paid accounts.';
+    return a.videoInfinite ? 'Starting it costs no credits.' : `Starting it costs 1 video credit (you have ${a.video}).`;
+  }
+  return a.photoInfinite ? 'Starting it costs no credits.' : `Starting it costs 1 photo credit (you have ${a.photo}).`;
+}
+
+const AD_REFUSALS: Record<AdRefusal, string> = {
+  'has-credits': 'You can watch an ad when you have no credits left.',
+  'daily-limit': 'You have watched all of today\u2019s ads. You can watch more tomorrow.',
+  platform: 'Ads can only be watched in the Android and iOS apps.',
+  plan: 'This account does not get credits for ads.',
+  unverified: 'The ad could not be checked, so there are no credits for it.',
+};
+
+export function sayError(error: CallError, failure?: { retryAt?: number; credits?: 'photo' | 'video'; reason?: AdRefusal }): string {
   switch (error) {
     case 'offline':
       return 'Could not reach the online server.';
@@ -58,8 +79,14 @@ export function sayError(error: CallError, failure?: { retryAt?: number }): stri
       return 'There is no puzzle with that code (or it has ended).';
     case 'expired':
       return 'That puzzle has ended.';
-    case 'quota':
-      return failure?.retryAt ? `You have made all your online puzzles for this week. The next one is free ${new Date(failure.retryAt).toLocaleString()}.` : 'You have made all your online puzzles for this week.';
+    case 'no-credits':
+      return failure?.credits === 'video' ? 'You have no video credits left.' : 'You have no photo credits left.';
+    case 'plan-required':
+      return 'Video puzzles are for paid accounts.';
+    case 'ad-refused':
+      return (failure?.reason && AD_REFUSALS[failure.reason]) || 'That ad could not be counted.';
+    case 'ads-off':
+      return 'Ads cannot be counted for credits yet.';
     case 'limit':
       return 'You are in as many online puzzles as you can be (leave one first), or the puzzle is too big.';
     case 'full':
@@ -74,8 +101,6 @@ export function sayError(error: CallError, failure?: { retryAt?: number }): stri
       return 'That picture or video cannot be used for an online puzzle.';
     case 'unreadable':
       return 'The check could not read that video. Online puzzles take MP4 or MOV made with H.264.';
-    case 'video-off':
-      return 'Online puzzles from a video are switched off for now. Pictures still work.';
     case 'too-big':
       return 'That video is longer or larger than an online puzzle allows.';
     case 'paused':
@@ -163,6 +188,7 @@ export class OnlinePanel {
         h('div', { class: 'body' }, this.loadingEl, this.whoEl, this.nameField, this.needAccount, this.startSection, this.joinSection, this.statusEl, this.listSection),
       ),
     );
+    deps.identity.onChange(() => this.isOpen && this.refresh());                      // (the line about what the puzzle costs follows the account's credits)
   }
 
   open(): void {
@@ -289,7 +315,7 @@ export class OnlinePanel {
         ? `${entry.name} cannot be shared online: online puzzles take MP4 or MOV videos (made with H.264).`
         : tooLong
         ? `${entry.name} is longer than the ${DEFAULT_LIMITS.videoMs / 1000} seconds an online video puzzle may be: choose another, or a picture.`
-        : `${entry.name}: ${entry.video ? 'a video, ' : ''}about ${Math.min(opts.pieces, DEFAULT_LIMITS.jigsawPieces)} pieces${opts.turning ? ', turned pieces' : ''}${note}. The settings are the Jigsaw settings of the main screen.`;
+        : `${entry.name}: ${entry.video ? 'a video, ' : ''}about ${Math.min(opts.pieces, DEFAULT_LIMITS.jigsawPieces)} pieces${opts.turning ? ', turned pieces' : ''}${note}. The settings are the Jigsaw settings of the main screen. ${costNote(!!entry.video, this.deps.identity.summary())}`.trim();
     const said = entry?.video
       ? 'I agree that this video is sent to the online server, where the players of this puzzle can see and download it, and that all of it is checked automatically. The puzzle is deleted when it is solved or when nobody has touched it for a day, but the server keeps a copy of the video for a week after you last make a puzzle from it, so that you can make another without sending it again. I confirm that it has no sexual or adult content: that is not allowed in online puzzles.'
       : 'I agree that this picture is sent to the online server, where the players of this puzzle can see it. The puzzle is deleted when it is solved or when nobody has touched it for a day, but the server keeps a copy of the picture for a week after you last make a puzzle from it, so that you can make another without sending it again. I confirm that it has no sexual or adult content: that is not allowed in online puzzles.';
@@ -387,6 +413,7 @@ export class OnlinePanel {
       const blob = await pictureForUpload(src.source, src.width, src.height);
       const made = await api.createRoom({ settings, sourceId: entry.id, consent: true, ...(entry.credit ? { stock: true } : {}) });
       if (!made.ok) return this.fail(made);
+      if (made.account) this.deps.identity.setSummary(made.account);
       if (!made.upload) return this.fail({ error: 'bad-request' });
       this.say('Sending the picture…');
       let up = await api.upload(made.upload.url, blob);
@@ -416,6 +443,7 @@ export class OnlinePanel {
       await this.deps.photos.setServerFile(entry.id, undefined);
       return null;
     }
+    if (made.ok && made.account) this.deps.identity.setSummary(made.account);
     return made;
   }
 
@@ -456,6 +484,7 @@ export class OnlinePanel {
       if (kept) return kept.ok ? this.openMade(kept.roomId, kept.invite, entry) : this.fail(kept);
       const made = await api.createRoom({ settings, sourceId: entry.id, consent: true, ...(entry.credit ? { stock: true } : {}), video: { type: type as (typeof VIDEO_TYPES)[number], bytes: file.size, ms: Math.round(seconds * 1000) } });
       if (!made.ok) return this.fail(made);
+      if (made.account) this.deps.identity.setSummary(made.account);
       if (!made.upload) return this.fail({ error: 'bad-request' });
       const sent = await api.uploadVideo(made.upload.url, made.upload.headers ?? {}, file, (f) => this.say(`Sending the video… ${Math.round(f * 100)}%`));
       if (!sent.ok) return this.fail(sent);
@@ -487,8 +516,10 @@ export class OnlinePanel {
     }
   }
 
-  private fail(r: { error: CallError; retryAt?: number }): void {
+  private fail(r: { error: CallError; retryAt?: number; credits?: 'photo' | 'video'; reason?: AdRefusal; account?: AccountSummary }): void {
     this.setBusy(false, sayError(r.error, r));
+    if (r.account) this.deps.identity.setSummary(r.account);                       // (what the server says is left, so that the displays are right)
+    if (r.error === 'no-credits') this.deps.openCredits?.(r.credits ?? 'photo');
   }
 
   // ---------------------------------------------------------------------------------------------------------------- joining

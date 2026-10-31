@@ -37,12 +37,15 @@ export interface Settings {
    */
   pexelsSecretName?: string;
   pixabaySecretName?: string;
-  /** Changes to the service's limits (see `Limits` in server/src/types.ts), as numbers by name: `freeRoomsPerWeek: 0` switches the making of puzzles off. */
+  /** Changes to the service's limits (see `Limits` in server/src/types.ts), as numbers by name: `hostingPaused: 1` switches the making of puzzles off. */
   limits?: Record<string, number>;
 }
 
 /** The limits that may be set, and nothing else (a misspelt one would silently do nothing). */
-export const LIMIT_NAMES = ['jigsawPieces', 'playersPerRoom', 'activeRoomsPerPlayer', 'freeRoomsPerWeek', 'idleMs', 'solvedKeepMs', 'maxAgeMs', 'pictureBytes', 'videoRoomsPerWeek', 'videoBytes', 'videoMs', 'fileKeepMs'];
+export const LIMIT_NAMES = ['jigsawPieces', 'playersPerRoom', 'activeRoomsPerPlayer', 'idleMs', 'solvedKeepMs', 'maxAgeMs', 'pictureBytes', 'videoBytes', 'videoMs', 'fileKeepMs', 'hostingPaused', 'freePhotoCredits', 'adPhotoCredits', 'adVideoCredits', 'adsPerDay', 'videoAdsPerDay', 'adsTrusted', 'paidVideoCredits'];
+
+/** Limits that existed and are gone (the weekly counts of puzzles: credits took their place). A setting that still names one is left out, so that a deployment that has it goes on working. */
+const RETIRED_LIMITS = ['freeRoomsPerWeek', 'videoRoomsPerWeek'];
 
 function parseLimits(raw: string | undefined): Record<string, number> | undefined {
   if (!raw) return undefined;
@@ -50,9 +53,10 @@ function parseLimits(raw: string | undefined): Record<string, number> | undefine
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error('limits must be JSON, like {"freeRoomsPerWeek":0}');
+    throw new Error('limits must be JSON, like {"hostingPaused":1}');
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('limits must be an object, like {"freeRoomsPerWeek":0}');
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('limits must be an object, like {"hostingPaused":1}');
+  for (const k of RETIRED_LIMITS) delete (parsed as Record<string, unknown>)[k];
   for (const [k, v] of Object.entries(parsed)) {
     if (!LIMIT_NAMES.includes(k)) throw new Error(`limits: ${k} is not a limit (${LIMIT_NAMES.join(', ')})`);
     if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) throw new Error(`limits: ${k} must be a number, 0 or more`);

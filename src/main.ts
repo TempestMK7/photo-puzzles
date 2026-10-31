@@ -16,6 +16,7 @@ import type { PhotoEntry } from './store/photos';
 import { LibraryScreen } from './ui/library';
 import { OnlinePanel } from './ui/online';
 import { PlayScreen } from './ui/play';
+import { CreditsUi } from './ui/credits';
 import { DELETE_HASH, ProfileDialog, takeAccountDeletedNotice } from './ui/profile';
 import { SignInDialog } from './ui/signin';
 
@@ -99,8 +100,19 @@ async function main(): Promise<void> {
     return true;
   };
   const profile: ProfileDialog | null = api
-    ? new ProfileDialog({ identity: player, api, signIn, changed: () => profile?.refreshBadge() })
+    ? new ProfileDialog({
+        identity: player,
+        api,
+        signIn,
+        changed: () => {
+          profile?.refreshBadge();
+          void player.refreshProfile();                     // (a new account, or none: the credits are asked for again)
+          player.changed();
+        },
+      })
     : null;
+  // the photo and video credits at the top of the main screen, and the dialog that says how they work (and, in the mobile apps, plays an ad for more)
+  const credits = api ? new CreditsUi({ identity: player, api, signIn }) : null;
   const panel: OnlinePanel | null =
     api && realtime
       ? new OnlinePanel({
@@ -111,6 +123,7 @@ async function main(): Promise<void> {
           identity: player,
           chosen: (): PhotoEntry | undefined => library.chosenPhoto,
           openProfile: () => profile?.open(),
+          openCredits: (kind) => credits?.show(kind),
           signIn,
           onPlay: (room, invite) => {
             library.hide();
@@ -126,6 +139,7 @@ async function main(): Promise<void> {
     saves,
     onOnline: panel ? () => panel.open() : undefined,
     badge: profile?.badge,
+    credits: credits?.el,
     stockBase: base || undefined,
     onPlay: (entry) => {
       library.hide();
@@ -137,6 +151,7 @@ async function main(): Promise<void> {
   play.el.hidden = true;
   root.append(library.el, play.el);
   if (panel) root.append(panel.el);
+  if (credits) root.append(credits.dialog);
   if (profile) root.append(profile.el);
   if (signInDialog) root.append(signInDialog.el);
   // the badge shows the account's name: ask the server for it once (the name that is kept on this device is used until it answers)

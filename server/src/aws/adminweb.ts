@@ -82,6 +82,7 @@ export function toAdminReq(event: APIGatewayProxyEventV2WithJWTAuthorizer): Admi
     query: new URLSearchParams(event.rawQueryString),
     body,
     groups: parseGroups(event.requestContext.authorizer?.jwt?.claims?.['cognito:groups']),
+    sub: typeof event.requestContext.authorizer?.jwt?.claims?.sub === 'string' ? event.requestContext.authorizer.jwt.claims.sub : undefined,
   };
 }
 

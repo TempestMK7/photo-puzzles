@@ -10,7 +10,7 @@ const users: DirectoryUser[] = [
 ];
 
 function setup(extra = {}) {
-  const w = world({ freeRoomsPerWeek: 50, ...extra });
+  const w = world({ ...extra });
   const asked: { group: string; since: number; filter: string; limit: number }[] = [];
   const pages: (string | undefined)[] = [];
   const directory: Directory = {
@@ -28,8 +28,8 @@ function setup(extra = {}) {
     },
   };
   const handle = makeAdminWeb({ service: w.service, directory, logs, now: () => w.clock.t });
-  const call = (method: string, path: string, o: { query?: string; body?: unknown; groups?: string[] } = {}) =>
-    handle({ method, path, query: new URLSearchParams(o.query ?? ''), body: o.body ?? {}, groups: o.groups ?? ['admins'] } satisfies AdminWebReq);
+  const call = (method: string, path: string, o: { query?: string; body?: unknown; groups?: string[]; sub?: string } = {}) =>
+    handle({ method, path, query: new URLSearchParams(o.query ?? ''), body: o.body ?? {}, groups: o.groups ?? ['admins'], sub: o.sub } satisfies AdminWebReq);
   return { w, call, asked, pages, groups };
 }
 
@@ -50,7 +50,7 @@ describe('the admin routes', () => {
     const { w, call } = setup();
     const made = await open(w);
     for (const who of [[], ['users'], ['admin'], ['Admins']]) {
-      for (const [method, path] of [['GET', '/admin/me'], ['GET', '/admin/players'], ['GET', '/admin/rooms'], ['GET', `/admin/room/${made.roomId}`], ['POST', `/admin/room/${made.roomId}/remove`], ['GET', '/admin/files'], ['POST', '/admin/file/x/remove'], ['GET', '/admin/reports'], ['GET', '/admin/bans'], ['POST', '/admin/ban'], ['POST', '/admin/unban'], ['GET', '/admin/logs/groups'], ['GET', '/admin/logs']]) {
+      for (const [method, path] of [['GET', '/admin/me'], ['GET', '/admin/players'], ['GET', '/admin/rooms'], ['GET', `/admin/room/${made.roomId}`], ['POST', `/admin/room/${made.roomId}/remove`], ['GET', '/admin/files'], ['POST', '/admin/file/x/remove'], ['POST', '/admin/account'], ['GET', '/admin/reports'], ['GET', '/admin/bans'], ['POST', '/admin/ban'], ['POST', '/admin/unban'], ['GET', '/admin/logs/groups'], ['GET', '/admin/logs']]) {
         expect(await call(method, path, { groups: who, body: { id: 'ann' } }), `${method} ${path} as ${who}`).toEqual({ status: 403, body: { ok: false, error: 'unauthorized' } });
       }
     }
@@ -71,10 +71,34 @@ describe('the admin routes', () => {
     await w.service.setProfile(ann, 'Annie');
     await w.service.adminBan('bob', 'rude');
     const first = await call('GET', '/admin/players');
-    expect(first.body).toEqual({ ok: true, next: 'more', players: [{ ...users[0], name: 'Annie', banned: false }] });
+    expect(first.body).toEqual({ ok: true, next: 'more', players: [{ ...users[0], name: 'Annie', banned: false, type: 'free', photo: 1000, video: 0 }] });
     const second = await call('GET', '/admin/players', { query: 'next=more' });
-    expect(second.body).toEqual({ ok: true, next: null, players: [{ ...users[1], name: '', banned: true }] });
+    expect(second.body).toEqual({ ok: true, next: null, players: [{ ...users[1], name: '', banned: true, type: 'free', photo: 1000, video: 0 }] });
     expect(pages).toEqual([undefined, 'more']);
+  });
+
+  it('show the type and credits of every account, and change them', async () => {
+    const { w, call } = setup();
+    await w.service.adminSetAccount('ann', { type: 'paid', video: 7 });
+    const listed = (await call('GET', '/admin/players')).body.players as { id: string; type: string; photo: number; video: number }[];
+    expect(listed[0]).toMatchObject({ id: 'ann', type: 'paid', photo: 1000, video: 7 });
+    expect(await call('POST', '/admin/account', { body: { id: 'bob', type: 'family', photo: 3 } })).toEqual({ status: 200, body: { ok: true, account: { type: 'family', photo: 3, video: 0 } } });
+    expect(await w.store.getAccount('bob')).toMatchObject({ type: 'family', photo: 3 });
+    for (const bad of [{}, { id: '../x' }, { id: 'bob', type: 'gold' }, { id: 'bob', photo: -4 }, { id: 'bob', video: 'many' }]) {
+      expect((await call('POST', '/admin/account', { body: bad })).status, JSON.stringify(bad)).toBe(400);
+    }
+    expect(await w.store.getAccount('bob')).toMatchObject({ type: 'family', photo: 3 });                  // the refused ones changed nothing
+  });
+
+  it('let in an account whose own record says it is an admin, without the group, and nobody else', async () => {
+    const { w, call } = setup();
+    expect(await call('GET', '/admin/me', { groups: [], sub: 'ann' })).toMatchObject({ status: 403 });
+    await w.service.adminSetAccount('ann', { type: 'admin' });
+    expect(await call('GET', '/admin/me', { groups: [], sub: 'ann' })).toEqual({ status: 200, body: { ok: true } });
+    expect(await call('GET', '/admin/me', { groups: [], sub: 'bob' })).toMatchObject({ status: 403 });
+    expect(await call('GET', '/admin/me', { groups: [] })).toMatchObject({ status: 403 });                  // no token to say who
+    await w.service.adminSetAccount('ann', { type: 'family' });
+    expect(await call('GET', '/admin/me', { groups: [], sub: 'ann' })).toMatchObject({ status: 403 });      // taken away, it is taken away
   });
 
   it('list the puzzles that exist, with who is in each and who is connected, and the time played', async () => {
@@ -227,11 +251,11 @@ describe('the pieces that ask AWS', () => {
       rawQueryString: 'next=abc',
       isBase64Encoded: false,
       body: '{"id":"x"}',
-      requestContext: { http: { method: 'POST' }, authorizer: { jwt: { claims: { 'cognito:groups': '[admins]' } } } },
+      requestContext: { http: { method: 'POST' }, authorizer: { jwt: { claims: { 'cognito:groups': '[admins]', sub: 'ann-1' } } } },
     } as never);
-    expect(req).toMatchObject({ method: 'POST', path: '/admin/players', body: { id: 'x' }, groups: ['admins'] });
+    expect(req).toMatchObject({ method: 'POST', path: '/admin/players', body: { id: 'x' }, groups: ['admins'], sub: 'ann-1' });
     expect(req.query.get('next')).toBe('abc');
-    expect(toAdminReq({ rawPath: '/admin/me', rawQueryString: '', body: 'not json', requestContext: { http: { method: 'GET' } } } as never)).toMatchObject({ body: {}, groups: [] });
+    expect(toAdminReq({ rawPath: '/admin/me', rawQueryString: '', body: 'not json', requestContext: { http: { method: 'GET' } } } as never)).toMatchObject({ body: {}, groups: [], sub: undefined });
     const out = toAdminResult({ status: 403, body: { ok: false, error: 'unauthorized' } });
     expect(out).toMatchObject({ statusCode: 403, headers: { 'cache-control': 'no-store' } });
   });

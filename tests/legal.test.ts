@@ -22,8 +22,8 @@ describe('what the privacy policy and the terms say', () => {
     const both = `${text(privacy().blocks)}\n${text(terms(values).blocks)}`;
     expect(both).toContain(`${days(DEFAULT_LIMITS.maxAgeMs)} days`);
     expect(both).toContain(`${days(GUEST_LIFE_MS)} days`);                    // a guest's token
-    expect(both).toContain('three new online puzzles a week');
-    expect(DEFAULT_LIMITS.freeRoomsPerWeek).toBe(3);
+    expect(both).toContain('starts with five photo credits');
+    expect(DEFAULT_LIMITS.freePhotoCredits).toBe(5);
     expect(both).toContain('eight players');
     expect(DEFAULT_LIMITS.playersPerRoom).toBe(8);
     expect(both).toContain('nobody has touched it for a day');

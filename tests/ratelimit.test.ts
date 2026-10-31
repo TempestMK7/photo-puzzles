@@ -75,7 +75,7 @@ describe('the limits on the API', () => {
   const KEY = new Uint8Array(32).fill(9);
 
   function setup(counter?: (clock: { now(): number }) => RateCounter) {
-    const w = world({ freeRoomsPerWeek: 50 });
+    const w = world({});
     const guests = new GuestTokens(KEY, w.clock);
     const logged: unknown[] = [];
     const limiter = new RateLimiter(counter ? counter(w.clock) : new MemoryRates(w.clock), w.clock, rates, (e) => logged.push(e));

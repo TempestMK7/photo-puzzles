@@ -35,6 +35,8 @@ export interface AdminWebReq {
   body: unknown;
   /** The groups the token says the account is in (see `parseGroups`). */
   groups: string[];
+  /** Who the token says it is (the `sub`): an account whose own record says it is an admin may use the page without being in the group. */
+  sub?: string;
 }
 
 export interface AdminWebRes {
@@ -60,7 +62,7 @@ const ok = (body: Record<string, unknown> = {}): AdminWebRes => ({ status: 200, 
 export function makeAdminWeb(d: { service: RoomService; directory: Directory; logs: LogSource; now(): number }) {
   const { service } = d;
   return async (req: AdminWebReq): Promise<AdminWebRes> => {
-    if (!req.groups.includes(ADMIN_GROUP)) return no(403, 'unauthorized');
+    if (!req.groups.includes(ADMIN_GROUP) && !(req.sub && (await service.isAdminAccount(req.sub)))) return no(403, 'unauthorized');
     const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
     const path = req.path.replace(/\/+$/, '');
     const get = req.method === 'GET';
@@ -73,8 +75,16 @@ export function makeAdminWeb(d: { service: RoomService; directory: Directory; lo
       const page = await d.directory.listUsers(req.query.get('next') || undefined);
       const names = await service.adminNames(page.users.map((u) => u.id));
       const banned = new Set((await service.adminBans()).map((b) => b.playerId));
-      const players: AdminPlayer[] = page.users.map((u) => ({ ...u, name: names.get(u.id) ?? '', banned: banned.has(u.id) }));
+      const accounts = await service.adminAccounts(page.users.map((u) => u.id));
+      const players: AdminPlayer[] = page.users.map((u) => ({ ...u, name: names.get(u.id) ?? '', banned: banned.has(u.id), ...accounts.get(u.id)! }));
       return ok({ players, next: page.next ?? null });
+    }
+
+    // an account's type and credits (there is no payment yet: this is how a type is given)
+    if (post && path === '/admin/account') {
+      if (!isId(body.id)) return no(400, 'id');
+      const done = await service.adminSetAccount(body.id, { type: body.type, photo: body.photo, video: body.video });
+      return done.ok ? ok({ account: done.account }) : no(400, done.error);
     }
 
     if (get && path === '/admin/rooms') return ok({ rooms: await service.adminRooms() });

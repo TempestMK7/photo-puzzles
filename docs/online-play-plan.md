@@ -1,5 +1,7 @@
 # Online play with friends: plan
 
+Later (accounts): the weekly count of puzzles was replaced by **account types and credits** (free, paid, family, admin; photo and video credits; ads in the mobile apps): `docs/online-protocol.md`, *Accounts and credits*. The lines below that speak of the quota and `freeRoomsPerWeek` are how it was before.
+
 Status (2026-10-30): Phases 0 and 1 are built (a local prototype); Phase 2 is **deployed in dev** (all five stacks and the website, by the Deploy workflow; `prod` is not deployed); Phase 3 (the feature) is built and being tried by the owner on dev; Phase 4 is built except what is the owner's (legal review, the Play data-safety form, the Lambda quota that is requested) and the reserved concurrency that waits for it. Phases 5 and 6 are not started. This file is the TODO list; tick items off as they land, and change it when a decision changes. The game is called PuzzleVidio, at puzzlevid.io.
 
 ## What it is

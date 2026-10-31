@@ -1,5 +1,5 @@
 import { BatchGetCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand, ScanCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import type { Ban, Clock, FileRecord, Presence, RateCounter, Report, RoomRecord, Store } from '../types';
+import type { AccountRecord, Ban, Clock, FileRecord, Presence, RateCounter, Report, RoomRecord, Store } from '../types';
 
 /** The part of the document client that is used, so that a test can put a fake in its place. */
 export interface Sender {
@@ -12,7 +12,7 @@ export interface Sender {
  *   ROOM#<id>     / ONLINE#<player> a player who is connected to the room
  *   CODE#<digits> / CODE            a code and the room it opens
  *   PLAYER#<id>   / ROOM#<id>       a player's membership
- *   PLAYER#<id>   / CREATION#<ms>   a puzzle that was made, for the quota
+ *   PLAYER#<id>   / ACCOUNT         the account's type and credits (`body` is the record as JSON; `rev` makes a write conditional, as for a room)
  *   PLAYER#<id>   / PROFILE         the display name the player chose (with a `ttl` for a guest, who may not come back)
  *   FILE#<id>     / FILE            a kept picture or video (`body` is the record as JSON; `ttl` is when it runs out)
  *   FILE#<id>     / USER#<player>   a player who may make a puzzle from the file (they joined a puzzle made from it)
@@ -25,6 +25,7 @@ export interface Sender {
  */
 const roomKey = (id: string) => ({ pk: `ROOM#${id}`, sk: 'META' });
 const codeKey = (code: string) => ({ pk: `CODE#${code}`, sk: 'CODE' });
+const accountKey = (player: string) => ({ pk: `PLAYER#${player}`, sk: 'ACCOUNT' });
 const memberKey = (player: string, room: string) => ({ pk: `PLAYER#${player}`, sk: `ROOM#${room}` });
 const fileItem = (id: string) => ({ pk: `FILE#${id}`, sk: 'FILE' });
 const fileUserKey = (id: string, player: string) => ({ pk: `FILE#${id}`, sk: `USER#${player}` });
@@ -37,8 +38,6 @@ const HOUR = 3600 * 1000;
 const SLACK = 6 * HOUR;
 /** A code that was claimed for a room that was never made goes after this. */
 const CLAIM_MS = HOUR;
-/** The quota looks back a week; the records stay a day longer. */
-const CREATION_KEEP_MS = 8 * 24 * HOUR;
 /** What hangs on a kept file (who may use it, the lists it is in) outlives the file by this much (and is put forward when the file is used). */
 const FILE_SLACK_MS = 2 * 24 * HOUR;
 /** A report is kept this long: long enough to be looked at, and to be found again if the same puzzle or player is reported later. */
@@ -210,28 +209,27 @@ export class DynamoStore implements Store {
     return rooms;
   }
 
-  async creationsSince(playerId: string, since: number): Promise<number[]> {
-    const times: number[] = [];
-    let start: Record<string, unknown> | undefined;
-    do {
-      const page = await this.db.send(
-        new QueryCommand({
-          TableName: this.table,
-          KeyConditionExpression: 'pk = :pk AND sk BETWEEN :from AND :to',
-          ExpressionAttributeValues: { ':pk': `PLAYER#${playerId}`, ':from': `CREATION#${pad(since + 1)}`, ':to': `CREATION#${pad(Number.MAX_SAFE_INTEGER)}#~` },
-          ExclusiveStartKey: start,
-        }),
-      );
-      for (const it of page.Items ?? []) times.push(Number((it.sk as string).slice('CREATION#'.length, 'CREATION#'.length + 15)));
-      start = page.LastEvaluatedKey;
-    } while (start);
-    return times;
+  async getAccount(playerId: string): Promise<AccountRecord | undefined> {
+    const { Item } = await this.db.send(new GetCommand({ TableName: this.table, Key: accountKey(playerId), ConsistentRead: true }));
+    return Item ? (JSON.parse(Item.body as string) as AccountRecord) : undefined;
   }
 
-  async addCreation(playerId: string, at: number): Promise<void> {
-    // two puzzles in the same millisecond are possible only in a test, but they should not be one
-    const tag = Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0');
-    await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: `PLAYER#${playerId}`, sk: `CREATION#${pad(at)}#${tag}`, ttl: seconds(at + CREATION_KEEP_MS) } }));
+  async putAccount(account: AccountRecord): Promise<boolean> {
+    const item = { ...accountKey(account.id), body: JSON.stringify(account), rev: account.rev };
+    try {
+      await this.db.send(
+        new PutCommand({
+          TableName: this.table,
+          Item: item,
+          ConditionExpression: account.rev > 0 ? '#rev = :prev' : 'attribute_not_exists(pk)',
+          ...(account.rev > 0 ? { ExpressionAttributeNames: { '#rev': 'rev' }, ExpressionAttributeValues: { ':prev': account.rev - 1 } } : {}),
+        }),
+      );
+      return true;
+    } catch (e) {
+      if (named(e, 'ConditionalCheckFailedException')) return false;                // someone else wrote the account in between
+      throw e;
+    }
   }
 
   async getName(playerId: string): Promise<string | undefined> {
@@ -376,19 +374,7 @@ export class DynamoStore implements Store {
 
   async forgetPlayer(playerId: string): Promise<void> {
     await this.db.send(new DeleteCommand({ TableName: this.table, Key: { pk: `PLAYER#${playerId}`, sk: 'PROFILE' } }));
-    let start: Record<string, unknown> | undefined;
-    do {
-      const page = await this.db.send(
-        new QueryCommand({
-          TableName: this.table,
-          KeyConditionExpression: 'pk = :pk AND begins_with(sk, :creation)',
-          ExpressionAttributeValues: { ':pk': `PLAYER#${playerId}`, ':creation': 'CREATION#' },
-          ExclusiveStartKey: start,
-        }),
-      );
-      for (const it of page.Items ?? []) await this.db.send(new DeleteCommand({ TableName: this.table, Key: { pk: it.pk, sk: it.sk } }));
-      start = page.LastEvaluatedKey;
-    } while (start);
+    await this.db.send(new DeleteCommand({ TableName: this.table, Key: accountKey(playerId) }));
   }
 }
 

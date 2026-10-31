@@ -1,5 +1,5 @@
 import type { RoomState } from '../../src/core/jigsawRoom';
-import type { Member, Playback, RoomSettings, VideoType } from '../../src/online/protocol';
+import type { AdPlatform, AccountType, Member, Playback, RoomSettings, VideoType } from '../../src/online/protocol';
 
 /**
  * What the room service needs from the world, as interfaces: the local server fills them with memory and a few Node modules, the AWS server will fill them with DynamoDB, S3
@@ -42,7 +42,7 @@ export interface RoomRecord {
   solvedMs?: number;
   /** Players the owner sent out: they cannot join again, with the code, a new code or the link (older rooms have none). */
   removed?: string[];
-  /** An administrator made this video puzzle: it is not held to the size limits and the automatic look at the video is skipped. */
+  /** The owner is an account whose pictures and videos are not looked at by the automatic check (the family's and the operator's: see `skipsTheCheck`). */
   unchecked?: true;
   /** The picture or video came from the stock library: the automatic look is stricter (see `strict` in aws/rekognition.ts). */
   strict?: true;
@@ -81,11 +81,32 @@ export interface FileRecord {
   width: number;
   height: number;
   video?: { type: VideoType; bytes: number; ms: number };
+  /** It was not looked at by the automatic check (an account of the family's or the operator's sent it): only such an account may make a puzzle from it, and the operator looks at it by hand. */
+  unchecked?: true;
   createdAt: number;
   /** When a puzzle was last made from it (or it was sent). */
   usedAt: number;
   /** When it goes if no puzzle is made from it: `fileKeepMs` after `usedAt`. */
   expiresAt: number;
+}
+
+/**
+ * What the service keeps about an account that is not a guest: its type, and the credits that starting puzzles costs (see `AccountType` in protocol.ts). It is made the first time the account
+ * is asked about, as a free account with `freePhotoCredits`. Every account has both kinds of credits whatever its type (they are only spent, or shown, as the type says), so that
+ * an account that is changed to another type keeps what it had.
+ */
+export interface AccountRecord {
+  id: string;
+  type: AccountType;
+  photo: number;
+  video: number;
+  /** The day (UTC, YYYY-MM-DD) that `photoAds` and `videoAds` are counted for: the number of ads that gave credits that day. */
+  adDay: string;
+  photoAds: number;
+  videoAds: number;
+  createdAt: number;
+  /** Counts up with every write, so that two writers cannot overwrite each other (a conditional write, as for a room). */
+  rev: number;
 }
 
 /** A player's report of a puzzle, with who was in it at the time (the puzzle may be gone by the time anyone looks). */
@@ -120,9 +141,10 @@ export interface Store {
   roomsOf(playerId: string): Promise<string[]>;
   /** Every room, for clearing out those that have expired. */
   allRooms(): Promise<RoomRecord[]>;
-  /** The times (ms) at which a player created puzzles since `since`, for the quota. */
-  creationsSince(playerId: string, since: number): Promise<number[]>;
-  addCreation(playerId: string, at: number): Promise<void>;
+  /** The account of a player who has one (nothing for a guest, or an account that has not been asked about yet). */
+  getAccount(playerId: string): Promise<AccountRecord | undefined>;
+  /** Writes the account if it is new (`rev` 0) or if the stored one still has `rev - 1`; false if someone else wrote in between. */
+  putAccount(account: AccountRecord): Promise<boolean>;
   /** The display name a player chose (nothing if they have not). */
   getName(playerId: string): Promise<string | undefined>;
   /** `until` (ms): when it may be forgotten, for a guest, who may not come back. */
@@ -149,7 +171,7 @@ export interface Store {
   filesOf(playerId: string): Promise<string[]>;
   /** Every file there is, for the operator to look through and for clearing out those that have run out of time. */
   allFiles(): Promise<FileRecord[]>;
-  /** Everything kept about a player but their rooms (the name, the record of puzzles made): the rooms are left or ended first. */
+  /** Everything kept about a player but their rooms (the name, the account and its credits): the rooms are left or ended first. */
   forgetPlayer(playerId: string): Promise<void>;
 }
 
@@ -200,6 +222,11 @@ export interface Media {
   fileUrl(fileId: string): Promise<string>;
 }
 
+/** Tells whether a rewarded ad was really watched: the ad network's word (not built yet: see `adsTrusted` in the limits). */
+export interface AdVerifier {
+  verify(kind: 'photo' | 'video', platform: AdPlatform, proof: string | undefined, playerId: string): Promise<boolean>;
+}
+
 /** The live side: every member of a room hears what is published for it. */
 export interface PubSub {
   publish(topic: string, message: unknown): Promise<void>;
@@ -224,15 +251,26 @@ export interface Limits {
   jigsawPieces: number;
   playersPerRoom: number;
   activeRoomsPerPlayer: number;
-  freeRoomsPerWeek: number;
+  /** 1: nobody can start a puzzle (joining and playing go on). */
+  hostingPaused: number;
+  /** The photo credits a new account starts with, and what an ad gives (photo credits to a free account, video credits to a paid one). */
+  freePhotoCredits: number;
+  adPhotoCredits: number;
+  adVideoCredits: number;
+  /** Ads that may be watched a day for photo credits and for video credits. */
+  adsPerDay: number;
+  videoAdsPerDay: number;
+  /** 1: an ad is believed without being checked (for trying things out). */
+  adsTrusted: number;
+  /** The video credits a paid account is given for each payment period. */
+  paidVideoCredits: number;
   idleMs: number;
   solvedKeepMs: number;
   /** A puzzle goes this long after it was made, whatever happens to it. */
   maxAgeMs: number;
   /** The largest picture accepted, in bytes. */
   pictureBytes: number;
-  /** Video puzzles a player may make a week (0: switched off), and the largest and longest video. */
-  videoRoomsPerWeek: number;
+  /** The largest and longest video. */
   videoBytes: number;
   videoMs: number;
   /** A file is kept this long after it was last used to make a puzzle. */
