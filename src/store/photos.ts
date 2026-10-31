@@ -298,7 +298,7 @@ export async function settleDuration(v: HTMLVideoElement): Promise<void> {
   v.currentTime = 0;
 }
 
-function openVideo(url: string): Promise<PlaySource> {
+export function openVideo(url: string): Promise<PlaySource> {
   return new Promise((resolve, reject) => {
     const v = document.createElement('video');
     v.src = url;

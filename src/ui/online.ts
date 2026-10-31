@@ -4,7 +4,8 @@ import { seedFromText } from '../core/rng';
 import type { CallError, OnlineApi } from '../online/api';
 import { cloudConfig } from '../online/config';
 import { pictureForUpload } from '../online/picture';
-import { DEFAULT_LIMITS, NAME_MAX, cleanName, parseInvite, type Invite, type RoomDescriptor, type RoomSettings, type RoomSummary } from '../online/protocol';
+import { framesOf, videoTypeOf } from '../online/videoFrames';
+import { DEFAULT_LIMITS, NAME_MAX, VIDEO_TYPES, cleanName, parseInvite, type Invite, type RoomDescriptor, type RoomSettings, type RoomSummary } from '../online/protocol';
 import type { Realtime } from '../online/realtime';
 import { OnlineRoom } from '../online/room';
 import type { OnlineSession } from '../online/session';
@@ -26,6 +27,9 @@ export interface OnlineDeps {
   /** Asks the player to sign in or make an account; true when they have. */
   signIn(): Promise<boolean>;
 }
+
+/** How many pictures of a video are sent for the server to look at (it wants between VIDEO_FRAMES.min and VIDEO_FRAMES.max; each takes a moment to take). */
+const FRAMES_SENT = 8;
 
 /** How long until a time, as a short phrase for a list ("about 5 h"). The server's clock and this one may differ by a little: nothing here needs to be exact. */
 export function timeLeft(at: number, now = Date.now()): string {
@@ -66,7 +70,11 @@ export function sayError(error: CallError, failure?: { retryAt?: number }): stri
       }
       return 'Too many tries. Wait a little.';
     case 'rejected':
-      return 'That picture cannot be used for an online puzzle.';
+      return 'That picture or video cannot be used for an online puzzle.';
+    case 'video-off':
+      return 'Online puzzles from a video are switched off for now. Pictures still work.';
+    case 'too-big':
+      return 'That video is longer or larger than an online puzzle allows.';
     case 'paused':
       return 'Making new online puzzles is switched off for a while. You can still join your friends\u2019 puzzles.';
     case 'banned':
@@ -116,6 +124,7 @@ export class OnlinePanel {
   private loading = false;
   private chosenEl = h('div', { class: 'chosen' });
   private consent = h('input', { type: 'checkbox', id: 'online-consent' });
+  private consentText = h('span', {}, '');
   private startBtn = h('button', { type: 'button', class: 'primary', onclick: () => void this.start() }, 'Start');
   private codeInput = h('input', { type: 'text', class: 'plain', placeholder: 'Code or link', 'aria-label': 'Code or link', onkeydown: (e: KeyboardEvent) => e.key === 'Enter' && void this.join(this.codeInput.value) });
   private joinBtn = h('button', { type: 'button', onclick: () => void this.join(this.codeInput.value) }, 'Join');
@@ -135,7 +144,7 @@ export class OnlinePanel {
         'label',
         { class: 'consent', for: 'online-consent' },
         this.consent,
-        h('span', {}, 'I agree that this picture is sent to the online server, where the players of this puzzle can see it. It is deleted when the puzzle is solved or when nobody has touched it for a day.'),
+        this.consentText,
       ),
       this.startBtn,
     );
@@ -268,12 +277,16 @@ export class OnlinePanel {
     const kind = findKind('jigsaw')!;
     const opts = optionsOf(this.deps.prefs.data.settings, kind);
     const note = opts.pieces > DEFAULT_LIMITS.jigsawPieces ? ` (online puzzles have at most ${DEFAULT_LIMITS.jigsawPieces} pieces: it will have that many)` : '';
+    const tooLong = !!entry?.video && entry.duration * 1000 > DEFAULT_LIMITS.videoMs;
     this.chosenEl.textContent = !entry
-      ? 'Choose a picture on the main screen first.'
-      : entry.video
-        ? 'Videos cannot be played online yet: choose a picture.'
-        : `${entry.name}: about ${Math.min(opts.pieces, DEFAULT_LIMITS.jigsawPieces)} pieces${opts.turning ? ', turned pieces' : ''}${note}. The settings are the Jigsaw settings of the main screen.`;
-    this.startBtn.disabled = this.busy || !entry || entry.video;
+      ? 'Choose a picture or video on the main screen first.'
+      : tooLong
+        ? `${entry.name} is longer than the ${DEFAULT_LIMITS.videoMs / 1000} seconds an online video puzzle may be: choose another, or a picture.`
+        : `${entry.name}: ${entry.video ? 'a video, ' : ''}about ${Math.min(opts.pieces, DEFAULT_LIMITS.jigsawPieces)} pieces${opts.turning ? ', turned pieces' : ''}${note}. The settings are the Jigsaw settings of the main screen.`;
+    this.consentText.textContent = entry?.video
+      ? 'I agree that this video is sent to the online server, where the players of this puzzle can see and download it, and that a few pictures taken from it are checked automatically. It is deleted when the puzzle is solved or when nobody has touched it for a day.'
+      : 'I agree that this picture is sent to the online server, where the players of this puzzle can see it. It is deleted when the puzzle is solved or when nobody has touched it for a day.';
+    this.startBtn.disabled = this.busy || !entry || tooLong;
   }
 
   private async loadList(): Promise<void> {
@@ -339,15 +352,16 @@ export class OnlinePanel {
   private async start(): Promise<void> {
     const entry = this.deps.chosen();
     const { api, prefs, photos } = this.deps;
-    if (!entry || entry.video || this.busy) return;
+    if (!entry || this.busy) return;
     if (!this.deps.identity.canCreate()) {
       this.say('Making a puzzle needs an account.');
       return;
     }
     if (!(this.consent as HTMLInputElement).checked) {
-      this.say('Tick the box to agree that the picture is sent to the server.');
+      this.say(`Tick the box to agree that the ${entry.video ? 'video' : 'picture'} is sent to the server.`);
       return;
     }
+    if (entry.video) return this.startVideo(entry);
     this.setBusy(true, 'Preparing the picture…');
     try {
       const src = await photos.load(entry);
@@ -377,6 +391,55 @@ export class OnlinePanel {
       this.enter(got.room, made.invite);
     } catch (e) {
       this.setBusy(false, e instanceof Error ? e.message : 'That did not work.');
+    }
+  }
+
+  /**
+   * A puzzle from a video: the whole video goes straight to storage, with a few pictures taken from it for the server's check, and the others get the same file. The board is cut from
+   * the video's own size, which every player's game finds the same.
+   */
+  private async startVideo(entry: PhotoEntry): Promise<void> {
+    const { api, prefs, photos } = this.deps;
+    this.setBusy(true, 'Preparing the video…');
+    let src: Awaited<ReturnType<PhotoLibrary['load']>> | null = null;
+    try {
+      src = await photos.load(entry);
+      const file = await (await fetch(entry.previewUrl)).blob();
+      const type = videoTypeOf(file, entry.name);
+      if (!(VIDEO_TYPES as readonly string[]).includes(type)) throw new Error('Online puzzles take MP4, MOV, WebM or MKV videos.');
+      const seconds = src.video?.duration ?? 0;
+      if (!(seconds > 0) || !Number.isFinite(seconds)) throw new Error('This browser cannot tell how long that video is.');
+      if (seconds * 1000 > DEFAULT_LIMITS.videoMs || file.size > DEFAULT_LIMITS.videoBytes) throw new Error(sayError('too-big'));
+      if (src.width > 4096 || src.height > 4096) throw new Error('That video is too large (over 4096 pixels) for an online puzzle.');
+      this.say('Taking pictures from the video…');
+      const frames = await framesOf(file, FRAMES_SENT, seconds);
+      const kind = findKind('jigsaw')!;
+      const opts: Record<string, number> = {};
+      const all = optionsOf(prefs.data.settings, kind);
+      for (const o of kind.options) if (!o.display) opts[o.key] = all[o.key];
+      opts.pieces = Math.min(opts.pieces, DEFAULT_LIMITS.jigsawPieces);
+      const settings: RoomSettings = { kind: 'jigsaw', seed: seedFromText(puzzleSeedText(prefs.data.seed, entry.id, 'jigsaw')), width: src.width, height: src.height, opts };
+      this.say('Making the puzzle…');
+      const made = await api.createRoom({ settings, sourceId: entry.id, consent: true, video: { type: type as (typeof VIDEO_TYPES)[number], bytes: file.size, ms: Math.round(seconds * 1000) } });
+      if (!made.ok) return this.fail(made);
+      const sent = await api.uploadVideo(made.upload.url, made.upload.headers ?? {}, file, (f) => this.say(`Sending the video… ${Math.round(f * 100)}%`));
+      if (!sent.ok) return this.fail(sent);
+      this.say('Checking the video…');
+      let done = await api.finishVideo(made.roomId, frames);
+      // the pictures could not be looked at this time (busy), or the file is not in storage yet: the same may be sent again
+      for (let again = 0; again < 3 && !done.ok && (done.error === 'busy' || done.error === 'not-ready'); again++) {
+        await new Promise((resolve) => window.setTimeout(resolve, 2500));
+        done = await api.finishVideo(made.roomId, frames);
+      }
+      if (!done.ok) return this.fail(done);
+      const got = await api.getRoom(made.roomId);
+      if (!got.ok) return this.fail(got);
+      this.setBusy(false);
+      this.enter(got.room, made.invite);
+    } catch (e) {
+      this.setBusy(false, e instanceof Error ? e.message : 'That did not work.');
+    } finally {
+      src?.dispose();
     }
   }
 

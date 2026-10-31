@@ -1,6 +1,6 @@
 import type { Command, Lock, RoomEvent, RoomState } from '../core/jigsawRoom';
 import type { CallError, RoomApi } from './api';
-import { HAND_INTERVAL_MS, lockHeld, RENEW_INTERVAL_MS, type HandMessage, type Member, type RoomDescriptor, type RoomMessage } from './protocol';
+import { HAND_INTERVAL_MS, lockHeld, RENEW_INTERVAL_MS, type HandMessage, type Member, type Playback, type RoomDescriptor, type RoomMessage } from './protocol';
 import type { Connection, Realtime } from './realtime';
 
 /** What the room needs from the puzzle on the screen (the Jigsaw session): it applies what the others did, and tells how many groups it has. */
@@ -33,6 +33,11 @@ export class OnlineRoom {
   onChange: () => void = () => undefined;
   /** Called when the server said no to something the player did (the reason, and who holds the piece if that is why). */
   onRefused: (error: CallError, holder?: string) => void = () => undefined;
+  /** A video puzzle: where the host's video is (as the host last said), and who the host is (the owner of the puzzle: the next member if they leave). */
+  playback: Playback | null;
+  private ownerId: string;
+  /** Called when the host says where the video is. */
+  onPlayback: () => void = () => undefined;
 
   /** The time spent on the puzzle while someone was connected (the server's count; see `playedMs`). */
   private played: { ms: number; since: number | null };
@@ -77,6 +82,8 @@ export class OnlineRoom {
     this.solved = descriptor.status === 'solved';
     this.offset = descriptor.serverTime - Date.now();
     this.descriptor = descriptor;
+    this.playback = descriptor.playback ?? null;
+    this.ownerId = descriptor.owner;
   }
 
   readonly id: string;
@@ -122,6 +129,35 @@ export class OnlineRoom {
 
   get serverNow(): number {
     return Date.now() + this.offset;
+  }
+
+  /** This player is the host of the video (the one who made the puzzle; if they leave, the next player). */
+  get host(): boolean {
+    return this.ownerId === this.me;
+  }
+
+  /** The host says where the video is (played, paused or moved, and now and then while it plays). The others hear it at once. */
+  sendPlayback(pos: number, paused: boolean): void {
+    this.playback = { pos, paused, at: this.serverNow };
+    void this.api.setPlayback?.(this.id, { pos, paused });
+  }
+
+  /** Asks the server where the host's video is now (for a player who wants to be taken back to it). Nothing new if the server cannot be reached. */
+  async refreshPlayback(): Promise<Playback | null> {
+    const res = await this.api.getRoom(this.id);
+    if (res.ok) {
+      this.offset = res.room.serverTime - Date.now();
+      this.takePlayback(res.room.playback);
+      this.ownerId = res.room.owner;
+    }
+    return this.playback;
+  }
+
+  /** What the server said about the video is kept unless something newer was heard meanwhile (an answer can come in after a message that was sent later). True if it was kept. */
+  private takePlayback(p: Playback | undefined): boolean {
+    if (!p || (this.playback && p.at < this.playback.at)) return false;
+    this.playback = p;
+    return true;
   }
 
   /** The player who holds a piece (not this player), if any: while someone does, nothing can be picked up. */
@@ -225,6 +261,7 @@ export class OnlineRoom {
       case 'left':
         this.members = this.members.filter((x) => x.id !== m.id);
         this.online.delete(m.id);
+        if (m.id === this.ownerId && this.members.length) this.ownerId = this.members[0].id;          // the server hands the puzzle (and the video) to the next player
         this.changed();
         break;
       case 'removed':
@@ -253,6 +290,12 @@ export class OnlineRoom {
       case 'played':
         this.played = { ms: m.ms, since: m.since };
         this.changed();
+        break;
+      case 'playback':
+        if (!this.host) {
+          this.playback = { pos: m.pos, paused: m.paused, at: m.at };
+          this.onPlayback();
+        }
         break;
       case 'solved':
         this.solved = true;
@@ -351,6 +394,8 @@ export class OnlineRoom {
         this.played = r.played ?? { ms: 0, since: null };
         this.solvedMs = r.solvedMs ?? null;
         this.offset = r.serverTime - Date.now();
+        this.ownerId = r.owner;
+        if (r.playback && !this.host && this.takePlayback(r.playback)) this.onPlayback();
         this.version = r.state.v;
         this.handSeen.clear();
         this.handBy = null;

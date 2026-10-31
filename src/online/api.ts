@@ -8,6 +8,7 @@ import type {
   JoinRequest,
   JoinResponse,
   MeResponse,
+  PlaybackRequest,
   ReportRequest,
   RoomDescriptor,
   RoomSummary,
@@ -36,6 +37,8 @@ export interface RoomApi {
   getRoom(id: string): Promise<{ ok: true; room: RoomDescriptor } | ApiFailure | Offline>;
   command(id: string, command: Command): Promise<CommandResponse | Offline>;
   renew(id: string): Promise<{ ok: true; until: number } | ApiFailure | Offline>;
+  /** The host says where the video is (a puzzle made from a video). */
+  setPlayback?(id: string, req: PlaybackRequest): Promise<{ ok: true } | ApiFailure | Offline>;
 }
 
 export class OnlineApi implements RoomApi {
@@ -92,6 +95,31 @@ export class OnlineApi implements RoomApi {
     } catch {
       return { ok: false, error: 'offline' };
     }
+  }
+
+  /**
+   * Sends the video straight to storage, at the address the server gave and with the headers it said (the address is signed for exactly this file). Calls `progress` with how much has
+   * gone (0 to 1) now and then. A request object is used because `fetch` cannot say how far an upload has got.
+   */
+  uploadVideo(url: string, headers: Record<string, string>, video: Blob, progress: (fraction: number) => void): Promise<{ ok: true } | ApiFailure | Offline> {
+    return new Promise((resolve) => {
+      const x = new XMLHttpRequest();
+      x.open('PUT', url);
+      for (const [k, v] of Object.entries(headers)) x.setRequestHeader(k, v);
+      x.upload.onprogress = (e) => e.lengthComputable && progress(e.loaded / e.total);
+      x.onerror = () => resolve({ ok: false, error: 'offline' });
+      x.onload = () => resolve(x.status >= 200 && x.status < 300 ? { ok: true } : { ok: false, error: x.status === 403 ? 'unauthorized' : 'bad-request' });
+      x.send(video);
+    });
+  }
+
+  /** The video is up: a few of its pictures (JPEGs, base64) for the server to look at, and then the puzzle can be joined. */
+  finishVideo(id: string, frames: string[]): Promise<{ ok: true } | ApiFailure | Offline> {
+    return this.call('POST', `/rooms/${encodeURIComponent(id)}/video`, { frames });
+  }
+
+  setPlayback(id: string, req: PlaybackRequest): Promise<{ ok: true } | ApiFailure | Offline> {
+    return this.call('POST', `/rooms/${encodeURIComponent(id)}/playback`, req);
   }
 
   join(req: Omit<JoinRequest, 'protocol'>): Promise<JoinResponse | Offline> {

@@ -148,7 +148,7 @@ The Lambda code uses the same `src/core` rules as the game, so the server decide
 
 ### Later
 - Sliding Tiles and Focus Point online, then the other types.
-- Video puzzles (large uploads, size and length caps, streaming from CloudFront, storage and bandwidth cost).
+- Video puzzles: **built** (server: PR for part 1; game: PR for part 2) and **off until the operator sets `videoRoomsPerWeek`**. Still to do: a stronger check of the video itself for MP4/MOV (Rekognition Video, asynchronous), streaming from CloudFront instead of fetching the whole file, and a video's own cost in the plan below.
 - Payments (Stripe on the web, Play Billing in the Android app, entitlements in DynamoDB), Apple and Facebook sign-in.
 
 ## Costs
