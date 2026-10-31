@@ -54,7 +54,8 @@ export class FocusSession implements PuzzleSession {
   }
 
   pointerMove(p: Pt): void {
-    const piece = this.game.pieceAt(p.x, p.y);
+    let piece = this.game.pieceAt(p.x, p.y);
+    if (piece >= 0 && this.game.placed(piece)) piece = -1;                  // a locked piece is not offered
     if (piece !== this.hover) {
       this.hover = piece;
       this.init.requestDraw();

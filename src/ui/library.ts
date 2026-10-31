@@ -64,6 +64,8 @@ export class LibraryScreen {
   private items = new Map<string, HTMLElement>();
   private kindsEl = h('nav', { class: 'kinds', 'aria-label': 'Puzzle types' });
   private listEl = h('ul', { class: 'plist', role: 'listbox', 'aria-label': 'Photos', tabIndex: 0 });
+  private sortSelect = h('select', { 'aria-label': 'Sort My Files', onchange: () => this.sortChanged() }, h('option', { value: 'added' }, 'Date added'), h('option', { value: 'name' }, 'Name'));
+  private sortBar = h('label', { class: 'sortbar' }, h('span', {}, 'Sort by'), this.sortSelect);
   /** A thumbnail is given its picture when it comes near the screen: making the object URLs of a long list at once takes seconds on a phone. */
   private thumbOf = new WeakMap<Element, PhotoEntry>();
   private nearby =
@@ -92,6 +94,8 @@ export class LibraryScreen {
   private seedInput = h('input', { type: 'text', class: 'seed', maxLength: 12, spellcheck: false, 'aria-label': 'Seed' });
   private noteEl = h('div', { class: 'note', 'aria-live': 'polite' });
   private playBtn = h('button', { type: 'button', class: 'primary', onclick: () => this.play() }, 'Play');
+  /** On the stock tab, over Play: puts the chosen item in My Files without starting a puzzle. */
+  private addStockBtn = h('button', { type: 'button', hidden: true, onclick: () => void this.addStockOnly() }, 'Add to My Files');
   private footEl = h('div', { class: 'pfoot' });
   /** Taking photos out: not at all, choosing which ones, or asking whether to go ahead with the ones chosen. */
   private removing: 'no' | 'choose' | 'sure' = 'no';
@@ -170,6 +174,7 @@ export class LibraryScreen {
   constructor(private readonly deps: LibraryDeps) {
     const { prefs } = deps;
     this.seedInput.value = prefs.data.seed;
+    this.sortSelect.value = prefs.data.sort;
     this.seedInput.addEventListener('change', () => this.commitSeed());
     this.seedInput.addEventListener('input', () => {
       this.seedInput.value = this.seedInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -181,8 +186,17 @@ export class LibraryScreen {
         'header',
         { class: 'bar' },
         h('h1', {}, 'PuzzleVidio'),
-        ...(deps.credits ? [deps.credits] : []),
-        ...(deps.onOnline ? [h('button', { type: 'button', class: 'progress-btn friends', title: 'Play a Jigsaw together over the internet', onclick: () => deps.onOnline!() }, 'Play with friends')] : []),
+        // the credits are what Play with friends spends: they sit together
+        ...(deps.credits || deps.onOnline
+          ? [
+              h(
+                'div',
+                { class: 'online-group' },
+                ...(deps.credits ? [deps.credits] : []),
+                ...(deps.onOnline ? [h('button', { type: 'button', class: 'progress-btn friends', title: 'Play a Jigsaw together over the internet', onclick: () => deps.onOnline!() }, 'Play with friends')] : []),
+              ),
+            ]
+          : []),
         this.progressBtn,
         ...(deps.badge ? [deps.badge] : []),
       ),
@@ -190,7 +204,7 @@ export class LibraryScreen {
       h(
         'div',
         { class: 'main' },
-        h('aside', { class: 'photos' }, this.tabsEl, this.stockBar, this.listEl, this.stockListEl, this.photoNoteEl, this.footEl),
+        h('aside', { class: 'photos' }, this.tabsEl, this.stockBar, this.sortBar, this.listEl, this.stockListEl, this.photoNoteEl, this.footEl),
         h('section', { class: 'preview' }, h('div', { class: 'frame' }, this.previewImg, this.previewVideo), this.nameEl, this.creditEl, this.bestEl, this.blurbEl),
         h(
           'aside',
@@ -205,6 +219,7 @@ export class LibraryScreen {
           this.optionsEl,
           h('div', { class: 'spacer' }),
           this.noteEl,
+          this.addStockBtn,
           this.playBtn,
         ),
       ),
@@ -277,6 +292,7 @@ export class LibraryScreen {
       this.progressBtn.disabled = false;
       this.photoNote('');
     }
+    if (this.deps.prefs.data.sort !== 'added') this.renderList();                          // (the files came in the order they were added)
     if (this.entries.some((e) => e.id === this.deps.prefs.data.photo)) {                 // the list is as it should be: no need to make it all again
       this.renderChosen();
       this.renderFoot();
@@ -377,7 +393,21 @@ export class LibraryScreen {
     return prefs.bestTime(recordKey(this.kind, entry.id, prefs.data.settings));
   }
 
+  /** Puts the files in the order the player chose (by name the way people count: "2" before "10"; files with one name stay in the order they were added). */
+  private sortEntries(): void {
+    if (this.deps.prefs.data.sort === 'name') this.entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) || a.addedAt - b.addedAt);
+    else this.entries.sort((a, b) => a.addedAt - b.addedAt);
+  }
+
+  private sortChanged(): void {
+    const { prefs } = this.deps;
+    prefs.data.sort = this.sortSelect.value === 'name' ? 'name' : 'added';
+    prefs.save();
+    this.renderList();
+  }
+
   private renderList(): void {
+    this.sortEntries();
     this.listEl.classList.toggle('removing', this.removing !== 'no');
     const keep = new Set(this.entries.map((e) => e.id));
     for (const id of this.items.keys()) if (!keep.has(id)) this.items.delete(id);
@@ -458,6 +488,9 @@ export class LibraryScreen {
     this.bestEl.textContent = stock && !e ? 'Added to your library when you play it' : e ? (best !== undefined ? `Best time ${formatTime(best)}` : 'Not solved yet') : '';
     this.blurbEl.textContent = this.kind.blurb;
     this.playBtn.disabled = !shown || !!this.stockAbort;
+    this.addStockBtn.hidden = this.tab !== 'stock';
+    this.addStockBtn.disabled = !stock || !!e || !!this.stockAbort;
+    this.addStockBtn.textContent = e ? 'In My Files' : 'Add to My Files';
     this.optionsEl.replaceChildren(
       ...this.kind.options.map((o) => {
         const v = optionValue(prefs.data.settings, this.kind.id, o);
@@ -681,6 +714,7 @@ export class LibraryScreen {
     this.listEl.hidden = tab === 'stock';
     this.stockListEl.hidden = tab !== 'stock';
     this.stockBar.hidden = tab !== 'stock';
+    this.sortBar.hidden = tab === 'stock';
     this.photoNote('');
     if (tab === 'stock') {
       if (!this.stock.loaded) void this.runStock(false);
@@ -797,54 +831,72 @@ export class LibraryScreen {
     }
   }
 
-  /** Play on a stock item: it is downloaded and added to the library (with its credit), unless it is there already, and the puzzle starts on it. */
+  /**
+   * The library's photo for a stock item: the one that is there already, or the item downloaded and added (with its credit). `choose` also makes it the chosen photo of My Files.
+   * Says what went wrong, and gives nothing, if it could not be done.
+   */
+  private async addStock(item: StockItem, choose: boolean): Promise<PhotoEntry | undefined> {
+    const have = this.entryOfStock(item);
+    if (have) return have;
+    const abort = new AbortController();
+    this.stockAbort = abort;
+    this.renderFoot();
+    this.renderChosen();
+    this.note('Downloading…', true);
+    let file: File;
+    try {
+      file = await downloadStock(item, (text) => this.note(text, true), abort.signal);
+    } catch (err) {
+      this.stockAbort = null;
+      this.note(err instanceof Error ? err.message : 'Could not download that', false, this.noteEl, 8000);
+      this.renderFoot();
+      this.renderChosen();
+      return undefined;
+    }
+    this.note('Adding to your library…', true);
+    const got: { entry?: PhotoEntry } = {};
+    await this.queued(async () => {
+      const done = await this.deps.photos.add([file], undefined, stockCredit(item));
+      const added = done.ids[0] ? await this.deps.photos.entry(done.ids[0]) : null;
+      if (!added) return;
+      if (!this.entries.some((x) => x.id === added.id)) this.entries.push(added);
+      got.entry = added;
+      this.refresh(choose ? added.id : undefined);
+    });
+    this.stockAbort = null;
+    this.note('');
+    if (!got.entry) {
+      this.note('That could not be added to your library', false, this.noteEl, 8000);
+      this.renderFoot();
+      this.renderChosen();
+    }
+    return got.entry;
+  }
+
+  /** Play on a stock item: it is added to the library unless it is there already, and the puzzle starts on it. */
   private async playStock(): Promise<void> {
     const item = this.stockChosen;
     if (!item || this.stockAbort) return;
     this.commitSeed();
-    let entry = this.entryOfStock(item);
-    if (!entry) {
-      const abort = new AbortController();
-      this.stockAbort = abort;
-      this.renderFoot();
-      this.renderChosen();
-      this.note('Downloading…', true);
-      let file: File;
-      try {
-        file = await downloadStock(item, (text) => this.note(text, true), abort.signal);
-      } catch (err) {
-        this.stockAbort = null;
-        this.note(err instanceof Error ? err.message : 'Could not download that', false, this.noteEl, 8000);
-        this.renderFoot();
-        this.renderChosen();
-        return;
-      }
-      this.note('Adding to your library…', true);
-      const got: { entry?: PhotoEntry } = {};
-      await this.queued(async () => {
-        const done = await this.deps.photos.add([file], undefined, stockCredit(item));
-        const added = done.ids[0] ? await this.deps.photos.entry(done.ids[0]) : null;
-        if (!added) return;
-        if (!this.entries.some((x) => x.id === added.id)) this.entries.push(added);
-        got.entry = added;
-        this.refresh(added.id);
-      });
-      this.stockAbort = null;
-      this.note('');
-      entry = got.entry;
-      if (!entry) {
-        this.note('That could not be added to your library', false, this.noteEl, 8000);
-        this.renderFoot();
-        this.renderChosen();
-        return;
-      }
-    }
+    const entry = await this.addStock(item, true);
+    if (!entry) return;
     this.renderStockList();
     this.renderFoot();
     this.renderChosen();
     this.deps.prefs.data.photo = entry.id;
     this.deps.prefs.save();
     this.deps.onPlay(entry);
+  }
+
+  /** The button over Play on the stock tab: the item goes into My Files and nothing starts (the chosen photo of My Files stays the one it was). */
+  private async addStockOnly(): Promise<void> {
+    const item = this.stockChosen;
+    if (!item || this.stockAbort || this.entryOfStock(item)) return;
+    if (!(await this.addStock(item, false))) return;
+    this.renderStockList();
+    this.renderFoot();
+    this.renderChosen();
+    this.note('Added to My Files');
   }
 
   /** The buttons under the stock list: more results, or stop a download, and the credit to the site that its terms ask for. */
@@ -971,9 +1023,9 @@ export class LibraryScreen {
       );
     } else if (this.removing === 'no') {
       this.footEl.replaceChildren(
-        btn('Add photos…', () => this.fileInput.click()),
+        btn('Add Files', () => this.fileInput.click()),
         btn('From a link…', () => this.setLinking(true), { title: 'Add a picture or video from a web address' }),
-        btn('Remove photos', () => this.setRemoving('choose'), { disabled: mine.length === 0, title: mine.length ? 'Choose photos and videos to remove' : 'There are no photos to remove' }),
+        btn('Remove Files', () => this.setRemoving('choose'), { disabled: mine.length === 0, title: mine.length ? 'Choose photos and videos to remove' : 'There are no files to remove' }),
       );
     } else if (this.removing === 'choose') {
       this.footEl.replaceChildren(

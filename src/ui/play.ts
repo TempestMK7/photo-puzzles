@@ -485,7 +485,7 @@ export class PlayScreen {
     }
     this.closeSource();
     this.dialogEl.hidden = true;
-    this.entry = { id: room.id, name: 'Online puzzle', thumbUrl: url, previewUrl: url, video: !!src.video, duration: src.video?.duration ?? 0 };
+    this.entry = { id: room.id, name: 'Online puzzle', addedAt: Date.now(), thumbUrl: url, previewUrl: url, video: !!src.video, duration: src.video?.duration ?? 0 };
     this.src = src;
     this.online = { room, shown: false, blob };
     this.saveKey = '';

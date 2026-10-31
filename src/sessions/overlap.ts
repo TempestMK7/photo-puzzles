@@ -1,4 +1,4 @@
-import { generateOverlap, OverlapGame, STACKS, type OverlapState } from '../core/overlap';
+import { generateOverlap, OverlapGame, overlapGrid, STACKS, type OverlapState } from '../core/overlap';
 import { Rng } from '../core/rng';
 import { makePattern } from './patterns';
 import { beginFrame, drawSlice, type View } from '../render';
@@ -60,8 +60,7 @@ export class OverlapSession implements PuzzleSession {
   private wrong: { cells: { x: number; y: number }[]; at: number } | null = null;
 
   constructor(private readonly init: SessionInit) {
-    this.cols = init.opts.cells;
-    this.rows = Math.min(12, Math.max(3, Math.round((this.cols * init.height) / init.width)));
+    ({ cols: this.cols, rows: this.rows } = overlapGrid(init.opts.total, init.width, init.height));
     const setup = generateOverlap(new Rng(init.seed), { cols: this.cols, rows: this.rows, turned: init.opts.turned === 1, placed: init.opts.placed, windows: init.opts.windows === 1 });
     this.pattern = makePattern(new Rng((init.seed + 0x9e3779b9) >>> 0), this.cols * CELL * 2, this.rows * CELL * 2);
     this.game = new OverlapGame(setup);

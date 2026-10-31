@@ -4,7 +4,7 @@ Turn your own photos (later: videos) into puzzles, in the browser. Planned targe
 (web build + Capacitor for phones + a desktop shell for Steam).
 
 The **main screen** has the puzzle types along the top, your photos as a list on the left, the chosen photo in the middle, and the seed, difficulty,
-Add photos and Play on the right. Choosing a photo and pressing Play (or double-clicking it) opens the **play screen**; when a puzzle is solved a dialog offers
+the buttons to add and remove files (My Files sorts by date added or name; on Stock Files, Add to My Files keeps a find without starting a puzzle) and Play on the right. Choosing a photo and pressing Play (or double-clicking it) opens the **play screen**; when a puzzle is solved a dialog offers
 View, New puzzle (the same photo with a new seed), Other photo (a new puzzle with the same type and settings on another photo - one not yet solved with these settings if there is one, picked at random) and Photos. Best times are kept per photo, puzzle type and difficulty - not per seed.
 
 **Video puzzles:** the browser plays the file itself (looped, with its sound) and the board is drawn again each time the video shows a new picture - one `drawImage` per piece, no
@@ -15,13 +15,13 @@ or Restart keeps the video where it is. Videos are stored as they are in the bro
 remembered and, being about looks rather than difficulty, do not start a new best-time record.
 
 Playable now:
-- **Focus Point** - the picture is cut into rectangles of different sizes (6 to 200 of them) and shuffled; click two pieces to make them trade places *and sizes*; put every piece back.
+- **Focus Point** - the picture is cut into rectangles of different sizes (10 to 300 of them) and shuffled; click two pieces to make them trade places *and sizes*; put every piece back. A piece that is in its right place locks there.
 - **Overlap** - the grid is divided like a checkerboard: every other cell is a piece's own *centre* cell, and the cells between are *overlap* cells. Each piece is a centre and two to four of the overlap
   cells next to it (three to five cells), and every overlap cell belongs to at least two pieces. The pieces wait in three stacks; drag the top piece onto the grid (or onto another stack to move it there), centre
   first and turned the way it lies in the picture, and it stays and shows its part. The empty board is a radial pattern drawn in code (sunbursts, targets, rose windows, spirals, wheels - one per puzzle, with its
   centre off the board); some pieces have a *window* on one of their overlap cells that shows the bit of that pattern from where the piece belongs, as a hint, and turns into the picture for every piece that
   has it when any piece is placed over that cell.
-  Options: cells across (5-16), turned pieces, window pieces, pieces placed at the start.
+  Options: about 50 to 500 cells (in steps of 10, in the picture's proportions), turned pieces, window pieces, pieces placed at the start.
 - **Strips** - the whole picture is cut into straight strips (1 x N cells, 3 up to the longest allowed; they may cross) that lie scattered and turned on the board. You choose the
   cells across and the longest strip; the number of strips is worked out so that every cell is covered and every strip covers at least one cell that no other strip covers
   (so its place is certain). Drag each strip back into its hole; it locks when it lies exactly there, turned the right way - the moment it does, even before you let go of the mouse button. The loose strips are spread at random over 1-10

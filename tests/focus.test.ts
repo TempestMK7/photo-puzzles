@@ -95,6 +95,35 @@ describe('FocusGame', () => {
     expect(g.selected).toBe(-1);
   });
 
+  it('locks a piece that is in its own place: it cannot be chosen, and cannot be traded away by choosing another', () => {
+    const g = make();
+    const loose = g.slotOf.map((s, i) => (s === i ? -1 : i)).filter((i) => i >= 0);
+    // put one piece home by trading it with the piece that sits in its place
+    const a = loose[0];
+    const b = g.slotOf.indexOf(a);
+    expect(g.click(a)).toBe('select');
+    expect(g.click(b)).toBe('swap');
+    expect(g.placed(a)).toBe(true);
+    const before = [...g.slotOf];
+    expect(g.click(a)).toBe('none');                       // locked: not chosen
+    expect(g.selected).toBe(-1);
+    const other = loose.find((i) => i !== a && !g.placed(i))!;
+    expect(g.click(other)).toBe('select');
+    expect(g.click(a)).toBe('none');                       // locked: not the second of a trade either, and the first stays chosen
+    expect(g.selected).toBe(other);
+    expect(g.slotOf).toEqual(before);
+  });
+
+  it('can still be solved with pieces locking on the way', () => {
+    const g = make();
+    for (let guard = 0; guard < 100 && !g.solved; guard++) {
+      const i = g.slotOf.findIndex((s, k) => s !== k);
+      g.click(i);
+      g.click(g.slotOf.indexOf(i));
+    }
+    expect(g.solved).toBe(true);
+  });
+
   it('can be solved by swaps and then ignores clicks', () => {
     const g = make();
     for (let i = 0; i < g.count; i++) {

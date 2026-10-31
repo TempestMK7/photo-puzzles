@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DIRS, generateOverlap, OverlapGame, STACKS, type OverlapSetup } from '../src/core/overlap';
+import { DIRS, generateOverlap, OverlapGame, overlapGrid, STACKS, type OverlapSetup } from '../src/core/overlap';
 import { Rng } from '../src/core/rng';
 
 const make = (seed: number, cols = 7, rows = 5, turned = true, placed = 20, windows = true) => generateOverlap(new Rng(seed), { cols, rows, turned, placed, windows });
@@ -263,5 +263,23 @@ describe('OverlapGame', () => {
     h.restore(g.snapshot());
     expect(h.snapshot()).toEqual(g.snapshot());
     expect(() => new OverlapGame(make(11, 9, 7, true, 0)).restore(g.snapshot())).toThrow();
+  });
+});
+
+describe('overlapGrid', () => {
+  it('gives about the asked number of cells in the proportions of the picture', () => {
+    for (const total of [50, 100, 250, 500]) {
+      for (const [w, h] of [[800, 600], [1600, 900], [600, 800], [1000, 1000]]) {
+        const { cols, rows } = overlapGrid(total, w, h);
+        expect(cols * rows, `${total} ${w}x${h}`).toBeGreaterThan(total * 0.8);
+        expect(cols * rows, `${total} ${w}x${h}`).toBeLessThan(total * 1.2);
+        expect(Math.abs(cols / rows - w / h) / (w / h)).toBeLessThan(0.35);
+      }
+    }
+  });
+  it('keeps the grid at least four by three, and makes more cells for a bigger ask', () => {
+    expect(overlapGrid(50, 4000, 100).rows).toBe(3);
+    expect(overlapGrid(50, 100, 4000).cols).toBe(4);
+    expect(overlapGrid(500, 800, 600).cols).toBeGreaterThan(overlapGrid(50, 800, 600).cols);
   });
 });
