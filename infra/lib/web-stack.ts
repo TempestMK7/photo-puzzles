@@ -79,11 +79,18 @@ export class WebStack extends Stack {
     new route53.ARecord(this, 'A', { zone, recordName, target });
     new route53.AaaaRecord(this, 'Aaaa', { zone, recordName, target });
 
-    // What GitHub's deploy role (see ops-stack.ts) needs to put a new build of the game in place: write the files and clear the cache.
+    // What GitHub's deploy role (see ops-stack.ts) needs to put a new build of the game in place: write the files and clear the cache. The role is shared by the stages, so the policy has a name
+    // of its own for each (a policy made without one gets the same name in every stage, and the second stage to be deployed is refused: "already managed by another stack").
     const deployer = iam.Role.fromRoleName(this, 'Deployer', DEPLOY_ROLE_NAME);
-    deployer.addToPrincipalPolicy(new iam.PolicyStatement({ actions: ['s3:PutObject', 's3:DeleteObject'], resources: [this.site.arnForObjects('*')] }));
-    deployer.addToPrincipalPolicy(new iam.PolicyStatement({ actions: ['s3:ListBucket'], resources: [this.site.bucketArn] }));
-    deployer.addToPrincipalPolicy(new iam.PolicyStatement({ actions: ['cloudfront:CreateInvalidation'], resources: [this.distributionArn()] }));
+    new iam.Policy(this, 'DeployerAccess', {
+      policyName: `PuzzleVidio-${props.stage}-Web`,
+      roles: [deployer],
+      statements: [
+        new iam.PolicyStatement({ actions: ['s3:PutObject', 's3:DeleteObject'], resources: [this.site.arnForObjects('*')] }),
+        new iam.PolicyStatement({ actions: ['s3:ListBucket'], resources: [this.site.bucketArn] }),
+        new iam.PolicyStatement({ actions: ['cloudfront:CreateInvalidation'], resources: [this.distributionArn()] }),
+      ],
+    });
 
     new CfnOutput(this, 'SiteBucket', { value: this.site.bucketName });
     new CfnOutput(this, 'DistributionId', { value: this.distribution.distributionId });
