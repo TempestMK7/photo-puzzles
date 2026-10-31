@@ -240,10 +240,18 @@ export interface AdNonce {
   expiresAt: number;
 }
 
+/**
+ * What the check of a call from the ad network found. A call that is **not genuine** (not signed, signed with a key that is not the network's, or changed) says why. A genuine one
+ * is the network's word whatever it says: it carries the reward if it is one that we can use, and otherwise why not (it is for another ad unit, it is old, it has not what a reward has).
+ */
+export type AdReport =
+  | { genuine: false; reason: 'unsigned' | 'unknown-key' | 'bad-signature' }
+  | { genuine: true; reward: { transactionId: string; customData: string; at: number } | null; why?: 'other-unit' | 'old' | 'incomplete' };
+
 /** The ad network's word that a rewarded ad was watched: it calls the server, and this says whether the call is the network's (checking its signature) and what it says. */
 export interface AdCallbacks {
-  /** `rawQuery` is the query string exactly as it came (the network signed its text). Nothing if it is not genuine, or not for one of our ad units. */
-  verify(rawQuery: string): Promise<{ transactionId: string; customData: string; at: number } | null>;
+  /** `rawQuery` is the query string exactly as it came (the network signed its text). */
+  verify(rawQuery: string): Promise<AdReport>;
 }
 
 /** The live side: every member of a room hears what is published for it. */
