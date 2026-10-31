@@ -10,7 +10,7 @@ import type { Rng } from './rng';
  * R(rot) p + (dx, dy). A group with rot 0 and offset (0, 0) is where it belongs. Only groups turned the same way can fit together.
  *
  * A loose group may also lie in a **sorting tray** (up to `TRAY_MAX` of them, which belong to the puzzle, not to a player): then `tray` is the tray's id and (rot, dx, dy) say where it lies
- * in the tray's own space, which is measured in the same picture pixels and has its top-left corner at (0, 0) (see trays.ts for how big it is). A group in a tray never joins anything.
+ * in the tray's own space, which is measured in the same picture pixels and has its top-left corner at (0, 0) (see trays.ts for how big it is). Groups in the same tray join each other as they do on the table (a group in a tray never joins one on the table, nor one in another tray).
  */
 
 /** The most sorting trays a puzzle may have. */
@@ -362,7 +362,7 @@ export class JigsawGame {
     return rotVec(4 - g.rot, px - g.dx, py - g.dy);
   }
 
-  /** Puts a loose group in a tray (`tray` -1: back on the table) at this pose, in front of the others; no joining. Does nothing for a tray there is not, or for a group in the picture. */
+  /** Puts a loose group in a tray (`tray` -1: back on the table) at this pose, in front of the others (`connect` joins it to what it lies against). Does nothing for a tray there is not, or for a group in the picture. */
   place(id: number, tray: number, dx: number, dy: number, rot: number): void {
     this.setLocation(id, tray, dx, dy, rot);
     this.bringToFront(id);
@@ -430,14 +430,13 @@ export class JigsawGame {
   }
 
   private neighbour(g: Group, tol: number): Group | null {
-    if (g.tray >= 0) return null;                              // what lies in a tray joins nothing
     for (const m of g.members) {
       const c = m % this.cols;
       const r = Math.floor(m / this.cols);
       for (const [nc, nr] of [[c - 1, r], [c + 1, r], [c, r - 1], [c, r + 1]]) {
         if (nc < 0 || nr < 0 || nc >= this.cols || nr >= this.rows) continue;
         const other = this.groups.get(this.groupOf[nr * this.cols + nc]);
-        if (!other || other.id === g.id || other.rot !== g.rot || other.tray >= 0) continue;
+        if (!other || other.id === g.id || other.rot !== g.rot || other.tray !== g.tray) continue;     // (what lies in a tray joins only what lies in that tray)
         if (Math.abs(g.dx - other.dx) <= tol && Math.abs(g.dy - other.dy) <= tol) return other;
       }
     }

@@ -3,17 +3,18 @@ import { rotVec, type Group } from './jigsaw';
 /**
  * Sorting trays. A tray is a space of its own, measured in the same picture pixels as the table, with its top-left corner at (0, 0) and a fixed size that depends only on the puzzle
  * (`traySize`): so a piece that one player puts at a place in a tray lies at the same place of the tray for every other player, whatever their screens are like. The size of the
- * tray *on a screen* is another matter: the screen gives a quarter of itself (half the width and half the height) when it is wider than it is tall, and half of itself (all the
- * width, half the height) when it is taller, and the tray's space is fitted into that, as large as it goes, with bars at the sides (or above and below) where it does not fill it.
+ * tray *on a screen* is another matter: the screen gives at most a quarter of itself (half the width and half the height) when it is wider than it is tall, and at most half of itself
+ * (all the width, half the height) when it is taller, and the panel takes just as much of that as the tray's space needs, as large as it goes: it is as wide as it is tall for the
+ * tray's shape, so there are no empty bars at its sides, and the board shows around it where the screen is shaped otherwise.
  * Nothing but the picture of the tray changes with the screen; what is stored never does.
  */
 
-/** The tray's width over its height: the same for every puzzle and every screen. */
-export const TRAY_ASPECT = 3 / 2;
+/** The tray's width over its height: the same for every puzzle and every screen (wide, like the panel it gets on a screen that is wider than it is tall). */
+export const TRAY_ASPECT = 2;
 
 /** How many pieces fit side by side along a tray's width: enough that a tray holds a good part of a puzzle, however big or small it is. */
 export function trayCells(cols: number): number {
-  return Math.max(8, Math.ceil(cols * 0.6));
+  return Math.max(10, Math.ceil(cols * 0.7));
 }
 
 /** The size of every tray of a puzzle, in picture pixels. */
@@ -36,11 +37,11 @@ export interface TrayView {
   panel: Box;
   /** The header strip at the top of the panel (its title, and its buttons, which are drawn by the page). */
   header: Box;
-  /** The tray's space fitted into what is left: pixel = origin + scale * (a point of the tray's space). */
+  /** The tray's space fitted into the panel: pixel = origin + scale * (a point of the tray's space). */
   scale: number;
   ox: number;
   oy: number;
-  /** The tray's whole space, on the canvas: where it ends there are bars. */
+  /** The tray's whole space, on the canvas (inside the panel's margin). */
   area: Box;
 }
 
@@ -50,13 +51,15 @@ export interface TrayView {
  */
 export function trayView(canvasW: number, canvasH: number, tw: number, th: number, bar: number, header: number, pad: number): TrayView {
   const free = Math.max(1, canvasW - bar);
-  const w = canvasW >= canvasH ? free / 2 : free;
-  const h = canvasH / 2;
+  const maxW = canvasW >= canvasH ? free / 2 : free;
+  const maxH = canvasH / 2;
+  const hd = Math.min(header, maxH / 2);
+  const scale = Math.min(Math.max(1, maxW - 2 * pad) / tw, Math.max(1, maxH - hd - 2 * pad) / th);
+  const w = tw * scale + 2 * pad;
+  const h = hd + th * scale + 2 * pad;
   const panel: Box = { x: bar, y: canvasH - h, w, h };
-  const head: Box = { x: panel.x, y: panel.y, w: panel.w, h: Math.min(header, h / 2) };
-  const room: Box = { x: panel.x + pad, y: panel.y + head.h + pad, w: Math.max(1, panel.w - 2 * pad), h: Math.max(1, panel.h - head.h - 2 * pad) };
-  const scale = Math.min(room.w / tw, room.h / th);
-  const area: Box = { x: room.x + (room.w - tw * scale) / 2, y: room.y + (room.h - th * scale) / 2, w: tw * scale, h: th * scale };
+  const head: Box = { x: panel.x, y: panel.y, w: panel.w, h: hd };
+  const area: Box = { x: panel.x + pad, y: panel.y + hd + pad, w: tw * scale, h: th * scale };
   return { panel, header: head, scale, ox: area.x, oy: area.y, area };
 }
 
