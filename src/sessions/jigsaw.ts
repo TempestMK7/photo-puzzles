@@ -708,7 +708,7 @@ export class JigsawSession implements PuzzleSession {
   /** Joins the group to whatever it now lies right against (turned the same way); if it was being dragged, the drag ends there. */
   private settle(gid: number): void {
     const tol = this.tolerance();
-    if (!this.game.groups.has(gid) || this.game.groups.get(gid)!.tray >= 0 || !this.game.canJoin(gid, tol)) return;
+    if (!this.game.groups.has(gid) || !this.game.canJoin(gid, tol)) return;
     this.apply(this.dropOp(gid, tol));
   }
 

@@ -59,20 +59,25 @@ describe('sorting trays: what a puzzle keeps', () => {
     expect(a.tray).toBe(0);
   });
 
-  it('never joins what lies in a tray to anything, and joins again when it is back on the table', () => {
+  it('joins what lies in the same tray, and nothing in another tray or on the table', () => {
     const { game } = buildJigsaw(setup());
     const loose = looseOf(game);
     const a = loose[0];
     const neighbour = loose.find((g) => g.id !== a.id && [...g.members].some((m) => Math.abs((m % game.cols) - (a.members[0] % game.cols)) + Math.abs(Math.floor(m / game.cols) - Math.floor(a.members[0] / game.cols)) === 1))!;
     expect(neighbour).toBeDefined();
-    // two neighbours lying exactly where they fit: in a tray they stay apart, on the table they join
+    // two neighbours lying exactly where they fit: they join on the table, and in a tray, but not when they lie in different places
+    game.addTray();
     game.place(neighbour.id, -1, 100, 100, 0);
     game.place(a.id, 0, 100, 100, 0);
-    expect(game.canJoin(a.id, 0.5)).toBe(false);
-    expect(game.connect(a.id, 0.5)).toEqual({ id: a.id, joins: 0 });
-    game.place(a.id, -1, 100, 100, 0);
+    expect(game.canJoin(a.id, 0.5)).toBe(false);                       // one in the tray, one on the table
+    game.place(neighbour.id, 1, 100, 100, 0);
+    expect(game.canJoin(a.id, 0.5)).toBe(false);                       // in two trays
+    game.place(neighbour.id, 0, 100, 100, 0);
     expect(game.canJoin(a.id, 0.5)).toBe(true);
-    expect(game.connect(a.id, 0.5).joins).toBe(1);
+    const joined = game.connect(a.id, 0.5);
+    expect(joined.joins).toBe(1);
+    expect(game.groups.get(joined.id)!.tray).toBe(0);                  // and the joined group stays in the tray
+    expect(game.piecesIn(0)).toBe(game.groups.get(joined.id)!.members.length);
   });
 
   it('carries trays and what lies in them through a snapshot, and refuses one that does not make sense', () => {
@@ -117,7 +122,7 @@ describe('sorting trays: what a puzzle keeps', () => {
 });
 
 describe('sorting trays: the operations', () => {
-  it('put a group in a tray (without joining) and back on the table (with joining), and turn it in the tray', () => {
+  it('put a group in a tray and back on the table, and turn it in the tray', () => {
     const { game, layout } = buildJigsaw(setup({ turning: 1 }));
     const a = looseOf(game)[0];
     const piece = a.members[0];
@@ -130,6 +135,26 @@ describe('sorting trays: the operations', () => {
     expect([a.tray, a.dx, a.dy]).toEqual([-1, 500, 600]);
     applyOp(game, { t: 'drop', piece, dx: 1, dy: 1, rot: 0, tol: null, tray: 9 });                // there is no tray 9: it goes on the table
     expect(a.tray).toBe(-1);
+  });
+
+  it('join two neighbours that are put down against each other in a tray, and turn a group in a tray against another', () => {
+    const { game, layout } = buildJigsaw(setup({ turning: 1 }));
+    const loose = looseOf(game);
+    const a = loose[0];
+    const b = loose.find((g) => g.id !== a.id && [...g.members].some((m) => Math.abs((m % game.cols) - (a.members[0] % game.cols)) + Math.abs(Math.floor(m / game.cols) - Math.floor(a.members[0] / game.cols)) === 1))!;
+    const pa = a.members[0];
+    const pb = b.members[0];
+    applyOp(game, { t: 'drop', piece: pb, dx: 150, dy: 90, rot: 0, tol: null, tray: 0 });
+    expect(applyOp(game, { t: 'drop', piece: pa, dx: 150, dy: 90, rot: 0, tol: null, tray: 0 }).joins).toBe(0);      // (no joining asked for)
+    expect(game.groupOf[pa]).not.toBe(game.groupOf[pb]);
+    const res = applyOp(game, { t: 'drop', piece: pa, dx: 150, dy: 90, rot: 0, tol: layout.size, tray: 0 });
+    expect(res.joins).toBe(1);
+    expect(game.groupOf[pa]).toBe(game.groupOf[pb]);
+    expect(game.groups.get(game.groupOf[pa])!.tray).toBe(0);
+    // turned about its middle, a group that lies against another one does not fit it any more: only a turn that makes them fit joins
+    const c = looseOf(game).find((g) => g.tray < 0)!;
+    applyOp(game, { t: 'drop', piece: c.members[0], dx: 10, dy: 10, rot: 0, tol: null, tray: 0 });
+    expect(applyOp(game, { t: 'rotate', piece: c.members[0], tol: layout.size }).joins).toBe(0);
   });
 
   it('add and take away trays', () => {
@@ -184,6 +209,25 @@ describe('sorting trays: the room', () => {
     expect(room.submit('bob', { t: 'trayRemove', tray: 0 }, 9).ok).toBe(true);
   });
 
+  it('joins two groups that are put down against each other in a tray, and keeps the joined group in the tray', () => {
+    const room = new JigsawRoom(setup());
+    const game = room.board.game;
+    const loose = looseOf(game);
+    const a = loose[0];
+    const b = loose.find((g) => g.id !== a.id && [...g.members].some((m) => Math.abs((m % game.cols) - (a.members[0] % game.cols)) + Math.abs(Math.floor(m / game.cols) - Math.floor(a.members[0] / game.cols)) === 1))!;
+    const put = (piece: number, now: number) => {
+      room.submit('ann', { t: 'grab', piece }, now);
+      return room.submit('ann', { t: 'drop', piece, dx: 150, dy: 90, rot: 0, tol: game.size * 0.3, tray: 0 }, now + 1);
+    };
+    const first = put(b.members[0], 0);
+    expect(first.ok && first.event.joins).toBe(0);
+    const second = put(a.members[0], 20);
+    expect(second.ok && second.event.joins).toBe(1);
+    const joined = game.groups.get(game.groupOf[a.members[0]])!;
+    expect(joined.members).toEqual(expect.arrayContaining([a.members[0], b.members[0]]));
+    expect(joined.tray).toBe(0);
+  });
+
   it('carries the trays, and what lies in them, in the state that a room goes on from', () => {
     const room = new JigsawRoom(setup());
     const a = looseOf(room.board.game)[0];
@@ -202,27 +246,38 @@ describe('sorting trays: where they lie on a screen', () => {
   const ts = traySize(10, 40);
 
   it('has a size of its own for each puzzle, in the same units as the pieces, and the same shape always', () => {
-    expect(trayCells(4)).toBe(8);
-    expect(trayCells(32)).toBe(20);
+    expect(trayCells(4)).toBe(10);
+    expect(trayCells(32)).toBe(23);
     expect(ts.w / ts.h).toBeCloseTo(TRAY_ASPECT);
-    expect(ts.w).toBe(8 * 40);
+    expect(ts.w).toBe(10 * 40);
   });
 
-  it('is half the width and half the height of a screen that is wider than tall, beside the bar', () => {
+  it('takes up to half the width and half the height of a screen that is wider than tall, beside the bar, and no more than the tray needs', () => {
     const v = trayView(1200, 800, ts.w, ts.h, 50, 30, 6);
-    expect(v.panel).toEqual({ x: 50, y: 400, w: 575, h: 400 });
-    expect(insideBox(v.panel, 60, 500)).toBe(true);
-    expect(insideBox(v.panel, 40, 500)).toBe(false);
-    expect(insideBox(v.panel, 700, 500)).toBe(false);
-    expect(insideBox(v.panel, 60, 399)).toBe(false);
+    expect(v.panel.x).toBe(50);
+    expect(v.panel.w).toBeCloseTo(575);                                  // the width is what limits it
+    expect(v.panel.h).toBeCloseTo(30 + 563 / 2 + 12);
+    expect(v.panel.y + v.panel.h).toBeCloseTo(800);                      // on the floor of the screen
+    expect(insideBox(v.panel, 60, 700)).toBe(true);
+    expect(insideBox(v.panel, 40, 700)).toBe(false);
+    expect(insideBox(v.panel, 700, 700)).toBe(false);
+    expect(insideBox(v.panel, 60, v.panel.y - 1)).toBe(false);
+    // a wide, flat screen: the height is what limits it, and the panel is narrower than half the width
+    const wide = trayView(3000, 700, ts.w, ts.h, 50, 30, 6);
+    expect(wide.panel.h).toBeCloseTo(350);
+    expect(wide.panel.w).toBeLessThan(1475);
+    expect(wide.panel.w).toBeCloseTo((350 - 30 - 12) * 2 + 12);
   });
 
-  it('is the whole width and half the height of a screen that is taller than wide', () => {
+  it('takes up to the whole width and half the height of a screen that is taller than wide', () => {
     const v = trayView(600, 1000, ts.w, ts.h, 50, 30, 6);
-    expect(v.panel).toEqual({ x: 50, y: 500, w: 550, h: 500 });
+    expect(v.panel.x).toBe(50);
+    expect(v.panel.w).toBeCloseTo(550);
+    expect(v.panel.h).toBeCloseTo(30 + 538 / 2 + 12);
+    expect(v.panel.h).toBeLessThan(500);
   });
 
-  it('fits the same space into any panel, as large as it goes, centred, and puts a point of it at the same share of the tray on every screen', () => {
+  it('fits the same space into any panel exactly, as large as it goes, and puts a point of it at the same share of the tray on every screen', () => {
     for (const [w, h] of [[1200, 800], [1920, 1080], [600, 1000], [390, 760], [2560, 1440]]) {
       const v = trayView(w, h, ts.w, ts.h, 44, 30, 6);
       expect(v.area.w / v.area.h).toBeCloseTo(TRAY_ASPECT);
@@ -230,9 +285,11 @@ describe('sorting trays: where they lie on a screen', () => {
       expect(v.area.y).toBeGreaterThanOrEqual(v.panel.y + v.header.h);
       expect(v.area.x + v.area.w).toBeLessThanOrEqual(v.panel.x + v.panel.w + 1e-9);
       expect(v.area.y + v.area.h).toBeLessThanOrEqual(v.panel.y + v.panel.h + 1e-9);
-      // either the width or the height of what is left is used up
-      const room = { w: v.panel.w - 12, h: v.panel.h - v.header.h - 12 };
-      expect(Math.abs(v.area.w - room.w) < 1e-6 || Math.abs(v.area.h - room.h) < 1e-6).toBe(true);
+      // the panel is the tray with its margin and header (nothing is left over), and never more than half the screen's height, nor more than the width there is
+      expect(v.panel.w).toBeCloseTo(v.area.w + 12);
+      expect(v.panel.h).toBeCloseTo(v.header.h + v.area.h + 12);
+      expect(v.panel.h).toBeLessThanOrEqual(h / 2 + 1e-9);
+      expect(v.panel.w).toBeLessThanOrEqual((w >= h ? (w - 44) / 2 : w - 44) + 1e-9);
       // the middle of the tray's space, and a quarter along, are at the same shares of the area
       const at = (fx: number, fy: number) => [v.ox + fx * ts.w * v.scale, v.oy + fy * ts.h * v.scale];
       const [mx, my] = at(0.5, 0.5);

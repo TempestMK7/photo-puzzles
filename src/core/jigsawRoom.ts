@@ -202,7 +202,7 @@ export class JigsawRoom {
           const [cx, cy] = centreAt(grp, g.cols, g.size, cmd.dx, cmd.dy, cmd.rot);
           if (cx < 0 || cy < 0 || cx > ts.w || cy > ts.h) return { ok: false, reason: 'bad' };
         }
-        const joins = this.run({ t: 'drop', piece: cmd.piece, dx: cmd.dx, dy: cmd.dy, rot: cmd.rot, tol: tray === -1 ? t : null, ...(tray === -1 ? {} : { tray }) });
+        const joins = this.run({ t: 'drop', piece: cmd.piece, dx: cmd.dx, dy: cmd.dy, rot: cmd.rot, tol: t, ...(tray === -1 ? {} : { tray }) });
         this.lock = null;
         if (g.groups.get(g.groupOf[cmd.piece])?.anchored) this.unreserve(player);
         else this.reserve(player, cmd.piece, now);

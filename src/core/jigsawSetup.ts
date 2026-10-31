@@ -90,7 +90,7 @@ export type PieceOp =
   | { t: 'grab'; piece: number }
   /**
    * The group is put down where it is (turned `rot` quarter turns, offset (dx, dy)); with `tol` it then joins whatever it lies right against, within that many picture pixels.
-   * With `tray` (the id of a sorting tray) it is put in that tray instead, and the pose is in the tray's space: it joins nothing there. Without it (or -1) it is put on the table.
+   * With `tray` (the id of a sorting tray) it is put in that tray instead, and the pose is in the tray's space: it joins what lies in that tray, as it would on the table. Without it (or -1) it is put on the table.
    */
   | { t: 'drop'; piece: number; dx: number; dy: number; rot: number; tol: number | null; tray?: number }
   /** A loose group is turned a quarter turn about its middle; with `tol` it then joins what it lies right against. */
@@ -116,8 +116,8 @@ export function applyOp(game: JigsawGame, op: JigsawOp): { id: number; joins: nu
       return { id: gid, joins: 0 };
     case 'drop':
       if (op.tray !== undefined && op.tray >= 0 && game.trays.includes(op.tray)) {
-        game.place(gid, op.tray, op.dx, op.dy, op.rot);               // in a tray: it joins nothing
-        return { id: gid, joins: 0 };
+        game.place(gid, op.tray, op.dx, op.dy, op.rot);
+        return op.tol === null ? { id: gid, joins: 0 } : game.connect(gid, op.tol);
       }
       g.tray = -1;
       game.setPose(gid, op.dx, op.dy, op.rot);
@@ -125,7 +125,7 @@ export function applyOp(game: JigsawGame, op: JigsawOp): { id: number; joins: nu
     case 'rotate': {
       const [cx, cy] = game.centre(gid);
       game.rotate(gid, cx, cy);
-      return op.tol === null || g.tray >= 0 ? { id: gid, joins: 0 } : game.connect(gid, op.tol);
+      return op.tol === null ? { id: gid, joins: 0 } : game.connect(gid, op.tol);
     }
   }
 }

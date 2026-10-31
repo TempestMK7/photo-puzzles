@@ -58,15 +58,15 @@ When the last piece joins, the event says `solved` and the room refuses everythi
 
 ## Sorting trays
 
-A puzzle has up to `TRAY_MAX` (10) sorting trays, a list shared by everybody (`game.trays`, ids in list order; a new puzzle has one). A group lies in a tray (`Group.tray` = the tray's id) or on the table (`-1`); a group in a tray is out of the board and joins nothing, and a piece that belongs to the picture cannot be put in one.
+A puzzle has up to `TRAY_MAX` (10) sorting trays, a list shared by everybody (`game.trays`, ids in list order; a new puzzle has one). A group lies in a tray (`Group.tray` = the tray's id) or on the table (`-1`); a group in a tray is out of the board, and a piece that belongs to the picture cannot be put in one. Groups that lie in the **same tray** join each other exactly as they do on the table (the same offsets, the same tolerance: the poses are in the tray's space, which is measured in the same picture pixels); a group in a tray never joins one on the table, nor one in another tray, and the joined group stays in the tray.
 
 | op | meaning |
 |---|---|
 | `trayAdd` | adds a tray (refused when there are 10); the room's event gives it the next id, so every screen ends up with the same ids |
 | `trayRemove tray` | takes a tray away; refused (`bad`) unless it is empty |
-| `drop piece dx dy rot tol tray` | with `tray` the pose is in that tray's own space (below); the group's middle must lie inside it, and it joins nothing (`tol` is ignored) |
+| `drop piece dx dy rot tol tray` | with `tray` the pose is in that tray's own space (below); the group's middle must lie inside it; with `tol` it then joins what it lies right against in that tray |
 
-**One space for every screen.** A tray is a fixed logical rectangle, `traySize(cols, size)` in picture pixels (origin at its top left, a group's pose `dx dy rot` is as on the table). Each screen fits that rectangle into its panel (`trayView` in `src/core/trays.ts`): half the width and half the height of the canvas in landscape, the full width and half the height in portrait, beside the 46 px bar of trays and under a 34 px header, scaled to fit and centred. Only the scale and the margins differ between screens, never the positions, so a piece lies at the same place of the tray on a phone and on a wide monitor. Which tray is open is each screen's own business (nothing is sent); a piece that is moved around in a tray is shown to the others like one on the table (hand messages carry `tray`), and a `drop` into or out of a tray is an event like any other.
+**One space for every screen.** A tray is a fixed logical rectangle, `traySize(cols, size)` in picture pixels (origin at its top left, a group's pose `dx dy rot` is as on the table). The rectangle is 2:1 and about as big as 10 pieces across or 0.7 of the puzzle's width, whichever is more. Each screen fits that rectangle into a panel (`trayView` in `src/core/trays.ts`) that is as large as the tray allows within half the width and half the height of the canvas (landscape) or the full width and half the height (portrait), beside the 46 px bar of trays and under a 34 px header. The panel is cut to the tray's shape, so there are no empty bars in it. Only the scale and the size of the panel differ between screens, never the positions, so a piece lies at the same place of the tray on a phone and on a wide monitor. Which tray is open is each screen's own business (nothing is sent); a piece that is moved around in a tray is shown to the others like one on the table (hand messages carry `tray`), and a `drop` into or out of a tray is an event like any other.
 
 ## Events, order, catching up
 
