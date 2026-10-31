@@ -27,6 +27,20 @@ export interface LibraryDeps {
   stockBase?: string;
 }
 
+/**
+ * Moves a list far enough to show one of its items, and nothing else: scrollIntoView also scrolls the page, and on a narrow screen the whole main screen is one panel, so
+ * choosing a difficulty (which lists the photos again) threw the player back up to the list and the Play button was no longer where their finger was going.
+ */
+function showInList(list: HTMLElement, item: Element | null | undefined): void {
+  if (!item) return;
+  const l = list.getBoundingClientRect();
+  const r = item.getBoundingClientRect();
+  if (r.top < l.top) list.scrollTop -= l.top - r.top;
+  else if (r.bottom > l.bottom) list.scrollTop += r.bottom - l.bottom;
+  if (r.left < l.left) list.scrollLeft -= l.left - r.left;
+  else if (r.right > l.right) list.scrollLeft += r.right - l.right;
+}
+
 /** Resolves when the screen has been drawn (or soon anyway: a page in the background does not draw). */
 const nextFrame = () =>
   new Promise<void>((resolve) => {
@@ -245,7 +259,7 @@ export class LibraryScreen {
         this.listEl.append(li);
         this.loadingEl.hidden = true;
         if (e.id === this.deps.prefs.data.photo) {
-          li.scrollIntoView({ block: 'nearest' });
+          showInList(this.listEl, li);
           this.renderChosen();
         }
         if (done < total) this.photoNote(`Loading photos: ${done} of ${total}`, true);
@@ -367,7 +381,7 @@ export class LibraryScreen {
     const lis = this.entries.map((e) => this.itemFor(e));
     const now = this.listEl.children;
     if (lis.length !== now.length || lis.some((li, i) => li !== now[i])) this.listEl.replaceChildren(...lis);
-    this.listEl.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+    showInList(this.listEl, this.listEl.querySelector('.on'));
   }
 
   /** The list item of a photo: made the first time, after that brought up to date (selected, done, marked, best time). */
@@ -513,7 +527,7 @@ export class LibraryScreen {
       const next = this.entries[Math.min(this.entries.length - 1, Math.max(0, i + (e.key === 'ArrowDown' ? 1 : -1)))];
       if (next) {
         this.choosePhoto(next.id);
-        this.listEl.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+        showInList(this.listEl, this.listEl.querySelector('.on'));
       }
     } else if (e.key === 'Enter' && this.removing === 'no') {
       e.preventDefault();
@@ -761,7 +775,7 @@ export class LibraryScreen {
       );
     });
     this.stockListEl.replaceChildren(...lis);
-    this.stockListEl.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+    showInList(this.stockListEl, this.stockListEl.querySelector('.on'));
   }
 
   private stockKey(e: KeyboardEvent): void {
@@ -772,7 +786,7 @@ export class LibraryScreen {
       const next = items[Math.min(items.length - 1, Math.max(0, i + (e.key === 'ArrowDown' ? 1 : -1)))];
       if (next) {
         this.chooseStock(next.id);
-        this.stockListEl.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+        showInList(this.stockListEl, this.stockListEl.querySelector('.on'));
       }
     } else if (e.key === 'Enter') {
       e.preventDefault();
