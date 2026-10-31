@@ -3,12 +3,15 @@ import { pickAnother } from '../core/pick';
 import { randomSeedText } from '../core/rng';
 import { isVideoFile } from '../image';
 import { formatAgo, formatTime, type Prefs } from '../core/prefs';
+import { STOCK_NAMES, type StockItem, type StockSite, type StockType } from '../online/protocol';
 import { fetchLink, LINK_REFUSED, parseLink } from '../store/link';
+import { downloadStock, searchStock, stockCredit } from '../store/stock';
 import type { SaveRecord, SaveStore } from '../store/saves';
 import type { PhotoEntry, PhotoLibrary } from '../store/photos';
 import { appVersion, versionLabel } from '../version';
 import { h, svg } from './dom';
 import { KIND_ICONS } from './icons';
+import { attribution, creditLine, siteMark } from './stocksite';
 
 export interface LibraryDeps {
   prefs: Prefs;
@@ -20,6 +23,8 @@ export interface LibraryDeps {
   onOnline?: () => void;
   /** The round badge for the profile, at the end of the top bar (only in a build that has online play). */
   badge?: HTMLElement;
+  /** The address of the game's server, which has the stock library: without one the "Stock Files" tab is not offered. */
+  stockBase?: string;
 }
 
 /** Resolves when the screen has been drawn (or soon anyway: a page in the background does not draw). */
@@ -59,9 +64,12 @@ export class LibraryScreen {
           },
           { root: this.listEl, rootMargin: '300px' },
         );
-  private previewImg = h('img', { alt: '' });
+  // (no referrer: a stock site's image server turns away a picture asked for by another site's page, and what we show is the library's own object URL or the stock site's)
+  private previewImg = h('img', { alt: '', referrerPolicy: 'no-referrer' });
   private previewVideo = h('video', { muted: true, loop: true, playsInline: true, autoplay: true, hidden: true, 'aria-label': 'Preview' });
   private nameEl = h('div', { class: 'pname' });
+  /** Who made the picture, for one from the stock library. */
+  private creditEl = h('div', { class: 'pcreditbox' });
   private bestEl = h('div', { class: 'pbest' });
   private blurbEl = h('p', { class: 'blurb' });
   private optionsEl = h('div', { class: 'options' });
@@ -90,6 +98,34 @@ export class LibraryScreen {
   private fileInput = h('input', { type: 'file', accept: 'image/*,video/*,.webm,.mp4,.m4v,.mov,.mkv', multiple: true, hidden: true, onchange: () => this.filesChosen() });
   private photoNoteEl = h('div', { class: 'note', 'aria-live': 'polite' });
   private noteTimers = new Map<HTMLElement, number>();
+  /** The two lists of the photo panel: the player's own files and the stock library's. */
+  private tab: 'mine' | 'stock' = 'mine';
+  private tabsEl = h('div', { class: 'ptabs', role: 'tablist', hidden: true });
+  private stockInput = h('input', {
+    type: 'search',
+    placeholder: 'Search',
+    maxLength: 80,
+    spellcheck: false,
+    autocomplete: 'off',
+    'aria-label': 'Search the stock library',
+  });
+  private stockType = h('select', { 'aria-label': 'Photos or videos', onchange: () => void this.runStock(false) }, h('option', { value: 'photo' }, 'Photos'), h('option', { value: 'video' }, 'Videos'));
+  /** Which site to look at: offered when the server has more than one. */
+  private stockSite = h('select', { 'aria-label': 'Where to look', hidden: true, onchange: () => void this.runStock(false) });
+  private stockMark = h('span', { class: 'sitemark' });
+  private stockBar = h(
+    'form',
+    { class: 'stockbar', hidden: true, onsubmit: (e: Event) => (e.preventDefault(), void this.runStock(false)) },
+    h('label', { class: 'sfield' }, this.stockMark, this.stockInput),
+    this.stockSite,
+    this.stockType,
+    h('button', { type: 'submit' }, 'Search'),
+  );
+  private stockListEl = h('ul', { class: 'plist stock', role: 'listbox', 'aria-label': 'Stock files', tabIndex: 0, hidden: true });
+  private stock = { query: '', type: 'photo' as StockType, source: undefined as StockSite | undefined, sources: [] as StockSite[], items: [] as StockItem[], page: 0, more: false, busy: false, loaded: false, chosen: '' };
+  /** Only the last look that was asked for is shown; and the download that is going on, if any. */
+  private stockTicket = 0;
+  private stockAbort: AbortController | null = null;
   /** Reading the list, adding and removing take turns. */
   private queue: Promise<void> = Promise.resolve();
   private loading = false;
@@ -137,8 +173,8 @@ export class LibraryScreen {
       h(
         'div',
         { class: 'main' },
-        h('aside', { class: 'photos' }, this.listEl, this.photoNoteEl, this.footEl),
-        h('section', { class: 'preview' }, h('div', { class: 'frame' }, this.previewImg, this.previewVideo), this.nameEl, this.bestEl, this.blurbEl),
+        h('aside', { class: 'photos' }, this.tabsEl, this.stockBar, this.listEl, this.stockListEl, this.photoNoteEl, this.footEl),
+        h('section', { class: 'preview' }, h('div', { class: 'frame' }, this.previewImg, this.previewVideo), this.nameEl, this.creditEl, this.bestEl, this.blurbEl),
         h(
           'aside',
           { class: 'side' },
@@ -166,6 +202,16 @@ export class LibraryScreen {
       this.progressEl,
     );
     this.listEl.addEventListener('keydown', (e) => this.listKey(e));
+    this.stockListEl.addEventListener('keydown', (e) => this.stockKey(e));
+    this.previewVideo.addEventListener('error', () => this.previewFailed());
+    if (deps.stockBase) {
+      this.tabsEl.hidden = false;
+      this.tabsEl.replaceChildren(
+        ...(['mine', 'stock'] as const).map((t) =>
+          h('button', { type: 'button', role: 'tab', class: t === 'mine' ? 'on' : '', 'aria-selected': t === 'mine', dataset: { tab: t }, onclick: () => this.setTab(t) }, t === 'mine' ? 'My Files' : 'Stock Files'),
+        ),
+      );
+    }
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !this.progressEl.hidden) this.closeProgress();
     });
@@ -245,6 +291,7 @@ export class LibraryScreen {
   show(): void {
     this.seedInput.value = this.deps.prefs.data.seed;
     this.renderList();
+    if (this.tab === 'stock') this.renderStockList();
     this.renderChosen();
     void this.refreshProgress();
   }
@@ -255,8 +302,9 @@ export class LibraryScreen {
     return findKind(this.deps.prefs.data.kind) ?? KINDS[0];
   }
 
-  /** The photo that is chosen on this screen. */
+  /** The photo that is chosen on this screen (on the stock tab: the one that was made from the stock item shown, if it is in the library yet). */
   get chosenPhoto(): PhotoEntry | undefined {
+    if (this.tab === 'stock') return this.stockChosen ? this.entryOfStock(this.stockChosen) : undefined;
     return this.chosen;
   }
 
@@ -346,7 +394,7 @@ export class LibraryScreen {
         ondblclick: () => (this.removing === 'no' ? this.play() : undefined),
       },
       h('span', { class: 'chk', 'aria-hidden': 'true' }),
-      this.thumbFor(e),
+      h('span', { class: 'thumb' }, this.thumbFor(e), e.credit ? siteMark(e.credit.source, 14) : null),
       h('span', { class: 'txt' }, h('span', { class: 'n' }, e.name), h('span', { class: 'b' }, text)),
     );
     this.items.set(e.id, li);
@@ -363,13 +411,16 @@ export class LibraryScreen {
   }
 
   private renderChosen(): void {
-    const e = this.chosen;
+    const stock = this.tab === 'stock' ? this.stockChosen : undefined;
+    const e = this.tab === 'stock' ? (stock ? this.entryOfStock(stock) : undefined) : this.chosen;
     const { prefs } = this.deps;
-    if (e?.video) {                                                // a video plays (silently, looped) in the preview
+    // what the middle shows: a stock item as it is on its site, or the library's own photo
+    const shown = stock ? { video: stock.type === 'video', url: stock.preview, name: stock.title, credit: stockCredit(stock) } : e ? { video: e.video, url: e.previewUrl, name: e.name, credit: e.credit } : undefined;
+    if (shown?.video) {                                            // a video plays (silently, looped) in the preview
       this.previewImg.hidden = true;
-      if (this.previewVideo.dataset.url !== e.previewUrl) {
-        this.previewVideo.dataset.url = e.previewUrl;
-        this.previewVideo.src = e.previewUrl;
+      if (this.previewVideo.dataset.url !== shown.url) {
+        this.previewVideo.dataset.url = shown.url;
+        this.previewVideo.src = shown.url;
       }
       this.previewVideo.hidden = false;
       void this.previewVideo.play().catch(() => undefined);
@@ -381,14 +432,15 @@ export class LibraryScreen {
         this.previewVideo.removeAttribute('src');
         this.previewVideo.load();
       }
-      this.previewImg.src = e?.previewUrl ?? '';
-      this.previewImg.hidden = !e;
+      this.previewImg.src = shown?.url ?? '';
+      this.previewImg.hidden = !shown;
     }
-    this.nameEl.textContent = e?.name ?? (this.loading ? 'Loading photos…' : 'No photos yet');
+    this.nameEl.textContent = shown?.name ?? (this.tab === 'stock' ? (this.stock.busy ? 'Searching…' : 'Nothing to show') : this.loading ? 'Loading photos…' : 'No photos yet');
+    this.creditEl.replaceChildren(...(shown?.credit ? [creditLine(shown.credit, shown.video)] : []));
     const best = e ? this.recordFor(e) : undefined;
-    this.bestEl.textContent = e ? (best !== undefined ? `Best time ${formatTime(best)}` : 'Not solved yet') : '';
+    this.bestEl.textContent = stock && !e ? 'Added to your library when you play it' : e ? (best !== undefined ? `Best time ${formatTime(best)}` : 'Not solved yet') : '';
     this.blurbEl.textContent = this.kind.blurb;
-    this.playBtn.disabled = !e;
+    this.playBtn.disabled = !shown || !!this.stockAbort;
     this.optionsEl.replaceChildren(
       ...this.kind.options.map((o) => {
         const v = optionValue(prefs.data.settings, this.kind.id, o);
@@ -499,6 +551,10 @@ export class LibraryScreen {
   }
 
   private play(): void {
+    if (this.tab === 'stock') {
+      void this.playStock();
+      return;
+    }
     const e = this.chosen;
     if (!e) return;
     this.commitSeed();
@@ -582,6 +638,205 @@ export class LibraryScreen {
       }
     }
     this.photoNote(failed.length ? `Could not open ${failed.join('; ')}` : ids.length === 1 ? 'Added 1 photo' : `Added ${ids.length} photos`);
+  }
+
+
+  // ---------------------------------------------------------------------------------------------------------------- stock files
+
+  private get stockChosen(): StockItem | undefined {
+    return this.stock.items.find((i) => i.id === this.stock.chosen);
+  }
+
+  /** The library's photo that was made from this item of the stock library, if it has been played before. */
+  private entryOfStock(item: StockItem): PhotoEntry | undefined {
+    return this.entries.find((e) => e.credit?.source === item.source && e.credit.id === item.id && e.video === (item.type === 'video'));
+  }
+
+  private setTab(tab: 'mine' | 'stock'): void {
+    if (tab === this.tab || (tab === 'stock' && !this.deps.stockBase)) return;
+    this.tab = tab;
+    this.removing = 'no';
+    this.marked.clear();
+    this.tabsEl.querySelectorAll('button').forEach((b) => {
+      b.classList.toggle('on', b.dataset.tab === tab);
+      b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+    });
+    this.listEl.hidden = tab === 'stock';
+    this.stockListEl.hidden = tab !== 'stock';
+    this.stockBar.hidden = tab !== 'stock';
+    this.photoNote('');
+    if (tab === 'stock') {
+      if (!this.stock.loaded) void this.runStock(false);
+      else this.renderStockList();
+    } else this.renderList();
+    this.renderChosen();
+    this.renderFoot();
+  }
+
+  /** Looks for what the box says (nothing in it: what is popular), or gets the next page of the last look. */
+  private async runStock(more: boolean): Promise<void> {
+    const base = this.deps.stockBase;
+    const s = this.stock;
+    if (!base) return;
+    if (!more) {
+      s.query = this.stockInput.value.trim();
+      s.type = this.stockType.value === 'video' ? 'video' : 'photo';
+      s.source = this.stockSite.hidden ? undefined : (this.stockSite.value as StockSite);
+    }
+    const ticket = ++this.stockTicket;
+    s.busy = true;
+    this.photoNote('Searching…', true);
+    this.renderFoot();
+    const res = await searchStock(base, s.query, s.type, more ? s.page + 1 : 1, s.source);
+    if (ticket !== this.stockTicket) return;                        // another look was asked for meanwhile
+    s.busy = false;
+    if (res.ok) this.showSites(res.source, res.sources);
+    if (!res.ok) {
+      this.photoNote(res.error === 'busy' ? 'The stock library is busy. Try again in a little while.' : res.error === 'offline' ? 'Could not reach the stock library. Check the connection.' : 'The stock library is not available right now.', false, 8000);
+      this.renderStockList();
+      this.renderFoot();
+      return;
+    }
+    const known = new Set(more ? s.items.map((i) => i.id) : []);
+    s.items = [...(more ? s.items : []), ...res.items.filter((i) => !known.has(i.id))];
+    s.page = res.page;
+    s.more = res.more;
+    s.loaded = true;
+    if (!more || !this.stockChosen) s.chosen = s.items[0]?.id ?? '';
+    this.photoNote(s.items.length ? '' : 'Nothing found. Try another word.', false, 6000);
+    this.renderStockList();
+    this.renderChosen();
+    this.renderFoot();
+  }
+
+  /** The choice of site (when there is more than one) and the mark and the name of the one that is looked at, in the search box. */
+  private showSites(source: StockSite, sources: StockSite[]): void {
+    const s = this.stock;
+    s.source = source;
+    if (s.sources.join() !== sources.join()) {
+      s.sources = sources;
+      this.stockSite.replaceChildren(...sources.map((x) => h('option', { value: x }, STOCK_NAMES[x])));
+      this.stockSite.hidden = sources.length < 2;
+    }
+    this.stockSite.value = source;
+    this.stockMark.replaceChildren(siteMark(source, 18));
+    this.stockInput.placeholder = `Search ${STOCK_NAMES[source]}`;
+  }
+
+  /** A stock video that will not play in the preview (a site may refuse a video asked for by another site's page): its still picture is shown instead; Play fetches the file without a referrer. */
+  private previewFailed(): void {
+    const stock = this.tab === 'stock' ? this.stockChosen : undefined;
+    if (!stock || stock.type !== 'video' || this.previewVideo.dataset.url !== stock.preview) return;
+    this.previewVideo.hidden = true;
+    this.previewImg.src = stock.thumb;
+    this.previewImg.hidden = false;
+  }
+
+  private chooseStock(id: string): void {
+    this.stock.chosen = id;
+    this.stockListEl.querySelectorAll<HTMLElement>('.item').forEach((li) => {
+      li.classList.toggle('on', li.dataset.id === id);
+      li.setAttribute('aria-selected', String(li.dataset.id === id));
+    });
+    this.renderChosen();
+  }
+
+  private renderStockList(): void {
+    const s = this.stock;
+    const lis = s.items.map((i) => {
+      const have = !!this.entryOfStock(i);
+      const video = i.type === 'video';
+      return h(
+        'li',
+        {
+          class: 'item stockitem' + (i.id === s.chosen ? ' on' : '') + (video ? ' video' : '') + (have ? ' have' : ''),
+          role: 'option',
+          'aria-selected': i.id === s.chosen,
+          dataset: { id: i.id },
+          onclick: () => this.chooseStock(i.id),
+          ondblclick: () => void this.playStock(),
+        },
+        h('span', { class: 'thumb' }, h('img', { src: i.thumb, alt: '', width: 56, height: 56, loading: 'lazy', referrerPolicy: 'no-referrer' }), siteMark(i.source, 14)),
+        h('span', { class: 'txt' }, h('span', { class: 'n' }, i.title), h('span', { class: 'b' }, (video ? `Video ${formatTime(i.duration * 1000)} · ` : '') + (have ? 'In your library' : `by ${i.by}`))),
+      );
+    });
+    this.stockListEl.replaceChildren(...lis);
+    this.stockListEl.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+  }
+
+  private stockKey(e: KeyboardEvent): void {
+    const items = this.stock.items;
+    const i = items.findIndex((x) => x.id === this.stock.chosen);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const next = items[Math.min(items.length - 1, Math.max(0, i + (e.key === 'ArrowDown' ? 1 : -1)))];
+      if (next) {
+        this.chooseStock(next.id);
+        this.stockListEl.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      void this.playStock();
+    }
+  }
+
+  /** Play on a stock item: it is downloaded and added to the library (with its credit), unless it is there already, and the puzzle starts on it. */
+  private async playStock(): Promise<void> {
+    const item = this.stockChosen;
+    if (!item || this.stockAbort) return;
+    this.commitSeed();
+    let entry = this.entryOfStock(item);
+    if (!entry) {
+      const abort = new AbortController();
+      this.stockAbort = abort;
+      this.renderFoot();
+      this.renderChosen();
+      this.note('Downloading…', true);
+      let file: File;
+      try {
+        file = await downloadStock(item, (text) => this.note(text, true), abort.signal);
+      } catch (err) {
+        this.stockAbort = null;
+        this.note(err instanceof Error ? err.message : 'Could not download that', false, this.noteEl, 8000);
+        this.renderFoot();
+        this.renderChosen();
+        return;
+      }
+      this.note('Adding to your library…', true);
+      const got: { entry?: PhotoEntry } = {};
+      await this.queued(async () => {
+        const done = await this.deps.photos.add([file], undefined, stockCredit(item));
+        const added = done.ids[0] ? await this.deps.photos.entry(done.ids[0]) : null;
+        if (!added) return;
+        if (!this.entries.some((x) => x.id === added.id)) this.entries.push(added);
+        got.entry = added;
+        this.refresh(added.id);
+      });
+      this.stockAbort = null;
+      this.note('');
+      entry = got.entry;
+      if (!entry) {
+        this.note('That could not be added to your library', false, this.noteEl, 8000);
+        this.renderFoot();
+        this.renderChosen();
+        return;
+      }
+    }
+    this.renderStockList();
+    this.renderFoot();
+    this.renderChosen();
+    this.deps.prefs.data.photo = entry.id;
+    this.deps.prefs.save();
+    this.deps.onPlay(entry);
+  }
+
+  /** The buttons under the stock list: more results, or stop a download, and the credit to the site that its terms ask for. */
+  private renderStockFoot(): void {
+    const btn = (label: string, onclick: () => void, extra: Record<string, unknown> = {}) => h('button', { type: 'button', onclick, ...extra }, label);
+    this.footEl.replaceChildren(
+      attribution(this.stock.source ?? 'pexels'),
+      ...(this.stockAbort ? [btn('Stop downloading', () => this.stockAbort?.abort())] : this.stock.more ? [btn('More results', () => void this.runStock(true), { disabled: this.stock.busy })] : []),
+    );
   }
 
   // ---------------------------------------------------------------------------------------------------------------- puzzles in progress
@@ -682,6 +937,10 @@ export class LibraryScreen {
 
   /** Add / Remove at the bottom of the photo panel. Remove is a mode: tick the photos to go, then confirm (an in-page question: a web view may swallow confirm()). */
   private renderFoot(): void {
+    if (this.tab === 'stock') {
+      this.renderStockFoot();
+      return;
+    }
     const mine = this.entries.filter((e) => !e.sample);
     const n = this.marked.size;
     const btn = (label: string, onclick: () => void, extra: Record<string, unknown> = {}) => h('button', { type: 'button', onclick, ...extra }, label);

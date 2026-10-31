@@ -21,6 +21,10 @@ export const DEFAULT_RATES = {
   playback: { perPlayer: 60, windowMs: MIN },
   /** The owner's game asking how the check of a video is going (every few seconds for a minute or two). */
   videoCheck: { perPlayer: 60, windowMs: 5 * MIN },
+  /** Searches of the stock library from one address. */
+  stockSearch: { perIp: 120, windowMs: HOUR },
+  /** Everybody's searches that a stock site itself had to answer (the ones we had kept are free). Pexels lets a key make 200 an hour; Pixabay 100 a minute. */
+  stockUpstream: { pexels: { total: 150, windowMs: HOUR }, pixabay: { total: 1500, windowMs: HOUR } },
 };
 
 export type Rates = typeof DEFAULT_RATES;

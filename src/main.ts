@@ -125,6 +125,7 @@ async function main(): Promise<void> {
     saves,
     onOnline: panel ? () => panel.open() : undefined,
     badge: profile?.badge,
+    stockBase: base || undefined,
     onPlay: (entry) => {
       library.hide();
       library.el.hidden = true;

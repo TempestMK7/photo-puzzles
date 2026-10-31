@@ -7,6 +7,7 @@ import { MemoryMedia, MemoryPubSub, MemoryStore, SystemRandom, systemClock } fro
 import { setActive } from './played';
 import { createRouter, DevAuth } from './router';
 import { RoomService } from './service';
+import { PexelsStock, PixabayStock, type StockProviders } from './stock';
 import type { Player, Presence, PubSub } from './types';
 
 /**
@@ -85,7 +86,12 @@ const service = new RoomService({
 // real guests as in the cloud (signed tokens, a key made when the server starts); the accounts are the made-up ones
 const guests = new GuestTokens(new Uint8Array(randomBytes(32)), systemClock);
 const auth = new TokenAuth(guests, new DevAuth());
-const route = createRouter({ service, auth, media, guests });
+// the stock library, for each site that this machine has a key for (PEXELS_API_KEY, PIXABAY_API_KEY; PEXELS_API_BASE and PIXABAY_API_BASE point them at stand-ins for trying the game without one)
+const stock: StockProviders = {
+  ...(process.env.PEXELS_API_KEY ? { pexels: new PexelsStock(process.env.PEXELS_API_KEY, { base: process.env.PEXELS_API_BASE }) } : {}),
+  ...(process.env.PIXABAY_API_KEY ? { pixabay: new PixabayStock(process.env.PIXABAY_API_KEY, { base: process.env.PIXABAY_API_BASE }) } : {}),
+};
+const route = createRouter({ service, auth, media, guests, stock });
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -165,4 +171,5 @@ setInterval(() => void service.sweep().catch((e) => console.error(e)), 60_000).u
 server.listen(PORT, () => {
   console.log(`Online server on ${ORIGIN}  (the game is expected at ${WEB_BASE}; ${FREE_ROOMS} free puzzles a week)`);
   console.log('Nothing is kept: stopping the server forgets every room.');
+  if (!Object.keys(stock).length) console.log('No stock library: set PIXABAY_API_KEY (or PEXELS_API_KEY) to turn it on.');
 });

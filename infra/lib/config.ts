@@ -31,6 +31,10 @@ export interface Settings {
   /** Google sign-in: the OAuth client id and the name of the Secrets Manager secret that holds its client secret. Both, or neither. */
   googleClientId?: string;
   googleSecretName?: string;
+  /** The stock library (Pexels): the name of the Secrets Manager secret that holds the API key. Without it the game does not offer the library. */
+  pexelsSecretName?: string;
+  /** The same for Pixabay (either, both, or neither). */
+  pixabaySecretName?: string;
   /** Changes to the service's limits (see `Limits` in server/src/types.ts), as numbers by name: `freeRoomsPerWeek: 0` switches the making of puzzles off. */
   limits?: Record<string, number>;
 }
@@ -77,6 +81,8 @@ export function settings(node: Node): Settings {
     githubProviderArn: text(node, 'githubProviderArn'),
     googleClientId,
     googleSecretName,
+    pexelsSecretName: text(node, 'pexelsSecretName'),
+    pixabaySecretName: text(node, 'pixabaySecretName'),
     limits: parseLimits(text(node, 'limits')),
   };
 }

@@ -1,4 +1,5 @@
 import { gifToWebm, isGifFile } from '../gif';
+import type { StockCredit } from './stock';
 import { isVideoFile, loadPhoto, makeThumb, readVideo, samplePhoto, samplePreviewUrl, sampleThumbUrl, SAMPLES } from '../image';
 
 /** One photo in the list: the built-in samples and the player's own. */
@@ -13,6 +14,8 @@ export interface PhotoEntry {
   video: boolean;
   /** Seconds, for a video. */
   duration: number;
+  /** Where it came from, for a picture or video of the stock library (the credit is shown with it). */
+  credit?: StockCredit;
 }
 
 /** What a puzzle draws from: a picture, or a video element whose current frame is drawn. */
@@ -33,6 +36,7 @@ interface StoredPhoto {
   thumb: Blob;
   video?: boolean;
   duration?: number;
+  credit?: StockCredit;
 }
 
 const DB = 'photo-puzzles';
@@ -175,6 +179,7 @@ export class PhotoLibrary {
       },
       video: !!p.video,
       duration: p.duration ?? 0,
+      ...(p.credit ? { credit: p.credit } : {}),
     };
   }
 
@@ -222,9 +227,9 @@ export class PhotoLibrary {
 
   /**
    * Adds picture files; returns the ids that were added (or already there) and the names that could not be read. `onStatus` is told what is going on when it takes a
-   * while (an animated GIF is turned into a video).
+   * while (an animated GIF is turned into a video). `credit` says where they came from, for files of the stock library.
    */
-  async add(files: File[], onStatus?: (text: string) => void): Promise<{ ids: string[]; failed: string[] }> {
+  async add(files: File[], onStatus?: (text: string) => void, credit?: StockCredit): Promise<{ ids: string[]; failed: string[] }> {
     const ids: string[] = [];
     const failed: string[] = [];
     for (const file of files) {
@@ -238,10 +243,10 @@ export class PhotoLibrary {
         }
         if (video) {
           const info = await readVideo(video);
-          rec = { id, name: file.name, addedAt: Date.now(), blob: video, thumb: await makeThumb(info.poster), video: true, duration: Number.isFinite(info.duration) ? info.duration : 0 };
+          rec = { id, name: file.name, addedAt: Date.now(), blob: video, thumb: await makeThumb(info.poster), video: true, duration: Number.isFinite(info.duration) ? info.duration : 0, ...(credit ? { credit } : {}) };
         } else {
           const canvas = await loadPhoto(file);
-          rec = { id, name: file.name, addedAt: Date.now(), blob: await toBlob(canvas, 0.92), thumb: await makeThumb(canvas) };
+          rec = { id, name: file.name, addedAt: Date.now(), blob: await toBlob(canvas, 0.92), thumb: await makeThumb(canvas), ...(credit ? { credit } : {}) };
         }
         let saved = false;
         if (this.db) {

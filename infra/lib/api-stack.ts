@@ -38,6 +38,10 @@ export interface ApiStackProps extends StackProps {
   client: cognito.IUserPoolClient;
   /** Changes to the service's limits (the deploy setting `limits`). */
   limits?: Record<string, number>;
+  /** The secret that holds the Pexels API key (the deploy setting `pexelsSecretName`): with it the API offers the stock library. */
+  pexelsSecretName?: string;
+  /** The same for Pixabay (`pixabaySecretName`). */
+  pixabaySecretName?: string;
 }
 
 /**
@@ -93,6 +97,12 @@ export class ApiStack extends Stack {
     fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['cognito-idp:AdminDeleteUser'], resources: [props.pool.userPoolArn] }));
     // the picture of every puzzle is looked at (for explicit, violent, disturbing or hateful content) before anyone else can see it
     fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['rekognition:DetectModerationLabels', 'rekognition:StartContentModeration', 'rekognition:GetContentModeration'], resources: ['*'] }));
+    // the stock library: each site's key is read from a secret that only this function may read, and the library is open to everyone (its address is limited by the function)
+    for (const [variable, name, id] of [['PEXELS_SECRET_ID', props.pexelsSecretName, 'PexelsKey'], ['PIXABAY_SECRET_ID', props.pixabaySecretName, 'PixabayKey']] as const) {
+      if (!name) continue;
+      fn.addEnvironment(variable, name);
+      secretsmanager.Secret.fromSecretNameV2(this, id, name).grantRead(fn);
+    }
     const admin = serviceFunction('Admin', 'server/src/aws/admin.ts', 512, Duration.seconds(30));
     // the operator can delete an account for someone who cannot sign in (the same one thing to the user pool)
     admin.addToRolePolicy(new iam.PolicyStatement({ actions: ['cognito-idp:AdminDeleteUser'], resources: [props.pool.userPoolArn] }));
@@ -153,6 +163,7 @@ export class ApiStack extends Stack {
       this.api.addRoutes({ path, methods: [...methods], integration });
     }
     this.api.addRoutes({ path: '/media/{id}', methods: [PUT], integration });
+    this.api.addRoutes({ path: '/stock/search', methods: [GET], integration });
     // the admin page: nothing without a Cognito ID token (the function looks for the admin group besides)
     this.api.addRoutes({ path: '/admin/{proxy+}', methods: [GET, POST], integration: new integrations.HttpLambdaIntegration('AdminWebService', adminWeb), authorizer: jwt });
 

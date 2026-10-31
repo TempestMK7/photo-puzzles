@@ -34,6 +34,8 @@ export function build(app: App): void {
       webDomain: siteDomain(stage, s.zoneName),
       origins,
       limits: s.limits,
+      pexelsSecretName: s.pexelsSecretName,
+      pixabaySecretName: s.pixabaySecretName,
       table: data.table,
       media: data.media,
       signing: data.signingKey,
