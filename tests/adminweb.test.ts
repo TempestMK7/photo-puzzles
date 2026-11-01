@@ -71,9 +71,9 @@ describe('the admin routes', () => {
     await w.service.setProfile(ann, 'Annie');
     await w.service.adminBan('bob', 'rude');
     const first = await call('GET', '/admin/players');
-    expect(first.body).toEqual({ ok: true, next: 'more', players: [{ ...users[0], name: 'Annie', banned: false, type: 'free', photo: 1000, video: 0 }] });
+    expect(first.body).toEqual({ ok: true, next: 'more', players: [{ ...users[0], name: 'Annie', banned: false, type: 'free', photo: 1000, video: 0, hints: 10, bombs: 2 }] });
     const second = await call('GET', '/admin/players', { query: 'next=more' });
-    expect(second.body).toEqual({ ok: true, next: null, players: [{ ...users[1], name: '', banned: true, type: 'free', photo: 1000, video: 0 }] });
+    expect(second.body).toEqual({ ok: true, next: null, players: [{ ...users[1], name: '', banned: true, type: 'free', photo: 1000, video: 0, hints: 10, bombs: 2 }] });
     expect(pages).toEqual([undefined, 'more']);
   });
 
@@ -82,7 +82,7 @@ describe('the admin routes', () => {
     await w.service.adminSetAccount('ann', { type: 'paid', video: 7 });
     const listed = (await call('GET', '/admin/players')).body.players as { id: string; type: string; photo: number; video: number }[];
     expect(listed[0]).toMatchObject({ id: 'ann', type: 'paid', photo: 1000, video: 7 });
-    expect(await call('POST', '/admin/account', { body: { id: 'bob', type: 'family', photo: 3 } })).toEqual({ status: 200, body: { ok: true, account: { type: 'family', photo: 3, video: 0 } } });
+    expect(await call('POST', '/admin/account', { body: { id: 'bob', type: 'family', photo: 3 } })).toEqual({ status: 200, body: { ok: true, account: { type: 'family', photo: 3, video: 0, hints: 10, bombs: 2 } } });
     expect(await w.store.getAccount('bob')).toMatchObject({ type: 'family', photo: 3 });
     for (const bad of [{}, { id: '../x' }, { id: 'bob', type: 'gold' }, { id: 'bob', photo: -4 }, { id: 'bob', video: 'many' }]) {
       expect((await call('POST', '/admin/account', { body: bad })).status, JSON.stringify(bad)).toBe(400);

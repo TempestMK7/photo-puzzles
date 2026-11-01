@@ -13,6 +13,9 @@ const unb64 = (text: string): string => new TextDecoder().decode(Uint8Array.from
 
 export const isGuestToken = (token: string): boolean => token.startsWith(PREFIX);
 
+/** Whether a player id is a guest's (a guest's starts with `g` and has a form of its own; an account's is a UUID). */
+export const isGuestId = (id: string): boolean => ID.test(id);
+
 /**
  * Someone who joins a puzzle without an account is a guest: the server gives them an id and a token that says it (`g1.<id and end>.<signature>`), and they show the token each time they
  * ask for something. It is signed with the same key as the picture addresses, so only this server can make one. There is nothing to look up: a token is good if the signature is and it

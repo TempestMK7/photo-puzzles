@@ -1,3 +1,4 @@
+import type { HelpKind } from '../core/help';
 import { applyBoardOp, boardCheck, type Board, type BoardOp } from '../core/boardRoom';
 import type { RoomEvent, RoomState } from '../core/jigsawRoom';
 import { makeOverlap, type OverlapGame, type OverlapState } from '../core/overlap';
@@ -769,6 +770,51 @@ export class OverlapSession implements PuzzleSession {
     this.init.requestDraw();
   }
 
+  /** Applies a hint or a bomb to the board: the pieces it placed get their ripple. */
+  private run(op: BoardOp): boolean {
+    const g = this.game;
+    const was = [...g.done];
+    if (!applyBoardOp(this.rules, op).ok) return false;
+    const rects: { x: number; y: number; w: number; h: number }[] = [];
+    g.done.forEach((d, id) => {
+      if (d && !was[id]) for (const c of g.homeCells(id)) rects.push({ x: c.x * CELL, y: c.y * CELL, w: CELL, h: CELL });
+    });
+    if (rects.length) this.ripples.add(rects, performance.now());
+    this.afterOthers();
+    return true;
+  }
+
+  /** The stack that a hint at this board point is for (the one under it in the panel), or the cell that a bomb there falls on. */
+  private helpTarget(kind: HelpKind, p: Pt): { stack: number } | { cell: Pt } | null {
+    const s = this.screen(p);
+    if (this.game.solved) return null;
+    if (kind === 'hint') {
+      const stack = this.inPanel(s) ? this.slotAt(this.tray(s)) : -1;
+      return stack >= 0 && this.game.top(stack) >= 0 ? { stack } : null;
+    }
+    const cell = { x: Math.floor(p.x / CELL), y: Math.floor(p.y / CELL) };
+    const on = !this.inPanel(s) && cell.x >= 0 && cell.y >= 0 && cell.x < this.cols && cell.y < this.rows;
+    return on && this.game.bombHits(cell.x, cell.y).length > 0 ? { cell } : null;
+  }
+
+  canHelp(kind: HelpKind, p: Pt): boolean {
+    return this.helpTarget(kind, p) !== null;
+  }
+
+  help(kind: HelpKind, p: Pt): void {
+    const target = this.helpTarget(kind, p);
+    if (!target) return;
+    let op: BoardOp;
+    if ('stack' in target) {
+      this.activeStack = target.stack;
+      op = { t: 'hint', piece: this.game.top(target.stack) };
+    } else op = { t: 'bomb', x: target.cell.x, y: target.cell.y };
+    if (!this.run(op)) return;
+    this.init.online?.send(op);
+    buzz(this.init, this.game.solved ? 'solved' : 'placed');
+    if (!this.game.solved) playEffect('placed');
+  }
+
   pointerCancel(): void {
     this.held = null;
     this.scrolling = null;
@@ -826,6 +872,10 @@ export class OverlapSession implements PuzzleSession {
   applyEvent(ev: RoomEvent): void {
     const op = ev.op as BoardOp | undefined;
     if (!op) return;
+    if (op.t === 'hint' || op.t === 'bomb') {
+      this.run(op);
+      return;
+    }
     const res = applyBoardOp(this.rules, op);
     if (!res.ok) return;
     if (op.t === 'put' && res.placed) {

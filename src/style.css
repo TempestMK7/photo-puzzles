@@ -193,6 +193,12 @@ body.dragging .library::after {
 .tab.empty { opacity: 0.5; }
 .play button.toggle { padding: 5px 10px; font-size: 13px; color: var(--dim); background: var(--panel2); }
 .play button.toggle.on { color: var(--text); border-color: var(--accent2); }
+.play .helps { display: inline-flex; gap: 6px; }
+.play .helps button .n { margin-left: 4px; opacity: 0.75; font-variant-numeric: tabular-nums; }
+.play .helps button:disabled { opacity: 0.45; cursor: not-allowed; }
+.play canvas.board.helping { cursor: crosshair; }
+/* the line over the board that says what the chosen hint or bomb will do */
+.stage .helpnote { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 6; max-width: calc(100% - 24px); padding: 6px 14px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--accent2); color: var(--text); font-size: 13px; text-align: center; pointer-events: none; }
 .play .stats { display: flex; gap: 14px; font-variant-numeric: tabular-nums; color: var(--dim); }
 .play .stats .time { color: var(--text); }
 /* a phone: the title makes room, and the buttons wrap onto a second row rather than run off the screen */

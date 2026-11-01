@@ -32,6 +32,8 @@ export interface RoomRecord {
   settings: RoomSettings;
   sourceId?: string;
   ownerId: string;
+  /** The host lets the players use hints and bombs here. */
+  helpers?: true;
   members: Member[];
   code: string;
   /** Hash of the link's secret. */
@@ -104,6 +106,9 @@ export interface AccountRecord {
   adDay: string;
   photoAds: number;
   videoAds: number;
+  /** Hints and bombs held (an account from before they existed has none of the fields: it is given the starting number the first time it is read). */
+  hints?: number;
+  bombs?: number;
   createdAt: number;
   /** Counts up with every write, so that two writers cannot overwrite each other (a conditional write, as for a room). */
   rev: number;
@@ -291,6 +296,9 @@ export interface Limits {
   adsTrusted: number;
   /** The video credits a paid account is given for each payment period. */
   paidVideoCredits: number;
+  /** The hints and bombs a new account starts with. */
+  startHints: number;
+  startBombs: number;
   idleMs: number;
   solvedKeepMs: number;
   /** A puzzle goes this long after it was made, whatever happens to it. */

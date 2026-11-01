@@ -79,6 +79,8 @@ export function sayError(error: CallError, failure?: { retryAt?: number; credits
       return 'There is no puzzle with that code (or it has ended).';
     case 'expired':
       return 'That puzzle has ended.';
+    case 'helpers-off':
+      return 'The host has not allowed hints and bombs in this puzzle.';
     case 'no-credits':
       return failure?.credits === 'video' ? 'You have no video credits left.' : 'You have no photo credits left.';
     case 'plan-required':
@@ -184,6 +186,8 @@ export class OnlinePanel {
   private chosenEl = h('div', { class: 'chosen' });
   private consent = h('input', { type: 'checkbox', id: 'online-consent' });
   private consentText = h('span', {}, '');
+  /** The host lets the players use their hints and bombs (off unless ticked). */
+  private helpers = h('input', { type: 'checkbox', id: 'online-helpers' });
   private startBtn = h('button', { type: 'button', class: 'primary', onclick: () => void this.start() }, 'Start');
   private codeInput = h('input', { type: 'text', class: 'plain', placeholder: 'Code or link', 'aria-label': 'Code or link', onkeydown: (e: KeyboardEvent) => e.key === 'Enter' && void this.join(this.codeInput.value) });
   private joinBtn = h('button', { type: 'button', onclick: () => void this.join(this.codeInput.value) }, 'Join');
@@ -205,6 +209,7 @@ export class OnlinePanel {
         this.consent,
         this.consentText,
       ),
+      h('label', { class: 'consent', for: 'online-helpers', title: 'Hints place a piece, bombs place the pieces round a point. Each player uses their own, from their account.' }, this.helpers, h('span', {}, 'Allow hints and bombs in this puzzle')),
       this.startBtn,
     );
     this.joinSection = h('section', {}, h('h3', {}, 'Join a friend'), h('div', { class: 'row' }, this.codeInput, this.joinBtn));
@@ -419,6 +424,11 @@ export class OnlinePanel {
 
   // ---------------------------------------------------------------------------------------------------------------- making a puzzle
 
+  /** What the request to make a puzzle says about hints and bombs: only when the host ticked the box. */
+  private helpersOn(): { helpers?: true } {
+    return (this.helpers as HTMLInputElement).checked ? { helpers: true } : {};
+  }
+
   private async start(): Promise<void> {
     const entry = this.deps.chosen();
     const { api, prefs, photos } = this.deps;
@@ -443,7 +453,7 @@ export class OnlinePanel {
       const kept = await this.fromKept(entry, settings);
       if (kept) return kept.ok ? this.openMade(kept.roomId, kept.invite, entry) : this.fail(kept);
       const blob = await pictureForUpload(src.source, src.width, src.height);
-      const made = await api.createRoom({ settings, sourceId: entry.id, consent: true, ...(entry.credit ? { stock: true } : {}) });
+      const made = await api.createRoom({ settings, sourceId: entry.id, consent: true, ...this.helpersOn(), ...(entry.credit ? { stock: true } : {}) });
       if (!made.ok) return this.fail(made);
       if (made.account) this.deps.identity.setSummary(made.account);
       if (!made.upload) return this.fail({ error: 'bad-request' });
@@ -470,7 +480,7 @@ export class OnlinePanel {
    */
   private async fromKept(entry: PhotoEntry, settings: RoomSettings): Promise<CreateRoomResponse | ApiFailure | Offline | null> {
     if (!entry.serverFile) return null;
-    const made = await this.deps.api.createRoom({ settings, sourceId: entry.id, consent: true, fileId: entry.serverFile });
+    const made = await this.deps.api.createRoom({ settings, sourceId: entry.id, consent: true, ...this.helpersOn(), fileId: entry.serverFile });
     if (!made.ok && (made.error === 'file-gone' || made.error === 'unauthorized')) {
       await this.deps.photos.setServerFile(entry.id, undefined);
       return null;
@@ -511,7 +521,7 @@ export class OnlinePanel {
       this.say('Making the puzzle…');
       const kept = await this.fromKept(entry, settings);
       if (kept) return kept.ok ? this.openMade(kept.roomId, kept.invite, entry) : this.fail(kept);
-      const made = await api.createRoom({ settings, sourceId: entry.id, consent: true, ...(entry.credit ? { stock: true } : {}), video: { type: type as (typeof VIDEO_TYPES)[number], bytes: file.size, ms: Math.round(seconds * 1000) } });
+      const made = await api.createRoom({ settings, sourceId: entry.id, consent: true, ...this.helpersOn(), ...(entry.credit ? { stock: true } : {}), video: { type: type as (typeof VIDEO_TYPES)[number], bytes: file.size, ms: Math.round(seconds * 1000) } });
       if (!made.ok) return this.fail(made);
       if (made.account) this.deps.identity.setSummary(made.account);
       if (!made.upload) return this.fail({ error: 'bad-request' });

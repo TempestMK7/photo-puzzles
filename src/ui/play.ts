@@ -1,4 +1,5 @@
-import { findKind, generalValue, optionsOf, puzzleSeedText, recordKey, type KindDef, type KindId } from '../core/kinds';
+import { hintsFor, type HelpKind } from '../core/help';
+import { findKind, generalValue, optionsOf, puzzleSeedText, recordKey, SIZE, type KindDef, type KindId } from '../core/kinds';
 import { formatTime, type Prefs } from '../core/prefs';
 import { randomSeedText, seedFromText } from '../core/rng';
 import { loadPhoto } from '../image';
@@ -7,6 +8,7 @@ import { PLAYER_COLORS } from '../online/config';
 import { PlaybackSync } from '../online/playbackSync';
 import type { Invite } from '../online/protocol';
 import type { OnlineRoom, RoomView } from '../online/room';
+import type { OnlineSession } from '../online/session';
 import { fitView, type View } from '../render';
 import { needsStill, startSession, type PuzzleSession } from '../sessions';
 import type { OnlineHooks } from '../sessions/types';
@@ -14,6 +16,7 @@ import { openVideo, type PhotoEntry, type PhotoLibrary, type PlaySource } from '
 import type { SaveRecord, SaveStore } from '../store/saves';
 import { playEffect } from '../sounds';
 import { launchConfetti } from './confetti';
+import { creditText } from './credits';
 import { h, svg } from './dom';
 import { settingsButton } from './settings';
 import { sayError } from './online';
@@ -33,6 +36,8 @@ export interface PlayDeps {
   online?: { api: OnlineApi };
   /** A photo was added to the list from here (the picture of an online puzzle, kept). */
   photoAdded(id: string): void;
+  /** Who is playing: their hints and bombs are theirs to use here (nothing is shown without it). */
+  player?: OnlineSession;
 }
 
 /** What a session of this kind is given to start from the room's board (what `serialize` makes when a puzzle is saved: see each session). */
@@ -83,15 +88,29 @@ export class PlayScreen {
     this.zoomLabel,
     h('button', { type: 'button', title: 'Zoom in', 'aria-label': 'Zoom in', onclick: () => this.zoomBy(1.4) }, '+'),
   );
+  /** The line over the board that says what the chosen hint or bomb does (or why one was not used). */
+  private helpNote = h('div', { class: 'helpnote', hidden: true, role: 'status' });
   /** The sorting trays (a Jigsaw): the bar of them at the left, and the title and buttons over the header of the one that is open. */
   private trayBar = h('nav', { class: 'traybar', hidden: true, 'aria-label': 'Sorting trays' });
   private trayHead = h('div', { class: 'trayhead', hidden: true });
-  private stage = h('div', { class: 'stage' }, this.canvas, this.dialogEl, this.viewBar, this.zoomEl, this.trayBar, this.trayHead);
+  private stage = h('div', { class: 'stage' }, this.canvas, this.dialogEl, this.viewBar, this.zoomEl, this.trayBar, this.trayHead, this.helpNote);
   /** The original picture or video in a window of its own, for looking at while solving. */
   private ref = new RefWindow(this.stage, () => this.toggleRef(false));
   private refBtn = h('button', { type: 'button', class: 'toggle', title: 'Look at the original picture', 'aria-pressed': 'false', onclick: () => this.toggleRef() }, 'Original');
   private main = h('main', {}, this.tabsEl, this.stage, this.vbar);
   private restartBtn = h('button', { type: 'button', onclick: () => this.restart() }, 'Restart');
+  // hints and bombs (Tile Swap, Overlap, Strips, Jigsaw): the player picks one, then taps the board; it comes out of their account (see core/help.ts)
+  private hintBtn = this.helpButton('hint', 'Hint');
+  private bombBtn = this.helpButton('bomb', 'Bomb');
+  private helpEl = h('span', { class: 'helps', hidden: true }, this.hintBtn, this.bombBtn);
+  /** The one that is chosen, whether the press that is down may still be a tap (and where it began), and whether one is being used (the server is asked first). */
+  private armed: HelpKind | null = null;
+  private helpTap: { x: number; y: number } | null = null;
+  private helpBusy = false;
+  private helpShown = '';
+  private noteTimer = 0;
+  /** What the solved puzzle gave, for the end-of-puzzle window of a puzzle played with friends. */
+  private earned = 0;
   /** A puzzle played with friends: its room, the picture it was cut from, and whether the end has been shown. */
   private online: { room: OnlineRoom; shown: boolean; blob: Blob; saved: boolean } | null = null;
   /** The button of the end-of-puzzle window that keeps the picture (greyed out when the picture is in the player's library). */
@@ -134,6 +153,7 @@ export class PlayScreen {
         this.titleEl,
         h('div', { class: 'stats' }, this.timeEl, this.statusEl),
         settingsButton(deps.prefs, () => this.settingsChanged()),
+        this.helpEl,
         this.refBtn,
         this.rotateBtn,
         this.restartBtn,
@@ -149,6 +169,7 @@ export class PlayScreen {
         new ResizeObserver(() => this.stage.style.setProperty('--obar', `${row.offsetHeight ? row.offsetHeight + 6 : 0}px`)).observe(row);
       }
     }
+    deps.player?.onChange(() => this.refreshHelp());
     this.canvas.addEventListener('pointerdown', (e) => this.pointerDown(e));
     this.canvas.addEventListener('pointermove', (e) => this.pointerMove(e));
     this.canvas.addEventListener('pointerup', (e) => this.pointerUp(e));
@@ -156,6 +177,7 @@ export class PlayScreen {
       this.touches.delete(e.pointerId);
       if (e.pointerId === this.rightPointer) this.rightPointer = -1;
       if (e.pointerId === this.activePointer) this.activePointer = -1;
+      this.helpTap = null;
       this.session?.pointerCancel();
     });
     this.canvas.addEventListener(
@@ -199,7 +221,8 @@ export class PlayScreen {
     window.addEventListener('keydown', (e) => {
       if (this.el.hidden) return;
       if (e.key === 'Escape') {
-        if (this.ref.open) this.toggleRef(false);                // the window goes first, then the puzzle
+        if (this.armed) this.arm(null);                          // a chosen hint or bomb goes first
+        else if (this.ref.open) this.toggleRef(false);                // the window goes first, then the puzzle
         else this.leave();
       }
       else if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey) this.secondary();
@@ -470,6 +493,133 @@ export class PlayScreen {
     this.statusEl.textContent = session.status();
     this.resize();
     if (session.zoomLabel) this.zoomLabel.textContent = session.zoomLabel();
+    this.arm(null);
+    this.helpShown = '';
+    this.refreshHelp();
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- hints and bombs
+
+  private helpButton(kind: HelpKind, label: string): HTMLButtonElement {
+    return h('button', { type: 'button', class: 'toggle', 'aria-pressed': 'false', onclick: () => this.arm(this.armed === kind ? null : kind) }, label, h('span', { class: 'n' }, '0'));
+  }
+
+  /** Whether this puzzle has hints and bombs for this player to use: the puzzle has them (not Sliding Tiles, not Rotascope), the host of a puzzle played with friends allowed them, and this is a build with accounts. */
+  private helpAvailable(): boolean {
+    const p = this.deps.player;
+    return !!this.session?.canHelp && !!p?.hasAccounts && !!this.deps.online && (!this.online || this.online.room.descriptor.helpers === true);
+  }
+
+  /** The two buttons show how many the player has (the infinity sign for the operator), and are off when there are none, or the puzzle is over, or the player has no account. */
+  private refreshHelp(): void {
+    const p = this.deps.player;
+    const available = this.helpAvailable();
+    const a = p?.summary();
+    const over = !!this.session?.solved;
+    const key = available && a ? `${a.type}|${a.hints}|${a.bombs}|${a.hintsInfinite}|${a.bombsInfinite}|${over}` : '';
+    if (key === this.helpShown) return;
+    this.helpShown = key;
+    this.helpEl.hidden = !available;
+    if (!available || !a) {
+      this.arm(null);
+      return;
+    }
+    const guest = a.type === 'guest';
+    const set = (kind: HelpKind, btn: HTMLButtonElement, n: number, infinite: boolean): void => {
+      btn.querySelector('.n')!.textContent = guest ? '' : creditText(n, infinite);
+      btn.disabled = over || guest || (!infinite && n < 1);
+      btn.title = guest
+        ? 'Sign in to use hints and bombs'
+        : !infinite && n < 1
+          ? `You have no ${kind}s left. Solving puzzles earns hints.`
+          : kind === 'hint'
+            ? 'Place one piece where it belongs'
+            : 'Place the pieces round a point you choose';
+      if (btn.disabled && this.armed === kind) this.arm(null);
+    };
+    set('hint', this.hintBtn, a.hints, a.hintsInfinite);
+    set('bomb', this.bombBtn, a.bombs, a.bombsInfinite);
+  }
+
+  /** Chooses a hint or a bomb (the next tap on the board uses it), or puts the choice away. */
+  private arm(kind: HelpKind | null): void {
+    this.armed = kind;
+    this.helpTap = null;
+    for (const [k, b] of [['hint', this.hintBtn], ['bomb', this.bombBtn]] as const) {
+      b.classList.toggle('on', kind === k);
+      b.setAttribute('aria-pressed', String(kind === k));
+    }
+    this.canvas.classList.toggle('helping', !!kind);
+    this.instruct();
+  }
+
+  /** The line over the board: what the chosen one will do, or nothing. */
+  private instruct(): void {
+    window.clearTimeout(this.noteTimer);
+    const text = this.armed === 'hint' ? 'Choose the piece to place. Esc cancels.' : this.armed === 'bomb' ? 'Choose where to drop the bomb: it places the pieces round that point. Esc cancels.' : '';
+    this.helpNote.textContent = text;
+    this.helpNote.hidden = !text;
+  }
+
+  /** Says something over the board for a moment (why a hint or a bomb was not used), and then goes back to what was there. */
+  private flash(text: string): void {
+    window.clearTimeout(this.noteTimer);
+    this.helpNote.textContent = text;
+    this.helpNote.hidden = false;
+    this.noteTimer = window.setTimeout(() => this.instruct(), 2600);
+  }
+
+  /** The tap that uses the chosen hint or bomb, at a board point. Played alone, the server takes it from the account first; played with friends, the room does that with the operation. */
+  private async useHelp(p: { x: number; y: number }): Promise<void> {
+    const kind = this.armed;
+    const session = this.session;
+    const player = this.deps.player;
+    const api = this.deps.online?.api;
+    if (!kind || !session?.canHelp || !session.help || !player || !api || this.helpBusy) return;
+    if (!session.canHelp(kind, p)) {
+      this.flash(kind === 'hint' ? 'There is no piece to place there.' : 'There is nothing to place round that point.');
+      return;
+    }
+    const a = player.summary();
+    const infinite = kind === 'hint' ? a.hintsInfinite : a.bombsInfinite;
+    if (!infinite && (kind === 'hint' ? a.hints : a.bombs) < 1) {
+      this.arm(null);
+      return;
+    }
+    this.helpBusy = true;
+    try {
+      if (this.online) {
+        // the room takes it (the server counts), so the number is only brought up to date here
+        if (!infinite) player.setSummary({ ...a, [kind === 'hint' ? 'hints' : 'bombs']: (kind === 'hint' ? a.hints : a.bombs) - 1 });
+        window.setTimeout(() => void player.refreshProfile(), 1500);
+      } else {
+        const res = await api.useItem(kind);
+        if (this.session !== session) return;                          // (the player has gone on to another puzzle meanwhile)
+        if (!res.ok) {
+          if (res.error === 'no-credits' && 'account' in res && res.account) player.setSummary(res.account);
+          this.flash(res.error === 'no-credits' ? `You have no ${kind}s left.` : res.error === 'offline' ? 'Hints and bombs need a connection to the server.' : sayError(res.error));
+          this.arm(null);
+          return;
+        }
+        player.setSummary(res.account);
+      }
+      session.help(kind, p);
+      this.arm(null);
+      this.after();
+    } finally {
+      this.helpBusy = false;
+    }
+  }
+
+  /** A puzzle that was played alone is solved: the server adds its hints. How many were given (none if it could not be told). */
+  private async awardSolved(): Promise<number> {
+    const { player, online, prefs } = this.deps;
+    if (!player || !online || player.kind() !== 'account') return 0;
+    const opts = optionsOf(prefs.data.settings, this.kind);
+    const res = await online.api.awardSolved(opts[SIZE] ?? 0);
+    if (!res.ok) return 0;
+    player.setSummary(res.account);
+    return hintsFor(this.kind, opts);
   }
 
   // ---------------------------------------------------------------------------------------------------------------- playing with friends
@@ -565,6 +715,10 @@ export class PlayScreen {
     room.onRefused = (error, holder) => {
       if (error === 'busy') bar.say(`${room.member(holder ?? '')?.name ?? 'Someone'} is moving a piece`);
       else if (error === 'no-group') bar.say('Someone moved that piece first');
+      else if (error === 'no-credits') {
+        bar.say('You have none of those left.');
+        void this.deps.player?.refreshProfile();
+      } else if (error === 'helpers-off') bar.say(sayError(error));
       else if (error !== 'offline') bar.say(sayError(error));
     };
     room.attach(this.session as PuzzleSession & RoomView);
@@ -640,6 +794,9 @@ export class PlayScreen {
     const o = this.online;
     if (!o || o.shown) return;
     o.shown = true;
+    const player = this.deps.player;
+    this.earned = player?.kind() === 'account' ? hintsFor(this.kind, o.room.descriptor.settings.opts) : 0;      // (the server gave them to everyone with an account when the last piece went in)
+    if (this.earned) window.setTimeout(() => void player?.refreshProfile(), 1200);
     window.setTimeout(() => this.showOnlineDialog(), 700);              // after the last move has finished showing
   }
 
@@ -649,6 +806,7 @@ export class PlayScreen {
     this.dialogEl.replaceChildren(
       h('h2', {}, 'Solved!'),
       h('p', {}, `You finished it together in ${formatTime(this.online.room.playedMs())}.`),
+      ...(this.earned ? [h('p', { class: 'best' }, `+${this.earned} hint${this.earned === 1 ? '' : 's'} earned`)] : []),
       h(
         'div',
         { class: 'buttons' },
@@ -838,6 +996,7 @@ export class PlayScreen {
   }
 
   private leave(): void {
+    this.arm(null);
     const o = this.online;
     if (o) {
       o.room.detach();
@@ -1019,6 +1178,7 @@ export class PlayScreen {
       if (this.touches.size === 2) {
         if (this.activePointer >= 0) session.pointerCancel();
         this.activePointer = -1;
+        this.helpTap = null;
         this.canvas.setPointerCapture(e.pointerId);
         return;
       }
@@ -1033,6 +1193,10 @@ export class PlayScreen {
     this.activePointer = e.pointerId;
     this.lastButtons = e.buttons;
     this.canvas.setPointerCapture(e.pointerId);
+    if (this.armed) {                                           // a hint or a bomb is chosen: a tap uses it (a press that moves is not one: it is judged when it ends)
+      this.helpTap = { x: e.clientX, y: e.clientY };
+      return;
+    }
     session.pointerDown(this.boardPoint(e), e.pointerType === 'touch');
     this.after();
   }
@@ -1056,6 +1220,10 @@ export class PlayScreen {
       return;
     }
     if (this.activePointer >= 0 && e.pointerId !== this.activePointer) return;
+    if (this.armed && e.pointerId === this.activePointer) {
+      if (this.helpTap && Math.hypot(e.clientX - this.helpTap.x, e.clientY - this.helpTap.y) > 8) this.helpTap = null;
+      return;
+    }
     if (this.touches.has(e.pointerId)) this.touches.set(e.pointerId, this.canvasPoint(e));
     // pressing the right button while the left one is held does not start a new pointer: it shows up as a change of the pressed buttons
     if (e.pointerId === this.activePointer && (e.buttons & 2) !== 0 && (this.lastButtons & 2) === 0) session.secondary();
@@ -1075,6 +1243,12 @@ export class PlayScreen {
     }
     if (e.pointerId !== this.activePointer) return;
     this.activePointer = -1;
+    if (this.armed) {
+      const tap = this.helpTap;
+      this.helpTap = null;
+      if (tap) void this.useHelp(this.boardPoint(e));
+      return;
+    }
     this.session?.pointerUp(this.boardPoint(e));
     this.after();
   }
@@ -1100,6 +1274,7 @@ export class PlayScreen {
     if (!session) return;
     this.statusEl.textContent = session.status();
     if (session.zoomLabel) this.zoomLabel.textContent = session.zoomLabel();
+    this.refreshHelp();
     this.refreshTabs();
     if (this.online) {
       if (session.solved) this.finishOnline();
@@ -1121,16 +1296,19 @@ export class PlayScreen {
     const { prefs } = this.deps;
     const key = recordKey(this.kind, entry.id, prefs.data.settings);
     const isBest = prefs.recordTime(key, this.elapsed);
-    window.setTimeout(() => this.showDialog(isBest, prefs.bestTime(key) ?? this.elapsed), 700);     // after the last move has finished showing
+    const award = this.awardSolved();
+    // after the last move has finished showing (and the server has said what the puzzle gave, if it does so quickly)
+    window.setTimeout(() => void Promise.race([award, new Promise<number>((r) => window.setTimeout(() => r(0), 800))]).then((n) => this.showDialog(isBest, prefs.bestTime(key) ?? this.elapsed, n)), 700);
   }
 
-  private showDialog(isBest: boolean, best: number): void {
+  private showDialog(isBest: boolean, best: number, earned = 0): void {
     if (!this.session) return;
     this.celebrate();
     this.dialogEl.replaceChildren(
       h('h2', {}, 'Solved!'),
       h('p', {}, `Time ${formatTime(this.elapsed)} · ${this.session.status()}`),
       h('p', { class: 'best' }, isBest ? 'New best time!' : `Best time ${formatTime(best)}`),
+      ...(earned ? [h('p', { class: 'best' }, `+${earned} hint${earned === 1 ? '' : 's'} earned`)] : []),
       h(
         'div',
         { class: 'buttons' },

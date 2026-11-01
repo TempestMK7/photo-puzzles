@@ -1,4 +1,4 @@
-import type { AdRequest, AdStartRequest, CommandRequest, CreateRoomRequest, JoinRequest, ApiError, PlaybackRequest, ReportRequest } from '../../src/online/protocol';
+import type { AdRequest, AdStartRequest, AwardRequest, CommandRequest, CreateRoomRequest, ItemRequest, JoinRequest, ApiError, PlaybackRequest, ReportRequest } from '../../src/online/protocol';
 import type { RoomService } from './service';
 import { clientKey, type RateLimiter } from './ratelimit';
 import { stockSitesOf, type StockProviders } from './stock';
@@ -56,6 +56,7 @@ const STATUS: Record<ApiError, number> = {
   unreadable: 422,
   'stock-off': 503,
   'file-gone': 410,
+  'helpers-off': 403,
 };
 
 const MAX_JSON = 64 * 1024;
@@ -168,6 +169,15 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
     if (parts[0] === 'credits' && parts[1] === 'ad' && parts[2] === 'start' && parts.length === 3 && req.method === 'POST') {
       const body = json<AdStartRequest>(req);
       return body ? reply(await service.adStart(player, body)) : bad;
+    }
+    // hints and bombs: one is taken before a puzzle played alone places anything, and the hints of a puzzle played alone are added when it is solved
+    if (parts[0] === 'items' && parts[1] === 'use' && parts.length === 2 && req.method === 'POST') {
+      const body = json<ItemRequest>(req);
+      return body ? reply(await service.useItem(player, body)) : bad;
+    }
+    if (parts[0] === 'items' && parts[1] === 'award' && parts.length === 2 && req.method === 'POST') {
+      const body = json<AwardRequest>(req);
+      return body ? reply(await service.awardSolved(player, body)) : bad;
     }
     if (parts[0] === 'credits' && parts[1] === 'ad' && parts.length === 2 && req.method === 'POST') {
       const body = json<AdRequest>(req);

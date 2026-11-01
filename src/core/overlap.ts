@@ -1,3 +1,4 @@
+import { nearPoint } from './help';
 import { Rng } from './rng';
 
 export interface Cell {
@@ -253,6 +254,24 @@ export class OverlapGame {
     }
     this.reveal(id);
     return 'placed';
+  }
+
+  /** A hint: the piece is put in its place, turned right, and reveals its cells. False if it was there already. */
+  hint(id: number): boolean {
+    if (!Number.isInteger(id) || id < 0 || id >= this.pieces.length || this.done[id]) return false;
+    this.rot[id] = 0;
+    const p = this.pieces[id];
+    return this.drop(id, p.cx, p.cy) === 'placed';
+  }
+
+  /** The pieces that a bomb on cell (cx, cy) would place: those not in place whose own cell lies within a cell of its middle. */
+  bombHits(cx: number, cy: number): number[] {
+    return this.pieces.filter((p) => !this.done[p.id] && nearPoint(p.cx, p.cy, 1, 1, cx + 0.5, cy + 0.5)).map((p) => p.id);
+  }
+
+  /** A bomb on cell (cx, cy): every piece in `bombHits` is put in its place. Returns those that were placed. */
+  bomb(cx: number, cy: number): number[] {
+    return this.bombHits(cx, cy).filter((id) => this.hint(id));
   }
 
   /** Puts a piece on top of another stack (a piece dragged from one drawer to another). */

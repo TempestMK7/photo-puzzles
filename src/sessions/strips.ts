@@ -1,3 +1,4 @@
+import type { HelpKind } from '../core/help';
 import { applyBoardOp, boardCheck, type Board, type BoardOp } from '../core/boardRoom';
 import type { RoomEvent, RoomState } from '../core/jigsawRoom';
 import { boxOf, makeStrips, MARGIN, type StripsGame, type StripsState } from '../core/strips';
@@ -456,6 +457,40 @@ export class StripsSession implements PuzzleSession {
     this.nextTab();
   }
 
+  /** Applies a hint or a bomb to the board: the strips it put home get their ripple (and a strip that was in hand is not any more). */
+  private run(op: BoardOp): boolean {
+    const g = this.game;
+    const was = g.state.map((s) => s.locked);
+    if (!applyBoardOp(this.rules, op).ok) return false;
+    g.state.forEach((s, id) => {
+      if (!s.locked || was[id]) return;
+      this.locked(id, false);
+      if (this.drag?.id === id) this.dragEnds();
+    });
+    this.afterOthers();
+    return true;
+  }
+
+  canHelp(kind: HelpKind, p: Pt): boolean {
+    const g = this.game;
+    const cx = Math.floor(p.x / S);
+    const cy = Math.floor(p.y / S);
+    if (g.solved) return false;
+    if (kind === 'hint') return g.stripAt(cx, cy, this.tab) >= 0;
+    return cx >= 0 && cy >= 0 && cx < g.cols && cy < g.rows && g.bombHits(cx, cy).length > 0;
+  }
+
+  help(kind: HelpKind, p: Pt): void {
+    if (!this.canHelp(kind, p)) return;
+    const cx = Math.floor(p.x / S);
+    const cy = Math.floor(p.y / S);
+    const op: BoardOp = kind === 'hint' ? { t: 'hint', piece: this.game.stripAt(cx, cy, this.tab) } : { t: 'bomb', x: cx, y: cy };
+    if (!this.run(op)) return;
+    this.init.online?.send(op);
+    buzz(this.init, this.game.solved ? 'solved' : 'placed');
+    if (!this.game.solved) playEffect('placed');
+  }
+
   /** The tab that is showing has no loose strips left: on to the next one that still has. */
   private nextTab(): void {
     const counts = this.game.looseCounts();
@@ -514,6 +549,10 @@ export class StripsSession implements PuzzleSession {
   /** Another player's operation (the room checked it and put it in order): a strip put down, which may have found its hole. */
   applyEvent(ev: RoomEvent): void {
     const op = ev.op as BoardOp | undefined;
+    if (op?.t === 'hint' || op?.t === 'bomb') {
+      this.run(op);
+      return;
+    }
     if (!op || op.t !== 'place') return;
     const res = applyBoardOp(this.rules, op);
     if (!res.ok) return;

@@ -7,7 +7,7 @@ import { costNote, sayError } from '../src/ui/online';
 
 afterEach(() => vi.useRealTimers());
 
-const summary = (more: Partial<AccountSummary> = {}): AccountSummary => ({ type: 'free', photo: 5, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 5, videoAdsLeft: 0, adPhoto: 5, adVideo: 1, ...more });
+const summary = (more: Partial<AccountSummary> = {}): AccountSummary => ({ type: 'free', photo: 5, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 5, videoAdsLeft: 0, adPhoto: 5, adVideo: 1, hints: 10, bombs: 2, hintsInfinite: false, bombsInfinite: false, ...more });
 const paid = (more: Partial<AccountSummary> = {}) => summary({ type: 'paid', photoInfinite: true, canVideo: true, photoAdsLeft: 0, videoAdsLeft: 5, video: 20, ...more });
 const text = (e: ReturnType<typeof explainCredits>) => e.paragraphs.join(' ');
 

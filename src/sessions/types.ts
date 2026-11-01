@@ -1,3 +1,4 @@
+import type { HelpKind } from '../core/help';
 import type { Command, RoomEvent, RoomState } from '../core/jigsawRoom';
 import type { HandMessage } from '../online/protocol';
 import type { View } from '../render';
@@ -97,6 +98,12 @@ export interface PuzzleSession {
   selectTab?(tab: number): void;
   /** The pointer, while a piece is being dragged, is over this tab's button (-1: over none). */
   dragOverTab?(tab: number): void;
+
+  // Hints and bombs (Tile Swap, Overlap, Strips and Jigsaw: see core/help.ts). `p` is a board point, as for `pointerDown`.
+  /** Whether a hint (on the piece under `p`) or a bomb (dropped at `p`) would place anything: the game asks before it spends one. */
+  canHelp?(kind: HelpKind, p: Pt): boolean;
+  /** Places the piece, or the pieces round the point, and (played with friends) sends the operation to the room. */
+  help?(kind: HelpKind, p: Pt): void;
 
   // A board with a camera (Jigsaw): the session picks the view itself instead of fitting the whole board on the canvas.
   /** The view for a canvas of this size (in canvas pixels). */

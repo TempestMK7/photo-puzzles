@@ -29,6 +29,9 @@ export const DEFAULT_LIMITS = {
   adsTrusted: 0,
   /** The video credits a paid account is given for each payment period (what the payments, when they are built, will add). */
   paidVideoCredits: 20,
+  /** The hints and bombs every new account starts with, whatever its type (see `HelpItem`). */
+  startHints: 10,
+  startBombs: 2,
   /** A puzzle nobody has touched for this long is gone, with its picture and its codes. */
   idleMs: 24 * 3600 * 1000,
   /** After a puzzle is solved, how long it stays for those who are still watching. */
@@ -83,6 +86,8 @@ export interface RoomDescriptor {
   id: string;
   protocol: number;
   settings: RoomSettings;
+  /** Hints and bombs may be used in this puzzle (what the host chose; rooms made before they existed have none). */
+  helpers?: boolean;
   media: Media;
   owner: string;
   members: Member[];
@@ -158,6 +163,8 @@ export type ApiError =
   | 'rejected'
   /** Making new puzzles is switched off for now (the operator's limit is 0); joining and playing go on. */
   | 'paused'
+  /** The host of this puzzle did not allow hints and bombs. */
+  | 'helpers-off'
   /** The video is longer or larger than the limits allow. */
   | 'too-big'
   /** The automatic check could not read the video (it reads MP4 and MOV made with H.264). */
@@ -236,6 +243,8 @@ export interface ApiFailure {
   protocol?: number;
   /** For `no-credits`: which credits ran out. */
   credits?: 'photo' | 'video';
+  /** For `no-credits` of a hint or a bomb: which of them the account has none of. */
+  item?: HelpItem;
   /** For `ad-refused`: why. */
   reason?: AdRefusal;
   /** Where the account stands now, when a refusal is about credits (so that the game's display is right). */
@@ -245,6 +254,8 @@ export interface ApiFailure {
 export interface CreateRoomRequest {
   protocol: number;
   settings: RoomSettings;
+  /** The host lets the players use their hints and bombs in this puzzle (not for a puzzle that has none: see `hasHelp`). Off when left out. */
+  helpers?: boolean;
   sourceId?: string;
   /** The player has said yes to the picture leaving the device. */
   consent: true;
@@ -415,10 +426,38 @@ export interface AccountSummary {
   videoAdsLeft: number;
   adPhoto: number;
   adVideo: number;
+  /** Hints and bombs held (the operator's account has an endless stock: `hintsInfinite`, `bombsInfinite`). */
+  hints: number;
+  bombs: number;
+  hintsInfinite: boolean;
+  bombsInfinite: boolean;
 }
 
 /** What a guest (or somebody who has not signed in) sees: nothing to spend, and nothing to get. */
-export const GUEST_ACCOUNT: AccountSummary = { type: 'guest', photo: 0, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 0, videoAdsLeft: 0, adPhoto: 0, adVideo: 0 };
+export const GUEST_ACCOUNT: AccountSummary = { type: 'guest', photo: 0, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 0, videoAdsLeft: 0, adPhoto: 0, adVideo: 0, hints: 0, bombs: 0, hintsInfinite: false, bombsInfinite: false };
+
+/**
+ * What an account holds to use in a puzzle (see core/help.ts): a hint places one piece, a bomb every piece round a point. Every account is given some when it is made and a hint for every puzzle it
+ * solves; the operator's account has as many as it likes. Used in a puzzle played alone, the game asks the server to take one (`ItemRequest`) before it places anything; in a puzzle played with friends
+ * the room does, with the operation, and only when the host allowed them.
+ */
+export type HelpItem = 'hint' | 'bomb';
+
+export const isHelpItem = (v: unknown): v is HelpItem => v === 'hint' || v === 'bomb';
+
+/** An account has an endless stock of these. */
+export const helpIsFree = (type: AccountType): boolean => type === 'admin';
+
+export interface ItemRequest {
+  item: HelpItem;
+}
+
+/** A puzzle played alone was solved: the hints it gives (`size` is the index of its size: S is 0). The server cannot see a puzzle that is played on one device, so it takes the game's word. */
+export interface AwardRequest {
+  size: number;
+}
+
+export type ItemResponse = { ok: true; account: AccountSummary } | ApiFailure;
 
 /** What a watched ad needs to say: which credits it is for, and which app it was watched in (only the mobile apps have ads: Steam, itch and the web do not). */
 export type AdPlatform = 'android' | 'ios';

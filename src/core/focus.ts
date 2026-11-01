@@ -1,3 +1,4 @@
+import { nearPoint } from './help';
 import { focusLayout, type Rect } from './layout';
 import { Rng } from './rng';
 
@@ -93,6 +94,27 @@ export class FocusGame {
     for (let i = 0; i < n; i++) this.slotOf[i] = s.slotOf[i];
     this.selected = Number.isInteger(s.selected) && s.selected >= 0 && s.selected < n ? s.selected : -1;
     this.swaps = Math.max(0, Math.floor(Number(s.swaps) || 0));
+  }
+
+  /** A hint: the piece goes to its own home, and the piece that was there takes its place (a trade that is not counted as a swap). False if it was home already. */
+  hint(piece: number): boolean {
+    if (!Number.isInteger(piece) || piece < 0 || piece >= this.count || this.placed(piece)) return false;
+    const other = this.slotOf.indexOf(piece);                    // the piece that sits in this piece's home
+    this.slotOf[other] = this.slotOf[piece];
+    this.slotOf[piece] = piece;
+    if (this.selected === piece || this.selected === other) this.selected = -1;
+    return true;
+  }
+
+  /** The pieces that a bomb at picture point (x, y) would place: those not in their homes whose home lies within a piece's width of it. */
+  bombHits(x: number, y: number): number[] {
+    const reach = Math.sqrt((this.width * this.height) / this.count);
+    return this.homes.flatMap((r, i) => (!this.placed(i) && nearPoint(r.x, r.y, r.w, r.h, x, y, reach) ? [i] : []));
+  }
+
+  /** A bomb at picture point (x, y): every piece in `bombHits` is put in its home. Returns the pieces that moved, in the order they were placed. */
+  bomb(x: number, y: number): number[] {
+    return this.bombHits(x, y).filter((i) => this.hint(i));
   }
 
   swap(a: number, b: number): void {

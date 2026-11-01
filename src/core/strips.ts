@@ -1,3 +1,4 @@
+import { nearPoint } from './help';
 import { Rng } from './rng';
 
 /** The room loose strips have round the picture, in cells. */
@@ -272,6 +273,24 @@ export class StripsGame {
     }
     this.moveTo(id, s.x, s.y);
     return this.lockIfHome(id);
+  }
+
+  /** A hint: the strip goes home, turned right, and locks. False if it was home already. */
+  hint(id: number): boolean {
+    if (!Number.isInteger(id) || id < 0 || id >= this.defs.length || this.state[id].locked) return false;
+    const d = this.defs[id];
+    this.state[id] = { angle: 0, x: d.hx, y: d.hy, locked: true, tab: this.state[id].tab };
+    return true;
+  }
+
+  /** The strips that a bomb on field cell (cx, cy) would place: the loose ones with a cell within a cell of its middle. */
+  bombHits(cx: number, cy: number): number[] {
+    return this.defs.filter((d) => !this.state[d.id].locked && nearPoint(d.hx, d.hy, boxOf(d, 0).w, boxOf(d, 0).h, cx + 0.5, cy + 0.5)).map((d) => d.id);
+  }
+
+  /** A bomb on field cell (cx, cy): every strip in `bombHits` is put home. Returns those that were placed. */
+  bomb(cx: number, cy: number): number[] {
+    return this.bombHits(cx, cy).filter((id) => this.hint(id));
   }
 
   /** Called when a strip is put down: it locks when it lies exactly where it belongs, turned the right way. */

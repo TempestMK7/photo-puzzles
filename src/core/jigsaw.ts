@@ -1,3 +1,4 @@
+import { nearPoint } from './help';
 import type { Rng } from './rng';
 
 /**
@@ -462,6 +463,35 @@ export class JigsawGame {
       }
     }
     return { id: cur, joins };
+  }
+
+  /** A hint: the group the piece belongs to goes where it belongs in the picture and becomes part of it (joined to the pieces of the picture that it touches). False if it was there already. */
+  anchorGroup(piece: number): boolean {
+    const g = this.groups.get(this.groupOf[piece]);
+    if (!g || g.anchored) return false;
+    g.tray = -1;
+    g.rot = 0;
+    g.dx = 0;
+    g.dy = 0;
+    g.anchored = true;
+    this.dropFromLoose(g.id);
+    this.connect(g.id, 0);
+    return true;
+  }
+
+  /** The pieces that a bomb at picture point (x, y) (measured from the solved picture's top left) would name: those not in the picture whose cell lies within a piece's width of it. */
+  bombHits(x: number, y: number): number[] {
+    const s = this.size;
+    const hit: number[] = [];
+    for (let i = 0; i < this.count; i++) {
+      if (nearPoint((i % this.cols) * s, Math.floor(i / this.cols) * s, s, s, x, y, s) && !this.groups.get(this.groupOf[i])!.anchored) hit.push(i);
+    }
+    return hit;
+  }
+
+  /** A bomb at picture point (x, y): every piece in `bombHits` is put in the picture, with the group it belongs to. Returns the pieces named. */
+  bomb(x: number, y: number): number[] {
+    return this.bombHits(x, y).filter((i) => this.anchorGroup(i));
   }
 
   private dropFromLoose(id: number): void {

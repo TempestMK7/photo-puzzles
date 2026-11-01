@@ -4,6 +4,7 @@ import type {
   AdStartRequest,
   AdStartResponse,
   ApiError,
+  ItemResponse,
   ApiFailure,
   CommandResponse,
   CreateRoomRequest,
@@ -90,6 +91,16 @@ export class OnlineApi implements RoomApi {
 
   createRoom(req: Omit<CreateRoomRequest, 'protocol'>): Promise<CreateRoomResponse | ApiFailure | Offline> {
     return this.call('POST', '/rooms', { protocol: PROTOCOL_VERSION, ...req });
+  }
+
+  /** A hint or a bomb is about to be used in a puzzle played alone: the server takes one from the account (and says no when there is none). */
+  useItem(item: 'hint' | 'bomb'): Promise<ItemResponse | Offline> {
+    return this.call('POST', '/items/use', { item });
+  }
+
+  /** A puzzle played alone was solved: the server adds its hints (`size` is the index of the puzzle's size, S being 0). */
+  awardSolved(size: number): Promise<ItemResponse | Offline> {
+    return this.call('POST', '/items/award', { size });
   }
 
   /** The game is about to show a rewarded ad: asks whether the account is owed credits for one, and for the number that goes with the ad. */

@@ -1,3 +1,4 @@
+import type { HelpKind } from '../core/help';
 import { rotVec, TRAY_MAX, type Group, type JigsawGame, type JigsawLayout, type JigsawState } from '../core/jigsaw';
 import { applyOp, buildJigsaw, SCATTER_K, TOL_MAX_K, TOL_MIN_K, type JigsawOp, type PieceOp } from '../core/jigsawSetup';
 import { clampInTray, insideBox, traySize, trayView, type TrayView } from '../core/trays';
@@ -803,7 +804,7 @@ export class JigsawSession implements PuzzleSession {
   }
 
   /** The group is put down where it lies now, joining what it lies right against when `tol` says so. */
-  private dropOp(gid: number, tol: number | null): PieceOp {
+  private dropOp(gid: number, tol: number | null): Extract<PieceOp, { t: 'drop' }> {
     const grp = this.game.groups.get(gid)!;
     return { t: 'drop', piece: grp.members[0], dx: grp.dx, dy: grp.dy, rot: grp.rot, tol, ...(grp.tray >= 0 ? { tray: grp.tray } : {}) };
   }
@@ -845,8 +846,74 @@ export class JigsawSession implements PuzzleSession {
     this.wave.start(gid, members, [...from], cols, size, now);
   }
 
+  /** The group under a board point, on the table or in the open tray (-1: none). */
+  private groupUnder(p: Pt): number {
+    const tv = this.tv();
+    if (tv) {
+      const c = this.toCanvas(p);
+      if (insideBox(tv.panel, c.x, c.y)) {
+        const t = this.trayPt(tv, c.x, c.y);
+        return this.game.groupAtTray(this.openTrayId, t.x, t.y);
+      }
+    }
+    return this.game.groupAt(p.x - this.frameX, p.y - this.frameY);
+  }
+
+  /** What a hint or a bomb at this point is, as an operation, or nothing if it would place nothing (or the piece is another player's for now). */
+  private helpOp(kind: HelpKind, p: Pt): Extract<PieceOp, { t: 'hint' | 'bomb' }> | null {
+    if (this.game.solved) return null;
+    if (kind === 'hint') {
+      const gid = this.groupUnder(p);
+      if (gid < 0 || this.chosenBy(gid)) return null;
+      return { t: 'hint', piece: this.game.groups.get(gid)!.members[0] };
+    }
+    const tv = this.tv();
+    if (tv && insideBox(tv.panel, this.toCanvas(p).x, this.toCanvas(p).y)) return null;           // (a bomb is dropped on the board)
+    const at = { x: p.x - this.frameX, y: p.y - this.frameY };
+    return this.game.bombHits(at.x, at.y).length ? { t: 'bomb', x: at.x, y: at.y } : null;
+  }
+
+  canHelp(kind: HelpKind, p: Pt): boolean {
+    return this.helpOp(kind, p) !== null;
+  }
+
+  help(kind: HelpKind, p: Pt): void {
+    const op = this.helpOp(kind, p);
+    if (op && this.helped(op)) this.init.online?.send(op);
+  }
+
+  /**
+   * A hint or a bomb, this player's or another's that the room has told of: the pieces it put in the picture light up (a ripple for each group of them), and a piece that was in hand and is
+   * in the picture now is let go of. False if nothing was placed.
+   */
+  private helped(op: Extract<PieceOp, { t: 'hint' | 'bomb' }>, mine = true): boolean {
+    const g = this.game;
+    const was = Array.from({ length: g.count }, (_, i) => g.groups.get(g.groupOf[i])!.anchored);
+    applyOp(g, op);
+    const placed = was.flatMap((w, i) => (!w && g.groups.get(g.groupOf[i])!.anchored ? [i] : []));
+    if (!placed.length) return false;
+    if (this.drag && g.groups.get(this.drag.gid)?.anchored !== false) {          // the piece in hand is in the picture (or part of a group that is): it is let go of
+      this.drag = null;
+      this.cancelHover();
+      this.init.online?.holding(null);
+    }
+    const byGroup = new Map<number, Set<number>>();
+    for (const i of placed) byGroup.set(g.groupOf[i], (byGroup.get(g.groupOf[i]) ?? new Set<number>()).add(i));
+    const now = performance.now();
+    for (const [gid, from] of byGroup) this.startWave(gid, from, now, true);
+    if (this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
+    if (mine) {
+      this.buzz(g.solved ? 'solved' : 'placed');
+      if (!g.solved) playEffect('placed');
+    }
+    this.init.traysChanged?.();
+    this.init.requestDraw();
+    this.init.progress?.();
+    return true;
+  }
+
   /** Commits an operation that may join groups, and gives the feedback for it: the ripple, the buzz, the end of the drag. */
-  private apply(op: PieceOp): void {
+  private apply(op: Exclude<PieceOp, { t: 'bomb' }>): void {
     const g = this.game;
     const gid = g.groupOf[op.piece];
     if (!g.groups.has(gid)) return;
@@ -996,6 +1063,10 @@ export class JigsawSession implements PuzzleSession {
     if (op.t === 'trayAdd' || op.t === 'trayRemove') {          // a tray was made or taken away (by anyone: the room told us, in its own order)
       applyOp(this.game, op);
       this.trayListChanged();
+      return;
+    }
+    if (op.t === 'hint' || op.t === 'bomb') {
+      this.helped(op, false);
       return;
     }
     const g = this.game;

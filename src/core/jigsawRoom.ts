@@ -40,7 +40,7 @@ export type JigsawCommand = JigsawOp | { t: 'release' } | { t: 'select'; piece: 
 /** What a player asks of a room: a Jigsaw's commands, or an operation of one of the other puzzles (see boardRoom.ts). */
 export type Command = JigsawCommand | BoardOp;
 
-const JIGSAW_COMMANDS: readonly string[] = ['grab', 'drop', 'rotate', 'trayAdd', 'trayRemove', 'release', 'select', 'unselect'];
+const JIGSAW_COMMANDS: readonly string[] = ['grab', 'drop', 'rotate', 'trayAdd', 'trayRemove', 'release', 'select', 'unselect', 'hint', 'bomb'];
 
 /** What the room tells everyone after it accepted a command. */
 export interface RoomEvent {
@@ -176,6 +176,14 @@ export class JigsawRoom {
       if (!Number.isInteger(cmd.tray) || !g.trays.includes(cmd.tray) || g.piecesIn(cmd.tray) > 0) return { ok: false, reason: 'bad' };
       return this.accept(player, this.run(cmd).op, 0);
     }
+    // a bomb names no piece: it places every group round a point, whoever has a hand on one (a group placed that way is let go of)
+    if (cmd.t === 'bomb') {
+      if (![cmd.x, cmd.y].every((v) => typeof v === 'number' && Number.isFinite(v))) return { ok: false, reason: 'bad' };
+      const hit = this.run(cmd);
+      if (!hit.joins) return { ok: false, reason: 'no-group' };               // (nothing was left there to place)
+      this.letGoOfPlaced();
+      return this.accept(player, hit.op, hit.joins);
+    }
     if (!Number.isInteger(cmd.piece) || cmd.piece < 0 || cmd.piece >= g.count) return { ok: false, reason: 'bad' };
     const grp = g.groups.get(g.groupOf[cmd.piece]);
     if (!grp || grp.anchored) return { ok: false, reason: 'no-group' };
@@ -190,6 +198,11 @@ export class JigsawRoom {
       t === null ? null : typeof t === 'number' && Number.isFinite(t) ? Math.min(TOL_MAX_K * size, Math.max(TOL_MIN_K * size, t)) : undefined;
 
     switch (cmd.t) {
+      case 'hint': {
+        const r = this.run(cmd);
+        this.letGoOfPlaced();
+        return this.accept(player, r.op, r.joins);
+      }
       case 'grab': {
         if (others && others.holder !== player) return { ok: false, reason: 'busy', holder: others.holder };
         this.lock = { holder: player, piece: cmd.piece, until: now + LOCK_MS };
@@ -227,6 +240,14 @@ export class JigsawRoom {
         return this.accept(player, r.op, r.joins);
       }
     }
+  }
+
+  /** Nobody holds or has chosen a piece that is part of the picture now (a hint or a bomb placed it). */
+  private letGoOfPlaced(): void {
+    const g = this.board.game;
+    const placed = (piece: number): boolean => !!g.groups.get(g.groupOf[piece])?.anchored;
+    if (this.lock && placed(this.lock.piece)) this.lock = null;
+    this.reserved = this.reserved.filter((r) => !placed(r.piece));
   }
 
   private run(op: JigsawOp): { op: JigsawOp; joins: number } {
