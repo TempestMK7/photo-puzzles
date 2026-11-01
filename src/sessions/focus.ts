@@ -2,6 +2,7 @@ import { FocusGame, type FocusState } from '../core/focus';
 import type { Rect } from '../core/layout';
 import { draw, SWAP_MS, type Anim, type View } from '../render';
 import { Ripples } from './ripple';
+import { playEffect } from '../sounds';
 import { buzz } from './feedback';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
@@ -41,16 +42,24 @@ export class FocusSession implements PuzzleSession {
     if (result === 'swap') {
       buzz(this.init, game.solved ? 'solved' : 'join');
       const now = performance.now();
+      let found = false;
       game.homes.forEach((home, i) => {                                                    // a piece that has just found its place gets a ripple once it arrives
-        if (game.placed(i) && !wasPlaced[i]) this.ripples.add([home], now, this.init.flag('animate') ? SWAP_MS : 0);
+        if (game.placed(i) && !wasPlaced[i]) {
+          this.ripples.add([home], now, this.init.flag('animate') ? SWAP_MS : 0);
+          found = true;
+        }
       });
+      if (!game.solved) playEffect(found ? 'placed' : 'pickup');                         // (the end of the puzzle has its own sound)
       if (this.init.flag('animate')) {
         for (let i = 0; i < game.count; i++) {
           const to: Rect = game.slotRect(i);
           if (to !== before[i]) this.anims.set(i, { from: before[i], to, start: now });
         }
       }
-    } else if (result === 'select') buzz(this.init, 'grab');
+    } else if (result === 'select') {
+      buzz(this.init, 'grab');
+      playEffect('select');
+    }
     else if (result === 'deselect') buzz(this.init, 'drop');
     this.init.requestDraw();
   }
