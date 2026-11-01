@@ -5,7 +5,11 @@ import type { View } from '../render';
  * piece, whereas giving it to the graphics card as a texture costs about a millisecond; so such a puzzle builds its pieces as triangles (board position + where in the
  * picture they take their colour from) and this layer draws them on a canvas of its own that lies over the board's, as the video jigsaw does.
  *
- * A frame is: `begin`, then any number of `quad` / `tri` / `seg` / `rect` calls (in drawing order), then `end`.
+ * A frame is: `begin`, then any number of `quad` / `tri` / `turned` / `fill` / `frame` / `seg` calls (in drawing order), then `end`. Besides the video it can show one picture of its own
+ * (`setImage`, a canvas that does not change: the empty board of Overlap), for the pieces that show that and not the video.
+ *
+ * The layer lies over the board's canvas, so a session draws on the board's canvas what lies under the pieces (the background, the empty board, the trays), here the pieces and what has to be
+ * drawn over them, in the same order as on a 2D canvas, and on a `FrontLayer` what lies over all of it (the ripples).
  */
 
 let support: boolean | null = null;
@@ -37,15 +41,17 @@ void main() {
   v_col = a_col;
 }`;
 
-// a vertex colour with a negative alpha means "the video's colour, times the red channel" (1 = as it is, less = dimmed); otherwise a flat colour
+// a vertex colour with an alpha of -1 means "the video's colour, times the red channel" (1 = as it is, less = dimmed), with -2 "the layer's own picture's"; otherwise a flat colour
 const FRAG = `#version 300 es
 precision mediump float;
 uniform sampler2D u_video;
+uniform sampler2D u_img;
 in vec2 v_uv;
 in vec4 v_col;
 out vec4 o;
 void main() {
-  if (v_col.a < 0.0) o = vec4(texture(u_video, v_uv).rgb * v_col.r, 1.0);
+  if (v_col.a < -1.5) o = vec4(texture(u_img, v_uv).rgb * v_col.r, 1.0);
+  else if (v_col.a < 0.0) o = vec4(texture(u_video, v_uv).rgb * v_col.r, 1.0);
   else o = vec4(v_col.rgb * v_col.a, v_col.a);
 }`;
 
@@ -59,6 +65,9 @@ export class VideoLayer {
   private buf!: WebGLBuffer;
   private vao!: WebGLVertexArrayObject;
   private tex!: WebGLTexture;
+  private imgTex!: WebGLTexture;
+  private image: HTMLCanvasElement | null = null;
+  private uImg: WebGLUniformLocation | null = null;
   private uRes: WebGLUniformLocation | null = null;
   private uXf: WebGLUniformLocation | null = null;
   private hasFrame = false;
@@ -104,6 +113,7 @@ export class VideoLayer {
     if (!gl.getProgramParameter(this.prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(this.prog) ?? 'program');
     this.uRes = gl.getUniformLocation(this.prog, 'u_res');
     this.uXf = gl.getUniformLocation(this.prog, 'u_xf');
+    this.uImg = gl.getUniformLocation(this.prog, 'u_img');
     this.vao = gl.createVertexArray()!;
     gl.bindVertexArray(this.vao);
     this.buf = gl.createBuffer()!;
@@ -121,8 +131,37 @@ export class VideoLayer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    this.imgTex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, this.imgTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    if (this.image) this.upload();
     this.hasFrame = false;
     this.lastTime = -1;
+  }
+
+  /** The layer's own picture (the pieces that show it take their u, v as shares of its size). One too big for the graphics card is shrunk to fit. */
+  setImage(canvas: HTMLCanvasElement): void {
+    this.image = canvas;
+    if (!this.lost) this.upload();
+  }
+
+  private upload(): void {
+    const gl = this.gl;
+    let src: HTMLCanvasElement = this.image!;
+    const max = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE) as number, 8192);
+    if (src.width > max || src.height > max) {
+      const k = Math.min(max / src.width, max / src.height);
+      const small = document.createElement('canvas');
+      small.width = Math.max(1, Math.floor(src.width * k));
+      small.height = Math.max(1, Math.floor(src.height * k));
+      small.getContext('2d')!.drawImage(src, 0, 0, small.width, small.height);
+      src = small;
+    }
+    gl.bindTexture(gl.TEXTURE_2D, this.imgTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
   }
 
   /** Starts a frame on a canvas of this size (the board's), taking the video's newest picture. False if there is nothing to draw yet. */
@@ -172,17 +211,49 @@ export class VideoLayer {
   }
 
   /** A triangle of the picture: board points (x, y) taking their colour from picture points (u, v), as shares of the video's size; `dim` 1 = as it is. */
-  tri(x0: number, y0: number, u0: number, v0: number, x1: number, y1: number, u1: number, v1: number, x2: number, y2: number, u2: number, v2: number, dim = 1): void {
+  tri(x0: number, y0: number, u0: number, v0: number, x1: number, y1: number, u1: number, v1: number, x2: number, y2: number, u2: number, v2: number, dim = 1, own = false): void {
+    const a = own ? -2 : -1;
     this.room(FLOATS * 3);
-    this.vertex(x0, y0, u0, v0, dim, 0, 0, -1);
-    this.vertex(x1, y1, u1, v1, dim, 0, 0, -1);
-    this.vertex(x2, y2, u2, v2, dim, 0, 0, -1);
+    this.vertex(x0, y0, u0, v0, dim, 0, 0, a);
+    this.vertex(x1, y1, u1, v1, dim, 0, 0, a);
+    this.vertex(x2, y2, u2, v2, dim, 0, 0, a);
   }
 
   /** A rectangle of the picture. */
-  quad(x: number, y: number, w: number, h: number, u0: number, v0: number, u1: number, v1: number, dim = 1): void {
-    this.tri(x, y, u0, v0, x + w, y, u1, v0, x, y + h, u0, v1, dim);
-    this.tri(x + w, y, u1, v0, x + w, y + h, u1, v1, x, y + h, u0, v1, dim);
+  quad(x: number, y: number, w: number, h: number, u0: number, v0: number, u1: number, v1: number, dim = 1, own = false): void {
+    this.tri(x, y, u0, v0, x + w, y, u1, v0, x, y + h, u0, v1, dim, own);
+    this.tri(x + w, y, u1, v0, x + w, y + h, u1, v1, x, y + h, u0, v1, dim, own);
+  }
+
+  /**
+   * A square of the picture of side 2 x `half` centred on (cx, cy), turned `turn` quarter turns clockwise with what it shows (a piece that lies turned). `own`: the layer's own
+   * picture instead of the video.
+   */
+  turned(cx: number, cy: number, half: number, turn: number, u0: number, v0: number, u1: number, v1: number, own = false): void {
+    const t = ((turn % 4) + 4) % 4;
+    const c = [1, 0, -1, 0][t];
+    const s = [0, 1, 0, -1][t];
+    const px = (x: number, y: number): number => cx + x * c - y * s;
+    const py = (x: number, y: number): number => cy + x * s + y * c;
+    const h = half;
+    this.tri(px(-h, -h), py(-h, -h), u0, v0, px(h, -h), py(h, -h), u1, v0, px(-h, h), py(-h, h), u0, v1, 1, own);
+    this.tri(px(h, -h), py(h, -h), u1, v0, px(h, h), py(h, h), u1, v1, px(-h, h), py(-h, h), u0, v1, 1, own);
+  }
+
+  /** A flat rectangle (a colour with an opacity is laid over what is under it). */
+  fill(x: number, y: number, w: number, h: number, c: readonly [number, number, number, number]): void {
+    const col = c as [number, number, number, number];
+    this.flatTri(x, y, x + w, y, x, y + h, col);
+    this.flatTri(x + w, y, x + w, y + h, x, y + h, col);
+  }
+
+  /** The outline of a rectangle as a pen of width `t` (board units) drawn along its edge would leave it, in four pieces that do not overlap, so that a see-through colour is the same all round. */
+  frame(x: number, y: number, w: number, h: number, t: number, c: readonly [number, number, number, number]): void {
+    const o = t / 2;
+    this.fill(x - o, y - o, w + t, t, c);
+    this.fill(x - o, y + h - o, w + t, t, c);
+    this.fill(x - o, y + o, t, h - t, c);
+    this.fill(x + w - o, y + o, t, h - t, c);
   }
 
   /** A flat triangle. */
@@ -221,6 +292,9 @@ export class VideoLayer {
     gl.bindVertexArray(this.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
     gl.bufferData(gl.ARRAY_BUFFER, this.data.subarray(0, this.n), gl.DYNAMIC_DRAW);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.imgTex);
+    gl.uniform1i(this.uImg, 1);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.tex);
     gl.uniform2f(this.uRes, this.width, this.height);
@@ -231,4 +305,30 @@ export class VideoLayer {
   dispose(): void {
     this.gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
+}
+
+/**
+ * A transparent 2D canvas that lies over the `VideoLayer`, for what has to be drawn over the pieces and cannot be drawn on the graphics card (the ripples). It is cleared and given
+ * the board's transform at the start of a frame, like the board's own canvas.
+ */
+export class FrontLayer {
+  readonly canvas = document.createElement('canvas');
+  private readonly ctx = this.canvas.getContext('2d')!;
+
+  begin(width: number, height: number, view: View): CanvasRenderingContext2D {
+    const { canvas, ctx } = this;
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    ctx.setTransform(view.scale, 0, 0, view.scale, view.ox, view.oy);
+    return ctx;
+  }
+}
+
+/** A colour as the layer takes it: red, green and blue as 0 to 255, opacity 0 to 1. */
+export function rgba(r: number, g: number, b: number, a = 1): [number, number, number, number] {
+  return [r / 255, g / 255, b / 255, a];
 }

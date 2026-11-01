@@ -73,6 +73,8 @@ export interface PuzzleSession {
   serialize(): unknown;
   /** A canvas the session draws on itself, shown over the board's (and the same size): the play screen puts it in the page. */
   readonly overlay?: HTMLCanvasElement;
+  /** A transparent canvas of the session's, shown over the overlay (and the same size): what has to lie over the pieces drawn there. */
+  readonly front?: HTMLCanvasElement;
   /** The video the puzzle is cut from shows a new picture: redraw only what depends on it (the board underneath did not change). Without this the whole board is drawn. */
   videoFrame?(now: number): void;
   /** The session is being replaced or left: let go of anything held on the graphics card. */

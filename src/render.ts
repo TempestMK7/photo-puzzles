@@ -50,6 +50,18 @@ export function beginFrame(ctx: CanvasRenderingContext2D, view: View): void {
   ctx.setTransform(view.scale, 0, 0, view.scale, view.ox, view.oy);
 }
 
+/** Where piece `i` is at `now`: in its slot, or on its way there (an animation that has ended is taken out of `anims`). */
+export function rectNow(game: FocusGame, anims: Map<number, Anim>, i: number, now: number): Rect {
+  const a = anims.get(i);
+  if (!a) return game.slotRect(i);
+  const t = (now - a.start) / SWAP_MS;
+  if (t >= 1) {
+    anims.delete(i);
+    return game.slotRect(i);
+  }
+  return lerpRect(a.from, a.to, t);
+}
+
 /** Draws the puzzle. Returns true while an animation is still running (the caller keeps asking for frames). */
 export function draw(
   ctx: CanvasRenderingContext2D,
@@ -71,15 +83,9 @@ export function draw(
 
   let running = false;
   const rectOf = (i: number): Rect => {
-    const a = anims.get(i);
-    if (!a) return game.slotRect(i);
-    const t = (now - a.start) / SWAP_MS;
-    if (t >= 1) {
-      anims.delete(i);
-      return game.slotRect(i);
-    }
-    running = true;
-    return lerpRect(a.from, a.to, t);
+    const r = rectNow(game, anims, i, now);
+    if (anims.has(i)) running = true;
+    return r;
   };
 
   // pieces that are moving are drawn last, on top

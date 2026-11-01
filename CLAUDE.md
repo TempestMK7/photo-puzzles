@@ -36,8 +36,8 @@ npm run server     # the online server on this machine, http://localhost:8787 (m
 
 - `src/core/` has the rules and no browser dependency, so it is unit tested: `focus`, `overlap`, `strips`, `jigsaw`, `sliding`, `rotascope` (each game also has `snapshot()` / `restore()` for saved
   puzzles), `kinds.ts` (the puzzle types and their options), `prefs.ts`, `rng.ts`.
-- `src/sessions/` has one `PuzzleSession` per type (drawing and pointer input) behind `types.ts`; `index.ts` says how to start each. `jigsawGl.ts` and `videoGl.ts` draw video pieces on the
-  graphics card, `jigsawArt.ts` makes the piece shapes.
+- `src/sessions/` has one `PuzzleSession` per type (drawing and pointer input) behind `types.ts`; `index.ts` says how to start each. `jigsawGl.ts` draws the video Jigsaw and `videoGl.ts` (`VideoLayer`, shared by every other type) the pieces of the other types, on the
+  graphics card; a type that has a video draws its pieces there (`overlay`, and `front` for what lies over them) and keeps the 2D drawing for photos and for a browser without WebGL 2, so a change to how a piece looks is made in both. `jigsawArt.ts` makes the piece shapes.
 - `src/store/` is storage on the device only: `photos.ts` (the library, IndexedDB), `saves.ts` (unfinished puzzles). Nothing is ever sent anywhere (`link.ts` only downloads a picture from an address the player pasted).
 - The game was called Photo Puzzles before it became PuzzleVidio. Names that players' data hangs on keep the old name on purpose, so nothing saved is lost: the IndexedDB databases `photo-puzzles` and `photo-puzzles-saves`, the `photo-puzzles/...` local storage keys, the `PhotoPuzzlesNative` bridge of the Android app, the GitHub repository and the Android package id. Only what players see (title, heading, app label) was renamed.
 - `src/online/` is the player's side of playing with friends and `server/` the online server (`RoomService` on interfaces; see `docs/online-play-plan.md` and `docs/online-protocol.md`). The server imports `src/core` and `src/online/protocol.ts`, so the rules are the same on both sides: keep those two free of browser and Node dependencies.

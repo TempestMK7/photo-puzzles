@@ -4,6 +4,7 @@ import { beginFrame, drawSlice, type View } from '../render';
 import { playEffect } from '../sounds';
 import { buzz, startLift, type Lift } from './feedback';
 import { Ripples } from './ripple';
+import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const S = 30;                  // one cell, in board units
@@ -41,6 +42,12 @@ export class StripsSession implements PuzzleSession {
   private tab = 0;
   private overTab = -1;
   private dwell = 0;
+  /** A puzzle made from a video draws its picture and strips on the graphics card (see videoGl.ts), with the ripples on a canvas over them; both lie over the board's canvas. */
+  private layer: VideoLayer | null = null;
+  private frontLayer: FrontLayer | null = null;
+  private canvasW = 1;
+  private canvasH = 1;
+  videoFrame?: (now: number) => void;
 
   constructor(private readonly init: SessionInit) {
     const pic = pictureSize(init.width, init.height, init.opts.cells);
@@ -70,6 +77,28 @@ export class StripsSession implements PuzzleSession {
       const b = boxOf(d, 0);
       for (let dy = 0; dy < b.h; dy++) for (let dx = 0; dx < b.w; dx++) this.owners[(d.hy - MARGIN + dy) * this.picCols + d.hx - MARGIN + dx].push(d.id);
     }
+    if (init.video && videoGlAvailable()) {
+      try {
+        this.layer = new VideoLayer(init.video);
+        this.frontLayer = new FrontLayer();
+        this.videoFrame = () => this.drawGl();
+      } catch {
+        this.layer = null;                                        // no graphics card to draw with: the strips are cut from copies of the video's pictures
+        this.frontLayer = null;
+      }
+    }
+  }
+
+  get overlay(): HTMLCanvasElement | undefined {
+    return this.layer?.canvas;
+  }
+
+  get front(): HTMLCanvasElement | undefined {
+    return this.frontLayer?.canvas;
+  }
+
+  dispose(): void {
+    this.layer?.dispose();
   }
 
   serialize(): unknown {
@@ -103,6 +132,7 @@ export class StripsSession implements PuzzleSession {
     ctx.strokeStyle = '#6b4a36';
     ctx.lineWidth = 3;
     ctx.strokeRect(-1.5, -1.5, width + 3, height + 3);
+    const gpu = !!this.layer && !!this.frontLayer;
     // the picture: its cells show unless a strip that was cut from them is still loose
     for (let r = 0; r < this.picRows; r++) {
       for (let c = 0; c < this.picCols; c++) {
@@ -111,12 +141,18 @@ export class StripsSession implements PuzzleSession {
         const x = (MARGIN + c) * S;
         const y = (MARGIN + r) * S;
         if (g.solved || owners.length === 0 || owners.some((id) => g.state[id].locked)) {
-          this.cellImage(ctx, c, r, x, y);
+          if (!gpu) this.cellImage(ctx, c, r, x, y);               // (on the graphics card they are drawn by drawGl)
         } else {
           ctx.fillStyle = '#1d120d';
           ctx.fillRect(x, y, S, S);
         }
       }
+    }
+    if (gpu) {
+      this.canvasW = ctx.canvas.width;
+      this.canvasH = ctx.canvas.height;
+      this.drawGl();
+      return this.ripples.draw(this.frontLayer!.begin(this.canvasW, this.canvasH, view), now) || running;
     }
     if (this.init.flag('grid')) {
       ctx.strokeStyle = 'rgba(255,255,255,0.14)';
@@ -142,6 +178,65 @@ export class StripsSession implements PuzzleSession {
     }
     if (this.ripples.draw(ctx, now)) running = true;
     return running;
+  }
+
+  /** The picture's cells that show, the grid and the loose strips, drawn on the graphics card over what the board's canvas has drawn. */
+  private drawGl(): void {
+    const L = this.layer!;
+    const g = this.game;
+    if (!L.begin(this.canvasW, this.canvasH, this.lastView)) return;
+    const { width, height } = this.layout();
+    const { sx, sy, sw, sh } = this.crop;
+    const w = sw / this.picCols;
+    const h = sh / this.picRows;
+    const iw = this.init.width;
+    const ih = this.init.height;
+    for (let r = 0; r < this.picRows; r++) {
+      for (let c = 0; c < this.picCols; c++) {
+        const owners = this.owners[r * this.picCols + c];
+        if (g.solved || owners.length === 0 || owners.some((id) => g.state[id].locked)) L.quad((MARGIN + c) * S, (MARGIN + r) * S, S, S, (sx + c * w) / iw, (sy + r * h) / ih, (sx + (c + 1) * w) / iw, (sy + (r + 1) * h) / ih);
+      }
+    }
+    if (this.init.flag('grid')) {
+      const faint = rgba(255, 255, 255, 0.14);
+      for (let c = 0; c <= g.cols; c++) L.fill(c * S, 0, 1, height, faint);
+      for (let r = 0; r <= g.rows; r++) L.fill(0, r * S, width, 1, faint);
+      L.frame(MARGIN * S + 0.5, MARGIN * S + 0.5, this.picCols * S, this.picRows * S, 1, rgba(255, 216, 74, 0.35));
+    }
+    if (!g.solved) {
+      for (const id of g.z) {
+        const s = g.state[id];
+        if (!s.locked && s.tab === this.tab) this.drawStripGl(L, id, id === this.selected);
+      }
+    }
+    L.end();
+  }
+
+  /** One strip on the graphics card: its cells turned the way it lies, and the same two outlines as drawStrip (a strip turned by quarter turns fills the box of cells it stands on). */
+  private drawStripGl(L: VideoLayer, id: number, selected: boolean): void {
+    const d = this.game.defs[id];
+    const s = this.game.state[id];
+    const b = boxOf(d, s.angle);
+    const hw = d.horizontal ? d.len : 1;
+    const hh = d.horizontal ? 1 : d.len;
+    const cx = (s.x + b.w / 2) * S;
+    const cy = (s.y + b.h / 2) * S;
+    const cos = [1, 0, -1, 0][s.angle % 4];
+    const sin = [0, 1, 0, -1][s.angle % 4];
+    const { sx, sy, sw, sh } = this.crop;
+    const w = sw / this.picCols;
+    const h = sh / this.picRows;
+    for (let k = 0; k < d.len; k++) {
+      const pc = d.hx - MARGIN + (d.horizontal ? k : 0);
+      const pr = d.hy - MARGIN + (d.horizontal ? 0 : k);
+      const lx = -(hw * S) / 2 + (d.horizontal ? k : 0) * S + S / 2;
+      const ly = -(hh * S) / 2 + (d.horizontal ? 0 : k) * S + S / 2;
+      L.turned(cx + lx * cos - ly * sin, cy + lx * sin + ly * cos, S / 2, s.angle, (sx + pc * w) / this.init.width, (sy + pr * h) / this.init.height, (sx + (pc + 1) * w) / this.init.width, (sy + (pr + 1) * h) / this.init.height);
+    }
+    const x = s.x * S;
+    const y = s.y * S;
+    L.frame(x, y, b.w * S, b.h * S, 1.5, rgba(0, 0, 0, 0.55));
+    L.frame(x + 0.5, y + 0.5, b.w * S - 1, b.h * S - 1, selected ? 1.5 : 0.75, selected ? rgba(255, 216, 74) : rgba(255, 255, 255, 0.85));
   }
 
   private drawStrip(ctx: CanvasRenderingContext2D, id: number, selected: boolean): void {
