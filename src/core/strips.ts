@@ -32,7 +32,7 @@ export interface StripsOptions {
   maxLen: number;
   /** Percent of the strips that are already in place at the start. */
   placed: number;
-  /** How many tabs the loose strips are spread over (1 - 10). */
+  /** How many tabs the loose strips are spread over (1 - 12). */
   tabs: number;
 }
 
@@ -46,10 +46,10 @@ export interface StripsSetup {
   state: StripState[];
 }
 
-/** The picture's size in cells: `cells` across, as many rows as the photo's shape gives. */
+/** The picture's size in cells: about `cells` of them, in the shape of the photo. */
 export function pictureSize(width: number, height: number, cells: number): { picCols: number; picRows: number } {
-  const picCols = Math.max(4, Math.round(cells));
-  const picRows = Math.min(80, Math.max(4, Math.round((picCols * height) / Math.max(1, width))));
+  const picCols = Math.min(80, Math.max(4, Math.round(Math.sqrt((cells * width) / Math.max(1, height)))));
+  const picRows = Math.min(80, Math.max(4, Math.round(cells / picCols)));
   return { picCols, picRows };
 }
 
@@ -136,7 +136,7 @@ export function generateStrips(rng: Rng, o: StripsOptions): StripsSetup {
   for (let attempt = 0; attempt < 40 && !cuts; attempt++) cuts = coverPicture(rng, picCols, picRows, maxLen);
   if (!cuts) throw new Error('could not cut the picture into strips');
   const defs: StripDef[] = cuts.map((c, id) => ({ id, len: c.len, horizontal: c.horizontal, hx: MARGIN + c.x, hy: MARGIN + c.y }));
-  const tabs = Math.min(10, Math.max(1, Math.round(o.tabs)));
+  const tabs = Math.min(12, Math.max(1, Math.round(o.tabs)));
   const placedCount = Math.min(defs.length - 1, Math.round((defs.length * Math.min(50, Math.max(0, o.placed))) / 100));
   const state: StripState[] = defs.map((d, i) => {
     if (i < placedCount) return { angle: 0, x: d.hx, y: d.hy, locked: true, tab: 0 };

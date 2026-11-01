@@ -1,11 +1,6 @@
-import { canHaptic, haptic, type Haptic } from '../haptics';
+import { haptic, type Haptic } from '../haptics';
 import type { View } from '../render';
-import type { Pt, SessionInit, ToggleDef } from './types';
-
-/** The header switch for touch feedback, on a device that can give it. */
-export function hapticToggles(): ToggleDef[] {
-  return canHaptic() ? [{ key: 'haptics', label: 'Vibrate', title: 'Vibrate when a piece is picked up, put down, moves or joins' }] : [];
-}
+import type { Pt, SessionInit } from './types';
 
 /** Gives touch feedback, unless the player has switched it off. */
 export function buzz(init: SessionInit, kind: Haptic): void {

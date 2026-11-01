@@ -1,6 +1,6 @@
 import { RotascopeGame, type RotascopeState } from '../core/rotascope';
 import { beginFrame, type View } from '../render';
-import { buzz, hapticToggles } from './feedback';
+import { buzz } from './feedback';
 import { VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
@@ -26,11 +26,6 @@ const ease = (t: number) => t * t * (3 - 2 * t);
  * to fit its new ring. Every piece back where it came from makes the picture whole again.
  */
 export class RotascopeSession implements PuzzleSession {
-  readonly toggles = [
-    { key: 'grid', label: 'Grid', title: 'Lines between the pieces' },
-    { key: 'animate', label: 'Animate', title: 'Sliding animations' },
-    ...hapticToggles(),
-  ];
   readonly rotatable = false;
   private game: RotascopeGame;
   private readonly side: number;          // the picture is cropped to this square; the board is the disc inside it

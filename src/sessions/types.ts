@@ -7,12 +7,6 @@ export interface Pt {
   y: number;
 }
 
-export interface ToggleDef {
-  key: string;
-  label: string;
-  title: string;
-}
-
 /** What a puzzle played with friends needs from the room it is in (see online/room.ts). */
 export interface OnlineHooks {
   /** The name of another player who holds a piece, if one does: nothing can be picked up meanwhile. */
@@ -45,7 +39,7 @@ export interface SessionInit {
   seed: number;
   /** The difficulty options of the type, by key. */
   opts: Record<string, number>;
-  /** A display setting (grid lines, animations): on unless the player turned it off. */
+  /** A setting of the settings window (grid lines, animations...): on unless the player turned it off. */
   flag(key: string): boolean;
   requestDraw(): void;
   /** The session changed the tab by itself (a dragged piece rested on a tab): the tab bar should be refreshed. */
@@ -62,8 +56,6 @@ export interface SessionInit {
 
 /** One puzzle being played. The play screen owns the canvas, the clock and the dialogs; a session owns the rules, the layout and the drawing. */
 export interface PuzzleSession {
-  /** Display switches shown in the header. */
-  readonly toggles: ToggleDef[];
   /** Show a Rotate button (and use the secondary action to turn pieces). */
   readonly rotatable: boolean;
   /** The size of the board in its own units for a canvas of this shape (a session may lay itself out differently on a phone held upright). */

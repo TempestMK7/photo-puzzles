@@ -1,4 +1,4 @@
-import { KINDS, type KindId, type Settings } from './kinds';
+import { KINDS, migrateGeneral, type KindId, type Settings } from './kinds';
 import { randomSeedText } from './rng';
 
 /** What the game remembers between visits. */
@@ -43,6 +43,7 @@ export class Prefs {
       if (typeof raw.kind === 'string' && KINDS.some((k) => k.id === raw.kind && k.available)) this.data.kind = raw.kind as KindId;
       if (typeof raw.photo === 'string') this.data.photo = raw.photo;
       if (raw.settings && typeof raw.settings === 'object') this.data.settings = { ...raw.settings };
+      migrateGeneral(this.data.settings);
       if (raw.best && typeof raw.best === 'object') this.data.best = { ...raw.best };
       if (typeof raw.muted === 'boolean') this.data.muted = raw.muted;
       if (typeof raw.sfx === 'boolean') this.data.sfx = raw.sfx;

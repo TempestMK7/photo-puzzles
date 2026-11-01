@@ -1,4 +1,4 @@
-import { findKind, optionsOf, puzzleSeedText, recordKey, type KindDef } from '../core/kinds';
+import { findKind, generalValue, optionsOf, puzzleSeedText, recordKey, type KindDef } from '../core/kinds';
 import { formatTime, type Prefs } from '../core/prefs';
 import { randomSeedText, seedFromText } from '../core/rng';
 import { loadPhoto } from '../image';
@@ -15,7 +15,7 @@ import type { SaveRecord, SaveStore } from '../store/saves';
 import { playEffect } from '../sounds';
 import { launchConfetti } from './confetti';
 import { h, svg } from './dom';
-import { effectsButton } from './effects';
+import { settingsButton } from './settings';
 import { sayError } from './online';
 import { OnlineBar } from './onlinebar';
 import { RefWindow } from './refwindow';
@@ -42,7 +42,6 @@ export class PlayScreen {
   private ctx = this.canvas.getContext('2d')!;
   private titleEl = h('div', { class: 'title' });
   private timeEl = h('span', { class: 'time' }, '0:00');
-  private togglesEl = h('div', { class: 'toggles' });
   private tabsEl = h('nav', { class: 'tabs', hidden: true, 'aria-label': 'Tabs' });
   private rotateBtn = h('button', { type: 'button', class: 'toggle', title: 'Turn the chosen piece (or right-click, R)', onclick: () => this.secondary(), hidden: true }, 'Rotate');
   private statusEl = h('span', { class: 'swaps' }, '');
@@ -117,8 +116,7 @@ export class PlayScreen {
         h('button', { type: 'button', class: 'back', onclick: () => this.leave() }, '← Photos'),
         this.titleEl,
         h('div', { class: 'stats' }, this.timeEl, this.statusEl),
-        this.togglesEl,
-        effectsButton(deps.prefs),
+        settingsButton(deps.prefs, () => this.settingsChanged()),
         this.refBtn,
         this.rotateBtn,
         this.restartBtn,
@@ -431,7 +429,6 @@ export class PlayScreen {
       this.overlay.className = 'board overlay';
       this.stage.insertBefore(this.overlay, this.dialogEl);
     }
-    this.buildToggles();
     this.buildTabs();
     this.refreshTrays();
     this.rotateBtn.hidden = !session.rotatable;
@@ -723,18 +720,9 @@ export class PlayScreen {
     });
   }
 
-  /** A display setting of the chosen type (grid lines, animations): on unless the player turned it off. */
+  /** A setting of the settings window (grid lines, animations...): on unless the player turned it off. */
   private flag(key: string): boolean {
-    return optionsOf(this.deps.prefs.data.settings, this.kind)[key] !== 0;
-  }
-
-  private buildToggles(): void {
-    this.togglesEl.replaceChildren(
-      ...(this.session?.toggles ?? []).map((t) =>
-        h('button', { type: 'button', class: 'toggle', title: t.title, dataset: { key: t.key }, onclick: () => this.toggle(t.key) }, t.label),
-      ),
-    );
-    this.refreshToggles();
+    return generalValue(this.deps.prefs.data.settings, key) !== 0;
   }
 
   // ---------------------------------------------------------------------------------------------------------------- tabs
@@ -775,21 +763,10 @@ export class PlayScreen {
     return el ? Number(el.dataset.tab) : -1;
   }
 
-  private toggle(key: string): void {
-    const { prefs } = this.deps;
-    prefs.data.settings[`${this.kind.id}.${key}`] = this.flag(key) ? 0 : 1;
-    prefs.save();
-    this.refreshToggles();
+  /** Something in the settings window was changed: the puzzle looks at the settings again. */
+  private settingsChanged(): void {
     this.session?.settingsChanged();
     this.requestDraw();
-  }
-
-  private refreshToggles(): void {
-    this.togglesEl.querySelectorAll('button').forEach((btn) => {
-      const on = this.flag((btn as HTMLElement).dataset.key ?? '');
-      btn.classList.toggle('on', on);
-      btn.setAttribute('aria-pressed', String(on));
-    });
   }
 
   private restart(): void {

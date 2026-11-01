@@ -16,10 +16,14 @@ function owners(s: ReturnType<typeof make>): number[][] {
 
 describe('pictureSize', () => {
   it('gives the cells across and as many rows as the photo needs', () => {
-    expect(pictureSize(1200, 800, 16)).toEqual({ picCols: 16, picRows: 11 });
-    expect(pictureSize(800, 1200, 12)).toEqual({ picCols: 12, picRows: 18 });
-    expect(pictureSize(1000, 1000, 20)).toEqual({ picCols: 20, picRows: 20 });
-    expect(pictureSize(4000, 100, 10).picRows).toBeGreaterThanOrEqual(4);
+    expect(pictureSize(1200, 800, 100)).toEqual({ picCols: 12, picRows: 8 });
+    expect(pictureSize(800, 1200, 100)).toEqual({ picCols: 8, picRows: 13 });
+    expect(pictureSize(1000, 1000, 400)).toEqual({ picCols: 20, picRows: 20 });
+    expect(pictureSize(4000, 100, 50).picRows).toBeGreaterThanOrEqual(4);
+    for (const cells of [50, 100, 200, 500, 1000]) {
+      const { picCols, picRows } = pictureSize(1500, 1000, cells);
+      expect(Math.abs(picCols * picRows - cells) / cells, String(cells)).toBeLessThan(0.1);
+    }
   });
 });
 

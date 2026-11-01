@@ -31,7 +31,7 @@ export interface OverlapOptions {
   placed: number;
   /** Some pieces have a window cell. */
   windows: boolean;
-  /** How many stacks the pieces wait in (`STACKS` when not given; see `stackCount`). */
+  /** How many stacks the pieces wait in (`STACKS` when not given; the size of the puzzle says, see `kinds.ts`). */
   stacks?: number;
 }
 
@@ -49,11 +49,6 @@ export interface OverlapSetup {
 
 /** Stacks a small puzzle has. */
 export const STACKS = 3;
-
-/** How many stacks a puzzle of about `total` cells has: three, and one more for every hundred cells. */
-export function stackCount(total: number): number {
-  return STACKS + Math.floor(Math.max(0, total) / 100);
-}
 
 /** The grid for about `total` cells in the proportions of a picture: as many columns and rows as come closest (never fewer than four by three, nor more than 120 across). */
 export function overlapGrid(total: number, width: number, height: number): { cols: number; rows: number } {

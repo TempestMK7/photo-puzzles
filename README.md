@@ -13,29 +13,33 @@ or Restart keeps the video where it is. Videos are stored as they are in the bro
 
 **Sound effects and celebration.** A piece that locks in place gets a brief ripple (Tile Swap, Overlap, Strips and Jigsaw; in Jigsaw it travels over every piece that is locked together, also when loose
 pieces join each other), and when a puzzle is finished a party blower sounds and confetti and streamers fly in from the bottom corners (fast at first, slowing down, then drifting down) as the "Solved!" window comes up. The game's sound effects (`src/sounds.ts`,
-the files in `src/sounds/`) have a switch of their own - the **Effects** button on the main screen and while playing, remembered - apart from the sound of a video puzzle. The party blower is a public-domain sound.
+the files in `src/sounds/`) have a switch of their own - **Mute sound effects** in the settings window - apart from the sound of a video puzzle. The party blower is a public-domain sound.
 
-**Display settings** for Tile Swap: grid lines and swap animations can be switched off (on the main screen or with the Grid / Animate buttons while playing). They are
-remembered and, being about looks rather than difficulty, do not start a new best-time record.
+**Size.** Every puzzle type has a slider that moves between a few named sizes (S, M, L, XL, XXL, and XXXL for Jigsaw; Sliding Tiles and Rotascope stop at XL) instead of a count: the size
+sets the pieces, cells, tiles or rings (`sizes` of each type in `src/core/kinds.ts`, which also lists what each size means) and starts at M. Options that are not part of the size (turned
+pieces, pieces placed at the start...) stay with their puzzle type.
+
+**Settings window.** The **Settings** button (main screen and while playing) opens a window with the settings that hold for every type of puzzle: Mute sound effects, Grid lines, Animations,
+Vibration, Raise piece above touch point and Light background. They are remembered and, being about looks and feel rather than difficulty, do not start a new best-time record
+(`GENERAL` in `src/core/kinds.ts`, `src/ui/settings.ts`).
 
 Playable now:
-- **Tile Swap** - the picture is cut into rectangles of different sizes (10 to 300 of them) and shuffled; click two pieces to make them trade places *and sizes*; put every piece back. A piece that is in its right place locks there.
+- **Tile Swap** - the picture is cut into rectangles of different sizes (about 20, 50, 100, 200 or 500 of them) and shuffled; click two pieces to make them trade places *and sizes*; put every piece back. A piece that is in its right place locks there.
 - **Overlap** - the grid is divided like a checkerboard: every other cell is a piece's own *centre* cell, and the cells between are *overlap* cells. Each piece is a centre and two to four of the overlap
-  cells next to it (three to five cells), and every overlap cell belongs to at least two pieces. The pieces wait in stacks (three, and one more for every hundred approximate cells); drag the top piece onto the grid (or onto another stack to move it there), centre
+  cells next to it (three to five cells), and every overlap cell belongs to at least two pieces. The pieces wait in trays (three on the smallest size, one more for each size up); drag the top piece onto the grid (or onto another stack to move it there), centre
   first and turned the way it lies in the picture, and it stays and shows its part. The empty board is a radial pattern drawn in code (sunbursts, targets, rose windows, spirals, wheels - one per puzzle, with its
   centre off the board); some pieces have a *window* on one of their overlap cells that shows the bit of that pattern from where the piece belongs, as a hint, and turns into the picture for every piece that
   has it when any piece is placed over that cell.
-  Options: about 50 to 500 cells (in steps of 10, in the picture's proportions), turned pieces, window pieces, pieces placed at the start.
-- **Strips** - the whole picture is cut into straight strips (1 x N cells, 3 up to the longest allowed; they may cross) that lie scattered and turned on the board. You choose the
-  cells across and the longest strip; the number of strips is worked out so that every cell is covered and every strip covers at least one cell that no other strip covers
-  (so its place is certain). Drag each strip back into its hole; it locks when it lies exactly there, turned the right way - the moment it does, even before you let go of the mouse button. The loose strips are spread at random over 1-10
-  **tabs** (each tab shows the same picture and holes with its own strips; drag a strip onto a tab, or rest it there, to move it; keys 1-9 and 0 switch tabs). Options: cells across
-  (6-40), longest strip, tabs, pieces placed at the start.
-- **Jigsaw** - classic interlocking pieces, no grid. You choose the *approximate* number of pieces (100-5000 in steps of 100; the picture is cut into square cells, so the real
+  Options: the size (about 50, 100, 200, 500 or 1000 cells, in the picture's proportions), turned pieces, window pieces, pieces placed at the start.
+- **Strips** - the whole picture is cut into straight strips (1 x N cells, 3 up to the longest allowed; they may cross) that lie scattered and turned on the board. The size
+  sets the number of cells (about 50 to 1000), the longest strip (4, and 2 more for each size up) and the number of tabs (likewise); the number of strips is worked out so that every cell is covered and every strip covers at least one cell that no other strip covers
+  (so its place is certain). Drag each strip back into its hole; it locks when it lies exactly there, turned the right way - the moment it does, even before you let go of the mouse button. The loose strips are spread at random over 4-12
+  **tabs** (each tab shows the same picture and holes with its own strips; drag a strip onto a tab, or rest it there, to move it; keys 1-9 and 0 switch tabs). Options: the size, pieces placed at the start.
+- **Jigsaw** - classic interlocking pieces, no grid. You choose the size, an *approximate* number of pieces (50, 100, 200, 500, 1000 or 2000; the picture is cut into square cells, so the real
   count is the nearest grid to that). The four corner pieces start solved and fixed; the rest lie scattered round the frame on a table four times the size of the picture in each
   direction. Put a loose piece against a piece it belongs beside and it joins it - the moment it is close enough, even before you let go - and joined pieces move as one; anything
   that joins a solved piece becomes part of the picture. The mouse wheel (or the control at the bottom right: -, the zoom, +; click the zoom to show everything) zooms about the
-  pointer; the right button - or the left one on bare ground - moves the camera (two fingers on bare ground zoom and move it on a touch screen; while a piece is in hand, a second finger turns it instead). The table is dark by default; the **Light background** option (and the Light button in the header) makes it light, for pieces that are hard to see on a dark one. On a touch screen pieces are lifted above the finger and give touch feedback (see "Touch" below). A video keeps playing in the pieces:
+  pointer; the right button - or the left one on bare ground - moves the camera (two fingers on bare ground zoom and move it on a touch screen; while a piece is in hand, a second finger turns it instead). The table is dark by default; the **Light background** setting makes it light, for pieces that are hard to see on a dark one. On a touch screen pieces are lifted above the finger and give touch feedback (see "Touch" below). A video keeps playing in the pieces:
   they are drawn on the graphics card (WebGL 2, `src/sessions/jigsawGl.ts`) - the video frame is a texture, the piece shapes are made once, and every piece is one instance of a
   quad, so a frame is a single draw call however many pieces there are (a few thousand cost well under a millisecond of script). The pieces have a canvas of their own laid over
   the board (copying it onto the board's canvas every frame was by far the most expensive step on a slow GPU), only that canvas is redrawn for each new picture of the video,
@@ -51,26 +55,26 @@ Playable now:
   piece, or the one in your hand when you right-click while dragging it; pieces only join when turned the same way, and only upright pieces join the picture) and **Joining pieces**,
   how eagerly pieces that lie against one they fit join it: *snap while dragging* (as soon as they touch, even before you let go), *snap when held together* (the piece has to
   stay there, held, for half a second - or you let go with the pieces together, which snaps them at once) or *snap on release* (only when you let go with the pieces together).
-- **Sliding Tiles** - the picture is cut into a grid of tiles with the last one taken out, then shuffled by sliding (so it can always be solved). You choose the *approximate* number of
-  tiles (8-99; the grid is the one nearest that with tiles as square as the picture allows, so a wide picture gets more columns). Click a tile in the empty cell's row or column and it
+- **Sliding Tiles** - the picture is cut into a grid of tiles with the last one taken out, then shuffled by sliding (so it can always be solved). You choose the size, an *approximate* number of
+  tiles (20, 50, 100 or 200; the grid is the one nearest that with tiles as square as the picture allows, so a wide picture gets more columns). Click a tile in the empty cell's row or column and it
   slides over, taking the tiles between it and the empty cell along; the missing tile appears when the puzzle is solved. Videos keep playing in the tiles: they are drawn on the graphics card (`src/sessions/videoGl.ts`: each tile is a textured
   quad of the video's picture), because on a slow device a video picture costs 25-40 ms to get onto a 2D canvas but about a millisecond to give to the graphics card (a 2016 tablet: 1-10 pictures a
   second with the 2D canvas, 30 with the graphics card, 1080p and 99 tiles included).
-- **Rotascope** - a round picture is cut into concentric rings of equal wedges round a hole in the middle: a sliding puzzle with one empty cell, as in Pandora's Box. You choose the number of
-  **rings** (2-6) and of **wedges in each ring** (3-12). Click a piece that touches the empty cell - the next ring in or out, the neighbour in its own ring (the ring closes up), or, for ring 0,
+- **Rotascope** - a round picture is cut into concentric rings of equal wedges round a hole in the middle: a sliding puzzle with one empty cell, as in Pandora's Box. You choose the size, which sets the number of
+  **rings** round the middle (2 to 5) and of **wedges in each ring** (4, and 5 on the two largest sizes). Click a piece that touches the empty cell - the next ring in or out, the neighbour in its own ring (the ring closes up), or, for ring 0,
   the middle - and it slides in. Each ring is a fixed ratio wider than the one inside it, so a piece grows or shrinks and turns as it passes between rings. The picture is whole again
   when every piece is home. The empty cell and the middle show a dimmed ghost of the picture. Videos keep playing in the pieces, drawn on the graphics card like the tiles of Sliding Tiles
   (each wedge is a few triangles whose colours come from the turned and scaled picture).
 
 **Touch.** On a touch screen the dragging puzzles (Overlap, Strips, Jigsaw) hold a piece you pick up 76 px above your finger (it rises over a tenth of a second, and stays at least 24 px from the
-top of the screen) so that the finger does not hide it; a mouse or a pen holds it where it is, and the **Lift pieces above the finger** option switches it off. Every puzzle gives a small
-vibration at its key moments: **Vibration** option, and a header button where the device can give it. Tile Swap: each piece you select (and the swap); Sliding Tiles and Rotascope: a piece
+top of the screen) so that the finger does not hide it; a mouse or a pen holds it where it is, and the **Raise piece above touch point** setting switches it off. Every puzzle gives a small
+vibration at its key moments (the **Vibration** setting). Tile Swap: each piece you select (and the swap); Sliding Tiles and Rotascope: a piece
 that moves; Overlap, Strips and Jigsaw: a piece picked up, put down, placed (a longer pattern) and turned; finished puzzles a long pattern. A browser asks for it with `navigator.vibrate`; an
 app that wraps the game in a web view can offer `window.PhotoPuzzlesNative.haptic(kind)` (`grab`, `drop`, `join`, `placed`, `turn`, `move`, `solved`) instead and play the phone's own haptic effects,
 which are felt on every phone, whereas a web page's short vibrate-for-a-few-milliseconds is often too weak to notice (`src/haptics.ts`, `src/sessions/feedback.ts`).
 
 In Overlap and Strips a tap on a piece turns it a quarter turn (so does the right button, a second finger, the R key or the Rotate button). Grid lines can be switched off
-in the types that have them.
+in the settings.
 
 ## The original
 

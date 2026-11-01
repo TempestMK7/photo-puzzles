@@ -8,8 +8,8 @@ import { beginFrame, type View } from '../render';
 import { buildAtlas, buildMasks, buildSprite, snapshot, type Atlas, type Sprite } from './jigsawArt';
 import { glAvailable, PieceRenderer, type GlGroup } from './jigsawGl';
 import { GroupRipple } from './ripple';
-import { hapticToggles, LIFT_CSS, LIFT_MS } from './feedback';
-import type { Pt, PuzzleSession, SessionInit, ToggleDef } from './types';
+import { LIFT_CSS, LIFT_MS } from './feedback';
+import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const PAN_TAP = 3;
 const HOVER_MS = 500;           // how long pieces have to be held together to snap, when joining is on hover
@@ -54,7 +54,6 @@ const SNAP_HOVER = 1;
  * right against one it fits joins it: as soon as it does, once it has been held there for a moment (or when it is let go there), or only when it is let go.
  */
 export class JigsawSession implements PuzzleSession {
-  readonly toggles: ToggleDef[] = [{ key: 'light', label: 'Light', title: 'Light or dark background' }, ...hapticToggles()];
   readonly rotatable: boolean;
   /** The canvas the pieces are drawn on when they are drawn on the graphics card: it lies over the board's. */
   get overlay(): HTMLCanvasElement | undefined {
