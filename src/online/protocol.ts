@@ -32,6 +32,8 @@ export const DEFAULT_LIMITS = {
   /** The hints and bombs every new account starts with, whatever its type (see `HelpItem`). */
   startHints: 10,
   startBombs: 2,
+  /** The most hints a free account can earn by solving puzzles in a day (from midnight UTC); paid, family and admin accounts earn as many as they solve. */
+  freeHintsPerDay: 10,
   /** A puzzle nobody has touched for this long is gone, with its picture and its codes. */
   idleMs: 24 * 3600 * 1000,
   /** After a puzzle is solved, how long it stays for those who are still watching. */
@@ -431,10 +433,14 @@ export interface AccountSummary {
   bombs: number;
   hintsInfinite: boolean;
   bombsInfinite: boolean;
+  /** Hints that solving puzzles can still give today: `earnPerDay` is the most in a day for this account, `earnLeft` what is left of it, and `earnInfinite` that there is no limit. A guest earns none. */
+  earnPerDay: number;
+  earnLeft: number;
+  earnInfinite: boolean;
 }
 
 /** What a guest (or somebody who has not signed in) sees: nothing to spend, and nothing to get. */
-export const GUEST_ACCOUNT: AccountSummary = { type: 'guest', photo: 0, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 0, videoAdsLeft: 0, adPhoto: 0, adVideo: 0, hints: 0, bombs: 0, hintsInfinite: false, bombsInfinite: false };
+export const GUEST_ACCOUNT: AccountSummary = { type: 'guest', photo: 0, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 0, videoAdsLeft: 0, adPhoto: 0, adVideo: 0, hints: 0, bombs: 0, hintsInfinite: false, bombsInfinite: false, earnPerDay: 0, earnLeft: 0, earnInfinite: false };
 
 /**
  * What an account holds to use in a puzzle (see core/help.ts): a hint places one piece, a bomb every piece round a point. Every account is given some when it is made and a hint for every puzzle it
@@ -447,6 +453,8 @@ export const isHelpItem = (v: unknown): v is HelpItem => v === 'hint' || v === '
 
 /** An account has an endless stock of these. */
 export const helpIsFree = (type: AccountType): boolean => type === 'admin';
+/** An account earns the hints of every puzzle it solves (a free account stops at `freeHintsPerDay` a day). */
+export const earnsUncapped = (type: AccountType): boolean => type !== 'free';
 
 export interface ItemRequest {
   item: HelpItem;
@@ -458,6 +466,9 @@ export interface AwardRequest {
 }
 
 export type ItemResponse = { ok: true; account: AccountSummary } | ApiFailure;
+
+/** What a solved puzzle gave: `given` hints (fewer than it is worth, or none, when the account has earned what it may today). */
+export type AwardResponse = { ok: true; account: AccountSummary; given: number } | ApiFailure;
 
 /** What a watched ad needs to say: which credits it is for, and which app it was watched in (only the mobile apps have ads: Steam, itch and the web do not). */
 export type AdPlatform = 'android' | 'ios';

@@ -5,7 +5,7 @@ import { MemoryStore } from '../server/src/memory';
 import { createRouter, DevAuth } from '../server/src/router';
 import type { Player } from '../server/src/types';
 import { FakeDynamo } from './helpers/fakeDynamo';
-import { ann, bob, joined, open, request, world as makeWorld, type MakeStore, type World } from './helpers/world';
+import { ann, bob, DAY, joined, open, request, world as makeWorld, type MakeStore, type World } from './helpers/world';
 
 // Hints and bombs are kept on the account and given out by rules of the service: the same on both stores.
 const stores: [string, MakeStore][] = [
@@ -102,6 +102,74 @@ describe.each(stores)('hints and bombs on %s', (_name, store) => {
       expect(await post('ann', '/items/award', { size: 3 })).toMatchObject({ status: 200, body: { ok: true, account: { hints: 11 } } });
       await w.service.adminSetAccount('ann', { bombs: 0 });
       expect(await post('ann', '/items/use', { item: 'bomb' })).toMatchObject({ status: 402, body: { ok: false, error: 'no-credits', item: 'bomb' } });
+    });
+  });
+
+  describe('the most that can be earned in a day', () => {
+    const award = (w: World, p: Player, size = 2) => w.service.awardSolved(p, { size }) as Promise<{ ok: true; given: number; account: { hints: number; earnLeft: number; earnInfinite: boolean } }>;
+
+    it('is 10 hints for a free account, and what a puzzle is worth beyond it is not given', async () => {
+      const w = world();
+      await w.service.adminSetAccount('ann', { hints: 0 });
+      expect(await w.service.summary(ann)).toMatchObject({ earnPerDay: 10, earnLeft: 10, earnInfinite: false });
+      for (let i = 0; i < 4; i++) expect(await award(w, ann)).toMatchObject({ given: 2, account: { hints: 2 * (i + 1), earnLeft: 10 - 2 * (i + 1) } });
+      expect(await award(w, ann, 0)).toMatchObject({ given: 1, account: { hints: 9, earnLeft: 1 } });
+      expect(await award(w, ann, 2)).toMatchObject({ given: 1, account: { hints: 10, earnLeft: 0 } });             // (worth 2, one left)
+      expect(await award(w, ann, 2)).toMatchObject({ ok: true, given: 0, account: { hints: 10, earnLeft: 0 } });
+      expect(await award(w, ann, 0)).toMatchObject({ given: 0, account: { hints: 10 } });
+    });
+
+    it('counts what was earned, not what is held: spending hints does not make room', async () => {
+      const w = world();
+      await w.service.adminSetAccount('ann', { hints: 0 });
+      await award(w, ann, 2);
+      await w.service.useItem(ann, { item: 'hint' });
+      expect(await w.service.summary(ann)).toMatchObject({ hints: 1, earnLeft: 8 });
+    });
+
+    it('starts again at midnight UTC', async () => {
+      const w = world();
+      await w.service.adminSetAccount('ann', { hints: 0 });
+      for (let i = 0; i < 10; i++) await award(w, ann, 0);
+      expect(await award(w, ann, 0)).toMatchObject({ given: 0 });
+      w.clock.t += DAY;
+      expect(await w.service.summary(ann)).toMatchObject({ earnLeft: 10 });
+      expect(await award(w, ann, 2)).toMatchObject({ given: 2, account: { hints: 12, earnLeft: 8 } });
+    });
+
+    it('is no limit for paid, family and admin accounts', async () => {
+      const w = world();
+      for (const type of ['paid', 'family', 'admin'] as const) {
+        await w.service.adminSetAccount('ann', { type, hints: 0 });
+        let total = 0;
+        for (let i = 0; i < 8; i++) total += (await award(w, ann, 2)).given;
+        expect(total, type).toBe(16);
+        expect(await w.service.summary(ann)).toMatchObject({ hints: 16, earnInfinite: true });
+      }
+    });
+
+    it('is nothing for a guest, who earns none', async () => {
+      const w = world();
+      expect(await w.service.summary(guest)).toMatchObject({ earnPerDay: 0, earnLeft: 0, earnInfinite: false });
+      expect(await award(w, guest)).toEqual({ ok: false, error: 'account-required' });
+    });
+
+    it('holds for the members of a puzzle played with friends too, each by their own count', async () => {
+      const w = world();
+      const made = await open(w, ann, swapRequest({ helpers: true }));
+      await joined(w, made, bob);
+      await w.service.adminSetAccount('ann', { hints: 1000 });
+      await w.service.adminSetAccount('bob', { hints: 0 });
+      for (let i = 0; i < 5; i++) await award(w, bob, 2);                                    // (bob has earned all of today's already)
+      await w.service.adminSetAccount('bob', { hints: 3 });
+      let solved = false;
+      while (!solved) {
+        const room = (await w.service.getRoom(ann, made.roomId)) as { room: { state: { game: { slotOf: number[] } } } };
+        const res = await w.service.command(ann, made.roomId, { protocol: PROTOCOL_VERSION, command: { t: 'hint', piece: room.room.state.game.slotOf.findIndex((s, i) => s !== i) } });
+        solved = res.ok && res.event.solved;
+      }
+      expect((await w.service.summary(bob)).hints).toBe(3);                                   // nothing more for bob today
+      expect((await w.service.summary(ann)).earnLeft).toBe(9);                                // ann had earned none, and a small puzzle gave her one
     });
   });
 

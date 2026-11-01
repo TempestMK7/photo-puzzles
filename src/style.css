@@ -198,7 +198,7 @@ body.dragging .library::after {
 .play .helps button:disabled { opacity: 0.45; cursor: not-allowed; }
 .play canvas.board.helping { cursor: crosshair; }
 /* the line over the board that says what the chosen hint or bomb will do */
-.stage .helpnote { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 6; max-width: calc(100% - 24px); padding: 6px 14px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--accent2); color: var(--text); font-size: 13px; text-align: center; pointer-events: none; }
+.stage .helpnote { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 6; max-width: calc(100% - 24px); padding: 6px 14px; border-radius: 16px; width: max-content; background: var(--panel2); border: 1px solid var(--accent2); color: var(--text); font-size: 13px; text-align: center; pointer-events: none; }
 .play .stats { display: flex; gap: 14px; font-variant-numeric: tabular-nums; color: var(--dim); }
 .play .stats .time { color: var(--text); }
 /* a phone: the title makes room, and the buttons wrap onto a second row rather than run off the screen */

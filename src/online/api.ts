@@ -4,6 +4,7 @@ import type {
   AdStartRequest,
   AdStartResponse,
   ApiError,
+  AwardResponse,
   ItemResponse,
   ApiFailure,
   CommandResponse,
@@ -99,7 +100,7 @@ export class OnlineApi implements RoomApi {
   }
 
   /** A puzzle played alone was solved: the server adds its hints (`size` is the index of the puzzle's size, S being 0). */
-  awardSolved(size: number): Promise<ItemResponse | Offline> {
+  awardSolved(size: number): Promise<AwardResponse | Offline> {
     return this.call('POST', '/items/award', { size });
   }
 
