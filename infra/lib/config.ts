@@ -52,7 +52,7 @@ export interface Settings {
 }
 
 /** The limits that may be set, and nothing else (a misspelt one would silently do nothing). */
-export const LIMIT_NAMES = ['jigsawPieces', 'playersPerRoom', 'activeRoomsPerPlayer', 'idleMs', 'solvedKeepMs', 'maxAgeMs', 'pictureBytes', 'videoBytes', 'videoMs', 'fileKeepMs', 'hostingPaused', 'freePhotoCredits', 'adPhotoCredits', 'adVideoCredits', 'adsPerDay', 'videoAdsPerDay', 'adsTrusted', 'paidVideoCredits', 'startHints', 'startBombs', 'freeHintsPerDay'];
+export const LIMIT_NAMES = ['jigsawPieces', 'playersPerRoom', 'activeRoomsPerPlayer', 'idleMs', 'solvedKeepMs', 'maxAgeMs', 'pictureBytes', 'videoBytes', 'videoMs', 'fileKeepMs', 'hostingPaused', 'freePhotoCredits', 'adPhotoCredits', 'adVideoCredits', 'adsPerDay', 'videoAdsPerDay', 'adsTrusted', 'paidVideoCredits', 'startHints', 'startBombs', 'freeHintsPerDay', 'adHints', 'adBombs', 'helpAdMs'];
 
 /** Limits that existed and are gone (the weekly counts of puzzles: credits took their place). A setting that still names one is left out, so that a deployment that has it goes on working. */
 const RETIRED_LIMITS = ['freeRoomsPerWeek', 'videoRoomsPerWeek'];

@@ -14,6 +14,7 @@ import {
   adGives,
   helpIsFree,
   earnsUncapped,
+  isAdKind,
   isHelpItem,
   mayStartVideos,
   photosAreFree,
@@ -32,11 +33,13 @@ import {
   type AdStartRequest,
   type AdStartResponse,
   type ApiFailure,
+  type AdKind,
   type AwardRequest,
   type AwardResponse,
   type HelpItem,
   type ItemRequest,
   type ItemResponse,
+  type RewardRequest,
   type CommandRequest,
   type CommandResponse,
   type CreateRoomRequest,
@@ -425,9 +428,10 @@ export class RoomService {
   }
 
   /** Why an ad cannot be counted for this account now, or nothing if it can. The count of ads is of today's (a new day starts it again). */
-  private adRefusal(type: AccountType, account: AccountRecord, kind: 'photo' | 'video'): ApiFailure | null {
+  private adRefusal(type: AccountType, account: AccountRecord, kind: AdKind): ApiFailure | null {
     const { limits, clock } = this.d;
     if (!adGives(type, kind)) return fail('ad-refused', { reason: 'plan' });
+    if (kind === 'hint' || kind === 'bomb') return this.helpAdWait(account);                // (they are not for having none left, and not so many a day: one every so often)
     if (account[kind] > 0) return fail('ad-refused', { reason: 'has-credits' });                       // only when there are none left
     const used = adsToday(account, clock.now())[kind];
     if (used >= (kind === 'photo' ? limits.adsPerDay : limits.videoAdsPerDay)) return fail('ad-refused', { reason: 'daily-limit' });
@@ -441,7 +445,7 @@ export class RoomService {
    */
   async adStart(player: Player, req: AdStartRequest): Promise<AdStartResponse> {
     if (player.guest) return fail('account-required');
-    if (!req || (req.kind !== 'photo' && req.kind !== 'video')) return fail('bad-request');
+    if (!req || !isAdKind(req.kind)) return fail('bad-request');
     const { limits, clock, adCallbacks, store, random } = this.d;
     const refuse = async (f: ApiFailure): Promise<ApiFailure> => ({ ...f, account: await this.summary(player) });
     if (req.platform !== 'android' && req.platform !== 'ios') return refuse(fail('ad-refused', { reason: 'platform' }));
@@ -457,7 +461,7 @@ export class RoomService {
   }
 
   /** Gives an account the credits of an ad that was watched, if it is still owed them (it may have changed since the ad was asked for). */
-  private async giveAd(playerId: string, type: AccountType, kind: 'photo' | 'video'): Promise<{ account: AccountRecord } | ApiFailure> {
+  private async giveAd(playerId: string, type: AccountType, kind: AdKind): Promise<{ account: AccountRecord } | ApiFailure> {
     const { limits, clock } = this.d;
     return this.changeAccount(playerId, (a) => {
       const now = clock.now();
@@ -467,12 +471,41 @@ export class RoomService {
       if (kind === 'photo') {
         a.photo += limits.adPhotoCredits;
         a.photoAds++;
-      } else {
+      } else if (kind === 'video') {
         a.video += limits.adVideoCredits;
         a.videoAds++;
-      }
+      } else this.addHelpAd(a, kind);
       return a;
     });
+  }
+
+  /** The reason an ad for hints or bombs cannot be had yet, or nothing if one can. */
+  private helpAdWait(account: AccountRecord): ApiFailure | null {
+    return (account.helpAdAt ?? 0) > this.d.clock.now() ? fail('ad-refused', { reason: 'wait' }) : null;
+  }
+
+  /** Gives the hints or the bomb of an ad (or of the same without one), and sets when the next can be had: about `helpAdMs` from now, from two thirds of it to one and a third of it. */
+  private addHelpAd(a: AccountRecord, item: HelpItem): void {
+    const { limits, clock, random } = this.d;
+    Object.assign(a, helpHeld(a, limits));
+    if (item === 'hint') a.hints! += limits.adHints;
+    else a.bombs! += limits.adBombs;
+    a.helpAdAt = clock.now() + Math.round(limits.helpAdMs * (2 / 3 + (random.below(1001) / 1000) * (2 / 3)));
+  }
+
+  /**
+   * An account that is not given ads (paid, family, the operator's) takes what a free account watches an ad for, when one is ready: pressing the button is all it takes. A free account is
+   * told to watch the ad (`watch`).
+   */
+  async rewardHelp(who: Player, req: RewardRequest): Promise<ItemResponse> {
+    if (who.guest) return fail('account-required');
+    if (!isHelpItem(req?.item)) return fail('bad-request');
+    const type = this.typeOf(who, await this.accountOf(who.id));
+    const refuse = async (f: ApiFailure): Promise<ApiFailure> => ({ ...f, account: await this.summary(who) });
+    if (adGives(type, req.item)) return refuse(fail('ad-refused', { reason: 'watch' }));
+    const done = await this.changeAccount(who.id, (a) => this.helpAdWait(a) ?? (this.addHelpAd(a, req.item), a));
+    if ('error' in done) return done.error === 'ad-refused' ? refuse(done) : done;
+    return { ok: true, account: await this.summary(who) };
   }
 
   /**
@@ -515,7 +548,7 @@ export class RoomService {
    */
   async claimAd(player: Player, req: AdRequest): Promise<AdResponse> {
     if (player.guest) return fail('account-required');
-    if (!req || (req.kind !== 'photo' && req.kind !== 'video')) return fail('bad-request');
+    if (!req || !isAdKind(req.kind)) return fail('bad-request');
     const { limits, clock } = this.d;
     const refuse = async (f: ApiFailure): Promise<ApiFailure> => ({ ...f, account: await this.summary(player) });
     if (req.platform !== 'android' && req.platform !== 'ios') return refuse(fail('ad-refused', { reason: 'platform' }));

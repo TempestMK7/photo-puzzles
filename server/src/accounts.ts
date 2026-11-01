@@ -28,6 +28,7 @@ export function adsToday(account: AccountRecord, now: number): { photo: number; 
 /** The account as the game shows it. `type` is the type that counts (the operator's group makes an account an admin whatever its record says). */
 export function summaryOf(type: AccountType, account: AccountRecord, limits: Limits, now: number): AccountSummary {
   const today = adsToday(account, now);
+  const helpAdIn = Math.max(0, (account.helpAdAt ?? 0) - now);
   return {
     type,
     photo: account.photo,
@@ -45,5 +46,10 @@ export function summaryOf(type: AccountType, account: AccountRecord, limits: Lim
     earnPerDay: limits.freeHintsPerDay,
     earnLeft: earnsUncapped(type) ? 0 : Math.max(0, limits.freeHintsPerDay - earnedToday(account, now)),
     earnInfinite: earnsUncapped(type),
+    helpAdReady: !helpAdIn,
+    helpAdIn,
+    helpAdHints: limits.adHints,
+    helpAdBombs: limits.adBombs,
+    helpAdNoAd: !adGives(type, 'hint'),
   };
 }

@@ -20,6 +20,7 @@ import { creditText } from './credits';
 import { h, svg } from './dom';
 import { settingsButton } from './settings';
 import { sayError } from './online';
+import { MoreHelp } from './morehelp';
 import { OnlineBar } from './onlinebar';
 import { RefWindow } from './refwindow';
 
@@ -102,6 +103,8 @@ export class PlayScreen {
   // hints and bombs (Tile Swap, Overlap, Strips, Jigsaw): the player picks one, then taps the board; it comes out of their account (see core/help.ts)
   private hintBtn = this.helpButton('hint', 'Hint');
   private bombBtn = this.helpButton('bomb', 'Bomb');
+  /** More of them, for an ad (or, for a paid account, for the press of a button): its button lies with the other two, lit when some are ready, and its window over the board. */
+  private more: MoreHelp | null = null;
   private helpEl = h('span', { class: 'helps', hidden: true }, this.hintBtn, this.bombBtn);
   /** The one that is chosen, whether the press that is down may still be a tap (and where it began), and whether one is being used (the server is asked first). */
   private armed: HelpKind | null = null;
@@ -168,6 +171,11 @@ export class PlayScreen {
       if (row && typeof ResizeObserver !== 'undefined') {
         new ResizeObserver(() => this.stage.style.setProperty('--obar', `${row.offsetHeight ? row.offsetHeight + 6 : 0}px`)).observe(row);
       }
+    }
+    if (deps.player && deps.online) {
+      this.more = new MoreHelp({ player: deps.player, api: deps.online.api });
+      this.helpEl.append(this.more.button);
+      this.stage.append(this.more.panel);
     }
     deps.player?.onChange(() => this.refreshHelp());
     this.canvas.addEventListener('pointerdown', (e) => this.pointerDown(e));
@@ -537,6 +545,7 @@ export class PlayScreen {
     this.helpEl.hidden = !available;
     if (!available || !a) {
       this.arm(null);
+      this.more?.close();
       return;
     }
     const guest = a.type === 'guest';
@@ -1034,6 +1043,7 @@ export class PlayScreen {
 
   private leave(): void {
     this.arm(null);
+    this.more?.close();
     const o = this.online;
     if (o) {
       o.room.detach();

@@ -61,6 +61,8 @@ const AD_REFUSALS: Record<AdRefusal, string> = {
   platform: 'Ads can only be watched in the Android and iOS apps.',
   plan: 'This account does not get credits for ads.',
   unverified: 'The ad could not be checked, so there are no credits for it.',
+  wait: 'The next ad for hints or bombs is not ready yet.',
+  watch: 'Watch the ad to get them.',
 };
 
 export function sayError(error: CallError, failure?: { retryAt?: number; credits?: 'photo' | 'video'; reason?: AdRefusal }): string {
