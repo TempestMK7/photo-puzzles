@@ -91,7 +91,7 @@ export const KINDS: readonly KindDef[] = [
   {
     id: 'focus',
     name: 'Tile Swap',
-    blurb: 'Pieces of different sizes are shuffled. Click two to trade places and sizes. A piece that is in the right place locks there.',
+    blurb: 'Pieces of different sizes are shuffled. Click two to trade places and sizes. A piece that is in the right place locks there. Wheel or pinch to zoom, drag the board to move it.',
     available: true,
     options: [sizeOption(5), { key: 'irregular', label: 'Irregular pieces', min: 0, max: 1, def: 1, toggle: true }],
     sizes: sizesOf(['pieces'], [[20], [50], [100], [200], [500]], (v) => `about ${v.pieces} pieces`),
@@ -112,7 +112,7 @@ export const KINDS: readonly KindDef[] = [
   {
     id: 'strips',
     name: 'Strips',
-    blurb: 'Strips cut out of the picture lie turned and scattered over tabs. Drag each back into its hole; tap a strip to turn it; drag one onto a tab to move it there.',
+    blurb: 'Strips cut out of the picture lie turned and scattered over tabs. Drag each back into its hole; tap a strip to turn it; drag one onto a tab to move it there. Wheel or pinch to zoom, drag the bare board to move it.',
     available: true,
     options: [
       sizeOption(5),
@@ -137,7 +137,7 @@ export const KINDS: readonly KindDef[] = [
   {
     id: 'sliding',
     name: 'Sliding Tiles',
-    blurb: 'The picture is cut into tiles and one is missing. Click a tile in the empty space\'s row or column to slide it (and the tiles in between) over.',
+    blurb: 'The picture is cut into tiles and one is missing. Click a tile in the empty space\'s row or column to slide it (and the tiles in between) over. Wheel or pinch to zoom, drag the board to move it.',
     available: true,
     options: [
       sizeOption(4),
@@ -147,7 +147,7 @@ export const KINDS: readonly KindDef[] = [
   {
     id: 'rotascope',
     name: 'Rotascope',
-    blurb: 'A round picture is cut into rings of wedges round an empty middle. Click a piece that touches the empty space to slide it in; it changes size and turns as it passes between rings.',
+    blurb: 'A round picture is cut into rings of wedges round an empty middle. Click a piece that touches the empty space to slide it in; it changes size and turns as it passes between rings. Wheel or pinch to zoom, drag the board to move it.',
     available: true,
     options: [
       sizeOption(4),

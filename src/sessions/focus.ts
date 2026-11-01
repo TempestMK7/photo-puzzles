@@ -6,6 +6,7 @@ import { beginFrame, draw, rectNow, SWAP_MS, type Anim, type View } from '../ren
 import { Ripples } from './ripple';
 import { playEffect } from '../sounds';
 import { buzz } from './feedback';
+import { Camera } from './camera';
 import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
@@ -23,9 +24,13 @@ export class FocusSession implements PuzzleSession {
   private lastView: View = { scale: 1, ox: 0, oy: 0 };
   private canvasW = 1;
   private canvasH = 1;
+  private cam: Camera;
+  /** Where the press that may turn out to be a click went down (a press that moves the camera is no click). */
+  private press: Pt | null = null;
   videoFrame?: (now: number) => void;
 
   constructor(private readonly init: SessionInit) {
+    this.cam = new Camera(init.width, init.height, 2, () => init.requestDraw());
     this.game = new FocusGame(init.width, init.height, { seed: init.seed, pieces: init.opts.pieces, irregular: init.opts.irregular === 1 });
     this.board = { kind: 'focus', game: this.game };
     if (init.restore) this.game.restore(init.restore as FocusState);
@@ -105,6 +110,12 @@ export class FocusSession implements PuzzleSession {
   }
 
   pointerDown(p: Pt): void {
+    this.press = p;
+    this.cam.startPan(p);
+  }
+
+  /** A click on the board at `p`, once the press has ended without moving the camera. */
+  private click(p: Pt): void {
     const game = this.game;
     const piece = game.pieceAt(p.x, p.y);
     if (piece < 0) return;
@@ -146,6 +157,11 @@ export class FocusSession implements PuzzleSession {
   }
 
   pointerMove(p: Pt): void {
+    if (this.cam.panning && this.cam.panTo(p)) {
+      this.press = null;
+      this.hover = -1;
+      return;
+    }
     let piece = this.game.pieceAt(p.x, p.y);
     if (piece >= 0 && this.game.placed(piece)) piece = -1;                  // a locked piece is not offered
     if (piece !== this.hover) {
@@ -154,13 +170,59 @@ export class FocusSession implements PuzzleSession {
     }
   }
 
-  pointerUp(): void {}
+  pointerUp(): void {
+    const moved = this.cam.endPan();
+    const p = this.press;
+    this.press = null;
+    if (p && !moved) this.click(p);
+  }
 
   pointerCancel(): void {
+    this.cam.endPan();
+    this.press = null;
     this.hover = -1;
   }
 
   secondary(): void {}
+
+  // ---------------------------------------------------------------------------------------------------------------- camera
+
+  view(cw: number, ch: number): View {
+    return this.cam.view(cw, ch);
+  }
+
+  wheel(at: Pt, deltaY: number): void {
+    this.cam.wheel(at, deltaY);
+  }
+
+  pinch(from: Pt, to: Pt, factor: number): void {
+    this.cam.pinch(from, to, factor);
+  }
+
+  zoomBy(factor: number): void {
+    this.cam.zoomBy(factor);
+  }
+
+  zoomFit(): void {
+    this.cam.zoomFit();
+  }
+
+  zoomLabel(): string {
+    return this.cam.zoomLabel();
+  }
+
+  /** The right button moves the camera (there is nothing for it to turn). */
+  rightDown(p: Pt): void {
+    this.cam.startPan(p);
+  }
+
+  rightMove(p: Pt): void {
+    this.cam.panTo(p);
+  }
+
+  rightUp(): void {
+    this.cam.endPan();
+  }
 
   status(): string {
     const n = this.game.swaps;
