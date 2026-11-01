@@ -1,4 +1,6 @@
-import { generateOverlap, OverlapGame, overlapGrid, type OverlapState } from '../core/overlap';
+import { applyBoardOp, boardCheck, type Board, type BoardOp } from '../core/boardRoom';
+import type { RoomEvent, RoomState } from '../core/jigsawRoom';
+import { makeOverlap, type OverlapGame, type OverlapState } from '../core/overlap';
 import { Rng } from '../core/rng';
 import { makePattern } from './patterns';
 import { Ripples } from './ripple';
@@ -47,12 +49,16 @@ interface Held {
  * way it lies in the picture, with its centre over its own cell, and it stays and shows its part of the picture. A tap on a piece turns it; the arrows next to a stack shuffle
  * the pieces under it.
  *
+ * With friends everybody plays on the same board: what a player does (puts a piece down, turns it, moves it to another stack, shuffles a stack) is sent to the room, and what the others do arrives
+ * in its order and is applied here (see core/boardRoom.ts). A piece in hand is on its player's screen only.
+ *
  * The board has a camera (zoom with the wheel, two fingers or the buttons; drag the bare board to move it). The stacks do not: they are a panel down the left side of the canvas, in canvas
  * pixels, that scrolls when there are more stacks than fit.
  */
 export class OverlapSession implements PuzzleSession {
   readonly rotatable = true;
   private game: OverlapGame;
+  private rules: Board;
   private cols: number;
   private rows: number;
   private crop: { sx: number; sy: number; sw: number; sh: number };
@@ -92,11 +98,12 @@ export class OverlapSession implements PuzzleSession {
   private rightClick = false;                 // the right button is down and has not moved the camera: letting go turns a piece
 
   constructor(private readonly init: SessionInit) {
-    ({ cols: this.cols, rows: this.rows } = overlapGrid(init.opts.total, init.width, init.height));
+    const made = makeOverlap(init.seed, init.width, init.height, init.opts);
+    ({ cols: this.cols, rows: this.rows } = made);
     this.stackN = init.opts.stacks;
-    const setup = generateOverlap(new Rng(init.seed), { cols: this.cols, rows: this.rows, turned: init.opts.turned === 1, placed: init.opts.placed, windows: init.opts.windows === 1, stacks: this.stackN });
     this.pattern = makePattern(new Rng((init.seed + 0x9e3779b9) >>> 0), this.cols * CELL * 2, this.rows * CELL * 2);
-    this.game = new OverlapGame(setup);
+    this.game = made.game;
+    this.rules = { kind: 'overlap', game: made.game, cols: made.cols, rows: made.rows };
     // the picture is cropped to the grid's proportions
     let sw = init.width;
     let sh = init.height;
@@ -106,7 +113,7 @@ export class OverlapSession implements PuzzleSession {
     this.activeStack = Math.max(0, this.game.stacks.findIndex((s) => s.length));
     if (init.restore) {
       const saved = init.restore as { layout?: number; game: OverlapState; activeStack: number; cam?: { ratio: number; cx: number; cy: number } };
-      if (saved.layout !== LAYOUT) throw new Error('not this puzzle');         // made when pieces were L-shaped
+      if (saved.layout !== LAYOUT && !init.online) throw new Error('not this puzzle');         // made when pieces were L-shaped
       this.game.restore(saved.game);
       if (Number.isInteger(saved.activeStack) && saved.activeStack >= 0 && saved.activeStack < this.game.stacks.length) this.activeStack = saved.activeStack;
       if (saved.cam && [saved.cam.ratio, saved.cam.cx, saved.cam.cy].every(Number.isFinite)) this.pendingCam = saved.cam;
@@ -668,6 +675,7 @@ export class OverlapSession implements PuzzleSession {
         const r = this.arrowRect(i, up);
         if (g.stacks[i].length > 1 && t.x >= r.x && t.y >= r.y && t.x < r.x + r.w && t.y < r.y + r.h) {
           g.cycle(i, up ? -1 : 1);
+          this.init.online?.send({ t: 'cycle', stack: i, dir: up ? -1 : 1 });
           buzz(this.init, 'turn');
           this.init.requestDraw();
           return;
@@ -734,12 +742,14 @@ export class OverlapSession implements PuzzleSession {
     const g = this.game;
     if (!h.moved) {                                           // a tap turns the piece (the press has buzzed already: a second buzz would only cancel it)
       g.rotate(h.id);
+      this.init.online?.send({ t: 'turn', piece: h.id });
     } else {
       const at = this.heldPoint(h, performance.now());       // where the piece is, which is not where a finger is
       const box = this.heldBox(at);
       const drawer = this.drawerOf(at);
       if (drawer >= 0) {                                      // put down on a drawer (its own or another): the piece goes on top of it
         g.moveToStack(h.id, drawer);
+        this.init.online?.send({ t: 'toStack', piece: h.id, stack: drawer });
         this.activeStack = drawer;
         buzz(this.init, 'drop');
       } else if (box.cell) {
@@ -747,6 +757,7 @@ export class OverlapSession implements PuzzleSession {
           this.ripples.add(g.cellsNow(h.id).map((c) => ({ x: (box.cell!.x + c.x) * CELL, y: (box.cell!.y + c.y) * CELL, w: CELL, h: CELL })), performance.now());
           buzz(this.init, g.solved ? 'solved' : 'placed');
           if (!g.solved) playEffect('placed');                    // (the end of the puzzle has its own sound)
+          this.init.online?.send({ t: 'put', piece: h.id, x: box.cell.x, y: box.cell.y });          // (a piece that did not fit is not news to the others: it is back on its stack)
         } else {
           const cell = box.cell;
           this.wrong = { cells: g.cellsNow(h.id).map((c) => ({ x: cell.x + c.x, y: cell.y + c.y })).filter((c) => c.x >= 0 && c.y >= 0 && c.x < this.cols && c.y < this.rows), at: performance.now() };
@@ -792,6 +803,7 @@ export class OverlapSession implements PuzzleSession {
     if (g.solved) return;
     const id = this.held ? this.held.id : g.top(this.hoverStack >= 0 ? this.hoverStack : this.activeStack);
     g.rotate(id);
+    if (id >= 0 && !g.done[id]) this.init.online?.send({ t: 'turn', piece: id });
     buzz(this.init, 'turn');
     this.init.requestDraw();
   }
@@ -806,5 +818,41 @@ export class OverlapSession implements PuzzleSession {
 
   settingsChanged(): void {
     this.init.requestDraw();
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- with friends
+
+  /** Another player's operation (the room checked it and put it in order). A piece that was put in its place gets its ripple. */
+  applyEvent(ev: RoomEvent): void {
+    const op = ev.op as BoardOp | undefined;
+    if (!op) return;
+    const res = applyBoardOp(this.rules, op);
+    if (!res.ok) return;
+    if (op.t === 'put' && res.placed) {
+      this.ripples.add(this.game.cellsNow(op.piece).map((c) => ({ x: (op.x + c.x) * CELL, y: (op.y + c.y) * CELL, w: CELL, h: CELL })), performance.now());
+    }
+    this.afterOthers();
+  }
+
+  /** Takes the room's board in place of this one. */
+  resync(state: RoomState): void {
+    try {
+      this.game.restore(state.game as OverlapState);
+    } catch {
+      return;                                                     // (the room's board is this puzzle's: this does not happen)
+    }
+    if (this.activeStack >= this.stackN) this.activeStack = 0;
+    this.afterOthers();
+  }
+
+  /** The board changed under this player's hand: a piece in hand that was put in its place by someone else is not in hand any more. */
+  private afterOthers(): void {
+    if (this.held && this.game.done[this.held.id]) this.held = null;
+    this.init.requestDraw();
+    this.init.progress?.();
+  }
+
+  groupCount(): number {
+    return boardCheck(this.rules);
   }
 }

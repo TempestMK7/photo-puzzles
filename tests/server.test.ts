@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { JigsawRoom } from '../src/core/jigsawRoom';
-import { applyOp } from '../src/core/jigsawSetup';
+import { applyOp, type JigsawOp } from '../src/core/jigsawSetup';
 import { PROTOCOL_VERSION } from '../src/online/protocol';
 import { sniffImage } from '../server/src/image';
 import { RoomService } from '../server/src/service';
@@ -256,7 +256,7 @@ describe.each(stores)('the room service on %s', (_name, store) => {
         for (const c of [{ t: 'grab', piece: a.members[0] }, { t: 'drop', piece: a.members[0], ...pose!, tol: 10 }] as const) {
           const r = await cmd(w, who, made.roomId, c);
           expect(r.ok).toBe(true);
-          if (r.ok && r.event.op) applyOp(copy, r.event.op);
+          if (r.ok && r.event.op) applyOp(copy, r.event.op as JigsawOp);
           // the service loads the room again for every command (which renumbers its groups): the screen must still agree with it
           const now = await w.service.getRoom(ann, made.roomId);
           expect(JSON.stringify(copy.snapshot())).toBe(JSON.stringify(now.ok && now.room.state.game));

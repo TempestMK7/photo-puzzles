@@ -194,7 +194,7 @@ export class LibraryScreen {
                 'div',
                 { class: 'online-group' },
                 ...(deps.credits ? [deps.credits] : []),
-                ...(deps.onOnline ? [h('button', { type: 'button', class: 'progress-btn friends', title: 'Play a Jigsaw together over the internet', onclick: () => deps.onOnline!() }, 'Play with friends')] : []),
+                ...(deps.onOnline ? [h('button', { type: 'button', class: 'progress-btn friends', title: 'Play a Jigsaw, Tile Swap, Overlap or Strips together over the internet', onclick: () => deps.onOnline!() }, 'Play with friends')] : []),
               ),
             ]
           : []),

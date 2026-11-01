@@ -1,6 +1,6 @@
 import { generateKeyPairSync, sign, type KeyObject } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { liveClientId, parseLiveClientId, topics, type RoomMessage } from '../src/online/protocol';
+import { liveClientId, parseLiveClientId, PROTOCOL_VERSION, topics, type RoomMessage } from '../src/online/protocol';
 import { DISCONNECT_S, makeAuthorizer, policyFor, REFRESH_S } from '../server/src/aws/authorizer';
 import { DynamoPresence, DynamoStore } from '../server/src/aws/dynamo';
 import { GuestTokens } from '../server/src/guest';
@@ -148,7 +148,7 @@ describe('the authorizer', () => {
     const made = await open(w, ann);
     const g = await guests.issue();
     expect((await authorize(ask(g.token, made.roomId))).isAuthenticated).toBe(false);                 // not in the room yet
-    const joined = await w.service.join({ id: g.id, name: 'Guest', guest: true }, { protocol: 1, code: made.invite.code, secret: made.invite.secret } as never);
+    const joined = await w.service.join({ id: g.id, name: 'Guest', guest: true }, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret } as never);
     expect(joined.ok).toBe(true);
     const r = await authorize(ask(g.token, made.roomId));
     expect(r.isAuthenticated).toBe(true);
@@ -160,7 +160,7 @@ describe('the authorizer', () => {
     const { w, authorize, guests } = setup();
     const made = await open(w, ann);
     const g = await guests.issue();
-    await w.service.join({ id: g.id, name: 'Guest', guest: true }, { protocol: 1, code: made.invite.code, secret: made.invite.secret } as never);
+    await w.service.join({ id: g.id, name: 'Guest', guest: true }, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret } as never);
     expect((await authorize(ask(`${g.token}x`, made.roomId))).isAuthenticated).toBe(false);
     expect((await authorize(ask('g1.forged.token', made.roomId))).isAuthenticated).toBe(false);
     w.clock.t += 100 * DAY;
@@ -188,7 +188,7 @@ describe('the authorizer', () => {
   it('lets a player out when the room is over, and a member who was added in', async () => {
     const { w, authorize } = setup();
     const made = await open(w, ann);
-    const j = await w.service.join(bob, { protocol: 1, code: made.invite.code, secret: made.invite.secret } as never);
+    const j = await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret } as never);
     expect(j.ok).toBe(true);
     expect((await authorize(ask('good-bob', made.roomId))).isAuthenticated).toBe(true);
     w.clock.t += 2 * DAY;

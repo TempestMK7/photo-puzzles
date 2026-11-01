@@ -1,4 +1,4 @@
-import { findKind, generalValue, optionsOf, puzzleSeedText, recordKey, type KindDef } from '../core/kinds';
+import { findKind, generalValue, optionsOf, puzzleSeedText, recordKey, type KindDef, type KindId } from '../core/kinds';
 import { formatTime, type Prefs } from '../core/prefs';
 import { randomSeedText, seedFromText } from '../core/rng';
 import { loadPhoto } from '../image';
@@ -33,6 +33,20 @@ export interface PlayDeps {
   online?: { api: OnlineApi };
   /** A photo was added to the list from here (the picture of an online puzzle, kept). */
   photoAdded(id: string): void;
+}
+
+/** What a session of this kind is given to start from the room's board (what `serialize` makes when a puzzle is saved: see each session). */
+function onlineRestore(kind: KindId, game: unknown): unknown {
+  switch (kind) {
+    case 'jigsaw':
+      return { game, sel: -1, cam: null };
+    case 'overlap':
+      return { game, activeStack: 0 };
+    case 'strips':
+      return { game, tab: 0 };
+    default:
+      return game;
+  }
 }
 
 /** The screen where a puzzle is played: it owns the canvas, the clock, the video bar and the dialogs; the puzzle itself is a PuzzleSession. */
@@ -79,7 +93,9 @@ export class PlayScreen {
   private main = h('main', {}, this.tabsEl, this.stage, this.vbar);
   private restartBtn = h('button', { type: 'button', onclick: () => this.restart() }, 'Restart');
   /** A puzzle played with friends: its room, the picture it was cut from, and whether the end has been shown. */
-  private online: { room: OnlineRoom; shown: boolean; blob: Blob } | null = null;
+  private online: { room: OnlineRoom; shown: boolean; blob: Blob; saved: boolean } | null = null;
+  /** The button of the end-of-puzzle window that keeps the picture (greyed out when the picture is in the player's library). */
+  private saveDialogBtn: HTMLButtonElement | null = null;
   private bar: OnlineBar | null = null;
 
   private entry: PhotoEntry | null = null;
@@ -465,9 +481,9 @@ export class PlayScreen {
   async startOnline(room: OnlineRoom, invite: Invite | null): Promise<void> {
     const token = ++this.token;
     this.beginRun++;
-    this.kind = findKind('jigsaw')!;
-    this.titleEl.textContent = 'Jigsaw · with friends';
     const d = room.descriptor;
+    this.kind = findKind(d.settings.kind) ?? findKind('jigsaw')!;
+    this.titleEl.textContent = `${this.kind.name} · with friends`;
     let blob: Blob;
     let src: PlaySource;
     let url: string;
@@ -495,10 +511,11 @@ export class PlayScreen {
     this.dialogEl.hidden = true;
     this.entry = { id: room.id, name: 'Online puzzle', addedAt: Date.now(), thumbUrl: url, previewUrl: url, video: !!src.video, duration: src.video?.duration ?? 0 };
     this.src = src;
-    this.online = { room, shown: false, blob };
+    this.online = { room, shown: false, blob, saved: false };
+    void this.refreshSaved();
     this.saveKey = '';
     // a video plays (with its sound, looped) and the board is drawn again for each new picture of it; where it is, is the host's to say
-    const still = !!src.video && needsStill('jigsaw');
+    const still = !!src.video && needsStill(this.kind.id);
     if (src.video) {
       this.setupVideo();
       if (still) await this.freezeVideo(src.video);                     // a browser that cannot draw video pieces cuts the first picture
@@ -524,14 +541,14 @@ export class PlayScreen {
     this.session?.dispose?.();
     this.overlay?.remove();
     this.front?.remove();
-    this.session = startSession('jigsaw', {
+    this.session = startSession(this.kind.id, {
       source: this.frameCanvas ?? src.source,
       video: src.video ?? undefined,
       width: src.width,
       height: src.height,
       seed: d.settings.seed,
       opts: d.settings.opts,
-      restore: { game: d.state.game, sel: -1, cam: null },
+      restore: onlineRestore(this.kind.id, d.state.game),
       flag: (key) => this.flag(key),
       requestDraw: () => this.requestDraw(),
       progress: () => this.after(),
@@ -547,6 +564,7 @@ export class PlayScreen {
     room.onChange = () => this.onlineChanged();
     room.onRefused = (error, holder) => {
       if (error === 'busy') bar.say(`${room.member(holder ?? '')?.name ?? 'Someone'} is moving a piece`);
+      else if (error === 'no-group') bar.say('Someone moved that piece first');
       else if (error !== 'offline') bar.say(sayError(error));
     };
     room.attach(this.session as PuzzleSession & RoomView);
@@ -635,7 +653,7 @@ export class PlayScreen {
         'div',
         { class: 'buttons' },
         h('button', { type: 'button', onclick: () => this.viewPicture() }, 'View'),
-        h('button', { type: 'button', onclick: () => void this.savePicture() }, this.online.room.descriptor.media.type === 'video' ? 'Save video' : 'Save picture'),
+        (this.saveDialogBtn = h('button', { type: 'button', disabled: this.online.saved, title: this.online.saved ? 'This is in your library already' : '', onclick: () => void this.savePicture() }, this.online.room.descriptor.media.type === 'video' ? 'Save video' : 'Save picture')),
         h('button', { type: 'button', class: 'primary', onclick: () => this.leave() }, 'Leave'),
       ),
     );
@@ -648,22 +666,41 @@ export class PlayScreen {
     this.dialogEl.hidden = false;
   }
 
+  /**
+   * The id of this puzzle's picture in the player's own list, if it is there: as the picture the puzzle was made from, or (saved before, here or on another visit) the same file, which is one
+   * picture and not two. The server keeps the picture for a while: a player who has it can make a puzzle of their own from it without sending it (they joined this one, which is what allows it).
+   */
+  private async libraryId(): Promise<string | null> {
+    const o = this.online;
+    if (!o) return null;
+    const fileId = o.room.descriptor.media.fileId;
+    const have = o.room.descriptor.media.sourceId;
+    const id = have && (await this.deps.photos.entry(have)) ? have : await this.deps.photos.idOf(o.blob);
+    if (id && fileId) await this.deps.photos.setServerFile(id, fileId);
+    return id ?? null;
+  }
+
+  /** Greys out the buttons that keep the picture when it is in the player's library already. */
+  private async refreshSaved(): Promise<void> {
+    const o = this.online;
+    if (!o) return;
+    const saved = (await this.libraryId()) !== null;
+    if (this.online !== o) return;                                      // (the player has left meanwhile)
+    o.saved = saved;
+    this.bar?.setSaved(saved);
+    if (this.saveDialogBtn) {
+      this.saveDialogBtn.disabled = saved;
+      this.saveDialogBtn.title = saved ? 'This is in your library already' : '';
+    }
+  }
+
   /** Keeps the picture of the puzzle in the player's own list, unless it is there already. */
   private async savePicture(): Promise<void> {
     const o = this.online;
     if (!o) return;
-    const have = o.room.descriptor.media.sourceId;
-    // the server keeps the picture for a while: a player who has it can make a puzzle of their own from it without sending it (they joined this one, which is what allows it)
     const fileId = o.room.descriptor.media.fileId;
-    if (have && (await this.deps.photos.entry(have))) {
-      if (fileId) await this.deps.photos.setServerFile(have, fileId);
-      this.bar?.say('You already have this picture');
-      return;
-    }
-    // the same picture from this puzzle (saved before, here or on another visit) is one picture, not two
-    const same = await this.deps.photos.idOf(o.blob);
-    if (same) {
-      if (fileId) await this.deps.photos.setServerFile(same, fileId);
+    if (await this.libraryId()) {
+      void this.refreshSaved();
       this.bar?.say('You already have this picture');
       return;
     }
@@ -674,6 +711,7 @@ export class PlayScreen {
     if (done.ids.length) {
       this.deps.photoAdded(done.ids[0]);
       this.bar?.say(video ? 'Saved to your library' : 'Saved to your pictures');
+      void this.refreshSaved();
     } else this.bar?.say(video ? 'The video could not be saved' : 'The picture could not be saved');
   }
 

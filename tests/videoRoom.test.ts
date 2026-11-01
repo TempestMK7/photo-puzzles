@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { playbackNow, type CreateRoomRequest, type VideoType } from '../src/online/protocol';
+import { PROTOCOL_VERSION, playbackNow, type CreateRoomRequest, type VideoType } from '../src/online/protocol';
 import { looksLike } from '../server/src/service';
 import { createRouter, DevAuth } from '../server/src/router';
 import type { VideoModeration } from '../server/src/types';
@@ -56,7 +56,7 @@ describe('making a puzzle from a video', () => {
     const res = await w.service.createRoom(ann, videoRequest());
     if (!res.ok) throw new Error(res.error);
     expect(res.upload?.url).toContain(`/media/${res.roomId}/video`);
-    expect(await w.service.join(bob, { protocol: 1, code: res.invite.code, secret: res.invite.secret })).toEqual({ ok: false, error: 'not-ready' });
+    expect(await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: res.invite.code, secret: res.invite.secret })).toEqual({ ok: false, error: 'not-ready' });
     expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: false, error: 'not-ready' });           // no file yet
     await w.media.put(res.roomId, MP4(5000), 'video/mp4');
     expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: true, state: 'ready' });                  // (no check is made by this server: it lets the video through)
@@ -108,7 +108,7 @@ describe('the look at the whole video', () => {
     const w = world({}, undefined, undefined, undefined, undefined, look.check);
     const res = await made(w);
     expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: true, state: 'checking' });
-    expect(await w.service.join(bob, { protocol: 1, code: res.invite.code, secret: res.invite.secret })).toEqual({ ok: false, error: 'not-ready' });
+    expect(await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: res.invite.code, secret: res.invite.secret })).toEqual({ ok: false, error: 'not-ready' });
     expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: true, state: 'checking' });
     expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: true, state: 'checking' });
     expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: true, state: 'ready' });

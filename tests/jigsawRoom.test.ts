@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { JigsawGame } from '../src/core/jigsaw';
 import { JigsawRoom, LOCK_MS, RESERVE_MS, type RoomEvent } from '../src/core/jigsawRoom';
-import { applyOp, buildJigsaw, TOL_MAX_K, TOL_MIN_K, type JigsawSetup } from '../src/core/jigsawSetup';
+import { applyOp, buildJigsaw, TOL_MAX_K, TOL_MIN_K, type JigsawOp, type JigsawSetup } from '../src/core/jigsawSetup';
 import { Rng } from '../src/core/rng';
 
 // the hash of a start state, taken from the game as it was before the setup moved out of the session: it must not change, or old saved puzzles and shared seeds break
@@ -164,7 +164,7 @@ function play(opts: Record<string, number>, seed: number): { room: JigsawRoom; c
   let steals = 0;                                                  // holds that ran out and were taken over
   const publish = (e: RoomEvent): void => {
     events.push(e);
-    if (e.op) applyOp(copy, e.op);
+    if (e.op) applyOp(copy, e.op as JigsawOp);
     expect(JSON.stringify(copy.snapshot())).toBe(JSON.stringify(room.board.game.snapshot()));
   };
   for (let step = 0; step < 4000 && !room.solved; step++) {

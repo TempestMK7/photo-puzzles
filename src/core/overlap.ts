@@ -272,3 +272,10 @@ export class OverlapGame {
     });
   }
 }
+
+/** The Overlap puzzle for a picture of this size (`opts` are the kind's options, see kinds.ts): both the game on a screen and a server that keeps a shared board make it with this, so they start from the same one. */
+export function makeOverlap(seed: number, width: number, height: number, opts: Record<string, number>): { game: OverlapGame; cols: number; rows: number } {
+  const { cols, rows } = overlapGrid(opts.total, width, height);
+  const setup = generateOverlap(new Rng(seed), { cols, rows, turned: opts.turned === 1, placed: opts.placed, windows: opts.windows === 1, stacks: opts.stacks });
+  return { game: new OverlapGame(setup), cols, rows };
+}

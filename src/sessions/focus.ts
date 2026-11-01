@@ -1,4 +1,6 @@
+import { applyBoardOp, boardCheck, type Board, type BoardOp } from '../core/boardRoom';
 import { FocusGame, type FocusState } from '../core/focus';
+import type { RoomEvent, RoomState } from '../core/jigsawRoom';
 import type { Rect } from '../core/layout';
 import { beginFrame, draw, rectNow, SWAP_MS, type Anim, type View } from '../render';
 import { Ripples } from './ripple';
@@ -7,10 +9,11 @@ import { buzz } from './feedback';
 import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
-/** Tile Swap: click two pieces to trade places and sizes. */
+/** Tile Swap: click two pieces to trade places and sizes. Played with friends, everybody clicks on the same board: a swap is sent to the room, and the others' swaps arrive in its order. */
 export class FocusSession implements PuzzleSession {
   readonly rotatable = false;
   private game: FocusGame;
+  private board: Board;
   private anims = new Map<number, Anim>();
   private hover = -1;
   private ripples = new Ripples();
@@ -24,6 +27,7 @@ export class FocusSession implements PuzzleSession {
 
   constructor(private readonly init: SessionInit) {
     this.game = new FocusGame(init.width, init.height, { seed: init.seed, pieces: init.opts.pieces, irregular: init.opts.irregular === 1 });
+    this.board = { kind: 'focus', game: this.game };
     if (init.restore) this.game.restore(init.restore as FocusState);
     if (init.video && videoGlAvailable()) {
       try {
@@ -104,32 +108,41 @@ export class FocusSession implements PuzzleSession {
     const game = this.game;
     const piece = game.pieceAt(p.x, p.y);
     if (piece < 0) return;
+    const chosen = game.selected;
     const before = game.slotOf.map((_, i) => game.slotRect(i));
     const wasPlaced = game.slotOf.map((_, i) => game.placed(i));
     const result = game.click(piece);
     if (result === 'swap') {
       buzz(this.init, game.solved ? 'solved' : 'join');
-      const now = performance.now();
-      let found = false;
-      game.homes.forEach((home, i) => {                                                    // a piece that has just found its place gets a ripple once it arrives
-        if (game.placed(i) && !wasPlaced[i]) {
-          this.ripples.add([home], now, this.init.flag('animate') ? SWAP_MS : 0);
-          found = true;
-        }
-      });
+      const found = this.showSwap(before, wasPlaced);
       if (!game.solved) playEffect(found ? 'placed' : 'pickup');                         // (the end of the puzzle has its own sound)
-      if (this.init.flag('animate')) {
-        for (let i = 0; i < game.count; i++) {
-          const to: Rect = game.slotRect(i);
-          if (to !== before[i]) this.anims.set(i, { from: before[i], to, start: now });
-        }
-      }
+      this.init.online?.send({ t: 'swap', a: chosen, b: piece });
     } else if (result === 'select') {
       buzz(this.init, 'grab');
       playEffect('select');
     }
     else if (result === 'deselect') buzz(this.init, 'drop');
     this.init.requestDraw();
+  }
+
+  /** Shows a swap that has just been made: the pieces glide to their places (animations on), and one that has found its place gets a ripple once it arrives. True if one did. */
+  private showSwap(before: Rect[], wasPlaced: boolean[]): boolean {
+    const game = this.game;
+    const now = performance.now();
+    let found = false;
+    game.homes.forEach((home, i) => {
+      if (game.placed(i) && !wasPlaced[i]) {
+        this.ripples.add([home], now, this.init.flag('animate') ? SWAP_MS : 0);
+        found = true;
+      }
+    });
+    if (this.init.flag('animate')) {
+      for (let i = 0; i < game.count; i++) {
+        const to: Rect = game.slotRect(i);
+        if (to !== before[i]) this.anims.set(i, { from: before[i], to, start: now });
+      }
+    }
+    return found;
   }
 
   pointerMove(p: Pt): void {
@@ -161,5 +174,40 @@ export class FocusSession implements PuzzleSession {
   settingsChanged(): void {
     if (!this.init.flag('animate')) this.anims.clear();
     this.init.requestDraw();
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- with friends
+
+  /** Another player's swap (the room checked it and put it in order): shown as a swap of this player's own is. */
+  applyEvent(ev: RoomEvent): void {
+    const op = ev.op as BoardOp | undefined;
+    if (!op) return;
+    const game = this.game;
+    const before = game.slotOf.map((_, i) => game.slotRect(i));
+    const wasPlaced = game.slotOf.map((_, i) => game.placed(i));
+    if (!applyBoardOp(this.board, op).ok) return;
+    if (game.selected >= 0 && game.placed(game.selected)) game.selected = -1;          // the piece this player had chosen found its place
+    this.showSwap(before, wasPlaced);
+    this.init.requestDraw();
+    this.init.progress?.();
+  }
+
+  /** Takes the room's board in place of this one (the piece this player had chosen stays chosen, if it can still be). */
+  resync(state: RoomState): void {
+    const game = this.game;
+    const chosen = game.selected;
+    try {
+      game.restore(state.game as FocusState);
+    } catch {
+      return;
+    }
+    game.selected = chosen >= 0 && !game.placed(chosen) ? chosen : -1;
+    this.anims.clear();
+    this.init.requestDraw();
+    this.init.progress?.();
+  }
+
+  groupCount(): number {
+    return boardCheck(this.board);
   }
 }

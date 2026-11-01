@@ -281,3 +281,10 @@ export class StripsGame {
     return true;
   }
 }
+
+/** The Strips puzzle for a picture of this size: made the same way on a screen and on a server that keeps a shared board. */
+export function makeStrips(seed: number, width: number, height: number, opts: Record<string, number>): { game: StripsGame; picCols: number; picRows: number } {
+  const { picCols, picRows } = pictureSize(width, height, opts.cells);
+  const setup = generateStrips(new Rng(seed), { picCols, picRows, maxLen: opts.length, placed: opts.placed, tabs: opts.tabs });
+  return { game: new StripsGame(setup), picCols, picRows };
+}

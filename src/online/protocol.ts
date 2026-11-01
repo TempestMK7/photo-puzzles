@@ -1,5 +1,5 @@
+import type { RoomSetup } from '../core/boardRoom';
 import type { Command, Lock, RoomEvent, RoomState } from '../core/jigsawRoom';
-import type { JigsawSetup } from '../core/jigsawSetup';
 
 /**
  * What the game and the server say to each other when friends play one puzzle together (see docs/online-protocol.md). Types and small helpers only: nothing here talks to a
@@ -7,7 +7,7 @@ import type { JigsawSetup } from '../core/jigsawSetup';
  */
 
 /** Goes up whenever a change would make an old game and a new server misunderstand each other. A game with an older number is told to update. */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /** Defaults. The server reads the real limits from its configuration (per kind of puzzle and per kind of player), so that they can change without a new game. */
 export const DEFAULT_LIMITS = {
@@ -55,9 +55,8 @@ export const RENEW_INTERVAL_MS = 4000;
 
 // ------------------------------------------------------------------------------------------------------------------------------- what a room is
 
-export interface RoomSettings extends JigsawSetup {
-  kind: 'jigsaw';
-}
+/** The puzzle of a room: its kind (a Jigsaw, or Tile Swap, Overlap or Strips played together), seed, the picture's size and the options. */
+export type RoomSettings = RoomSetup;
 
 export interface Member {
   /** The account's id. */

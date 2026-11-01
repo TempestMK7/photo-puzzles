@@ -1,5 +1,6 @@
-import { Rng } from '../core/rng';
-import { boxOf, generateStrips, MARGIN, pictureSize, StripsGame, type StripsState } from '../core/strips';
+import { applyBoardOp, boardCheck, type Board, type BoardOp } from '../core/boardRoom';
+import type { RoomEvent, RoomState } from '../core/jigsawRoom';
+import { boxOf, makeStrips, MARGIN, type StripsGame, type StripsState } from '../core/strips';
 import { beginFrame, drawSlice, type View } from '../render';
 import { playEffect } from '../sounds';
 import { buzz, startLift, type Lift } from './feedback';
@@ -26,10 +27,14 @@ interface Drag {
 /**
  * Strips: straight strips have been cut out of the picture and lie turned and scattered over the board. Drag each one back to the hole it came from; a tap (or the
  * right button, a second finger, R) turns it a quarter turn. It locks when it lies exactly in its hole, turned the right way.
+ *
+ * With friends everybody plays on the same board: a strip that is put down (or turned) is sent to the room as the pose it now has, and what the others put down arrives in the room's order
+ * (see core/boardRoom.ts). A strip in hand is on its player's screen only.
  */
 export class StripsSession implements PuzzleSession {
   readonly rotatable = true;
   private game: StripsGame;
+  private rules: Board;
   private picCols: number;
   private picRows: number;
   private crop: { sx: number; sy: number; sw: number; sh: number };
@@ -50,17 +55,11 @@ export class StripsSession implements PuzzleSession {
   videoFrame?: (now: number) => void;
 
   constructor(private readonly init: SessionInit) {
-    const pic = pictureSize(init.width, init.height, init.opts.cells);
-    this.picCols = pic.picCols;
-    this.picRows = pic.picRows;
-    const setup = generateStrips(new Rng(init.seed), {
-      picCols: this.picCols,
-      picRows: this.picRows,
-      maxLen: init.opts.length,
-      placed: init.opts.placed,
-      tabs: init.opts.tabs,
-    });
-    this.game = new StripsGame(setup);
+    const made = makeStrips(init.seed, init.width, init.height, init.opts);
+    this.picCols = made.picCols;
+    this.picRows = made.picRows;
+    this.game = made.game;
+    this.rules = { kind: 'strips', game: made.game, picCols: made.picCols, picRows: made.picRows };
     let sw = init.width;
     let sh = init.height;
     if (sw * this.picRows > sh * this.picCols) sw = (sh * this.picCols) / this.picRows;
@@ -301,6 +300,7 @@ export class StripsSession implements PuzzleSession {
     this.game.moveTo(d.id, Math.floor(p.x / S) - d.gx, Math.floor(p.y / S) - d.gy);
     if (this.game.lockIfHome(d.id)) {                              // over its own hole, turned right: it drops by itself, the button need not be released
       this.locked(d.id);
+      this.commit(d.id);
       this.drag = null;
       window.clearTimeout(this.dwell);
       this.overTab = -1;
@@ -320,6 +320,7 @@ export class StripsSession implements PuzzleSession {
     } else if (!d.moved) this.turn(d.id, true);                        // a tap turns the strip
     else if (this.game.lockIfHome(d.id)) this.locked(d.id);
     else buzz(this.init, 'drop');
+    if (d.moved) this.commit(d.id);                                    // (a tap has sent what it did)
     this.overTab = -1;
     this.init.requestDraw();
   }
@@ -327,6 +328,7 @@ export class StripsSession implements PuzzleSession {
   pointerCancel(): void {
     window.clearTimeout(this.dwell);
     this.overTab = -1;
+    if (this.drag?.moved) this.commit(this.drag.id);                 // (where it was put stays: the room has to know)
     this.drag = null;
     this.init.requestDraw();
   }
@@ -339,19 +341,40 @@ export class StripsSession implements PuzzleSession {
 
   /** Turns a strip a quarter. A tap has buzzed when it pressed, so it only buzzes again if the strip locks; the other ways of turning (right button, R, a second finger) buzz. */
   private turn(id: number, tap = false): void {
-    if (this.game.rotate(id)) this.locked(id);
-    else if (!tap) buzz(this.init, 'turn');
+    const inHand = this.drag?.id === id;
+    if (this.game.rotate(id)) {
+      this.locked(id);
+      this.commit(id);
+      if (inHand) this.dragEnds();                                   // it is in its hole: nothing is in hand any more
+    } else {
+      if (!tap) buzz(this.init, 'turn');
+      if (!inHand) this.commit(id);                                  // (a strip in hand is sent when it is put down)
+    }
   }
 
-  private locked(id: number): void {
+  /** Tells the room where the strip lies now (and on which tab, turned how). */
+  private commit(id: number): void {
+    const s = this.game.state[id];
+    this.init.online?.send({ t: 'place', strip: id, x: s.x, y: s.y, angle: s.angle, tab: s.tab });
+  }
+
+  /** A strip has found its hole: the ripple, and (for this player's own strip, not one that somebody else put there) the buzz and the sound. */
+  private locked(id: number, mine = true): void {
     const d = this.game.defs[id];
     const b = boxOf(d, 0);
     this.ripples.add([{ x: d.hx * S, y: d.hy * S, w: b.w * S, h: b.h * S }], performance.now());
     if (this.selected === id) this.selected = -1;
     this.game.moves++;
-    buzz(this.init, this.game.solved ? 'solved' : 'placed');
-    if (!this.game.solved) playEffect('placed');                    // (the end of the puzzle has its own sound)
-    const counts = this.game.looseCounts();                       // the tab is empty: on to the next one that still has strips
+    if (mine) {
+      buzz(this.init, this.game.solved ? 'solved' : 'placed');
+      if (!this.game.solved) playEffect('placed');                    // (the end of the puzzle has its own sound)
+    }
+    this.nextTab();
+  }
+
+  /** The tab that is showing has no loose strips left: on to the next one that still has. */
+  private nextTab(): void {
+    const counts = this.game.looseCounts();
     if (counts[this.tab] === 0 && !this.game.solved) {
       for (let k = 1; k <= counts.length; k++) {
         const t = (this.tab + k) % counts.length;
@@ -400,5 +423,51 @@ export class StripsSession implements PuzzleSession {
 
   settingsChanged(): void {
     this.init.requestDraw();
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- with friends
+
+  /** Another player's operation (the room checked it and put it in order): a strip put down, which may have found its hole. */
+  applyEvent(ev: RoomEvent): void {
+    const op = ev.op as BoardOp | undefined;
+    if (!op || op.t !== 'place') return;
+    const res = applyBoardOp(this.rules, op);
+    if (!res.ok) return;
+    if (res.placed) {
+      this.locked(op.strip, false);
+      if (this.drag?.id === op.strip) this.dragEnds();             // this player was dragging it: it is in its hole now
+    }
+    this.afterOthers();
+  }
+
+  /** Takes the room's board in place of this one. */
+  resync(state: RoomState): void {
+    try {
+      this.game.restore(state.game as StripsState);
+    } catch {
+      return;                                                     // (the room's board is this puzzle's: this does not happen)
+    }
+    if (this.drag && this.game.state[this.drag.id].locked) this.dragEnds();
+    this.nextTab();
+    this.afterOthers();
+  }
+
+  private dragEnds(): void {
+    window.clearTimeout(this.dwell);
+    this.overTab = -1;
+    this.drag = null;
+  }
+
+  /** What is selected has to be a loose strip of the tab that shows. */
+  private afterOthers(): void {
+    const s = this.selected >= 0 ? this.game.state[this.selected] : null;
+    if (s && (s.locked || s.tab !== this.tab)) this.selected = -1;
+    this.init.requestDraw();
+    this.init.tabsChanged?.();
+    this.init.progress?.();
+  }
+
+  groupCount(): number {
+    return boardCheck(this.rules);
   }
 }

@@ -1,5 +1,5 @@
 import { rotVec, TRAY_MAX, type Group, type JigsawGame, type JigsawLayout, type JigsawState } from '../core/jigsaw';
-import { applyOp, buildJigsaw, SCATTER_K, TOL_MAX_K, TOL_MIN_K, type PieceOp } from '../core/jigsawSetup';
+import { applyOp, buildJigsaw, SCATTER_K, TOL_MAX_K, TOL_MIN_K, type JigsawOp, type PieceOp } from '../core/jigsawSetup';
 import { clampInTray, insideBox, traySize, trayView, type TrayView } from '../core/trays';
 import type { RoomEvent, RoomState } from '../core/jigsawRoom';
 import { haptic, type Haptic } from '../haptics';
@@ -991,7 +991,7 @@ export class JigsawSession implements PuzzleSession {
 
   /** Another player's operation (the room checked it and put it in order): applied as it is, with the glow when it finished part of the picture. */
   applyEvent(ev: RoomEvent): void {
-    const op = ev.op;
+    const op = ev.op as JigsawOp | undefined;
     if (!op) return;                                              // a piece let go without moving: nothing changed on the board
     if (op.t === 'trayAdd' || op.t === 'trayRemove') {          // a tray was made or taken away (by anyone: the room told us, in its own order)
       applyOp(this.game, op);
@@ -1025,7 +1025,7 @@ export class JigsawSession implements PuzzleSession {
       this.init.online?.holding(null);
     }
     try {
-      this.game.restore(state.game);
+      this.game.restore(state.game as JigsawState);
     } catch {
       return;                                                     // (the room's board is this puzzle's: this does not happen)
     }

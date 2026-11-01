@@ -1,7 +1,8 @@
 # Online play: the protocol
 
-What the game and the server say to each other when friends play one Jigsaw puzzle together. The types are in `src/online/protocol.ts`, the rules a room enforces are in
-`src/core/jigsawRoom.ts` (which both the server and the tests run), and the plan this belongs to is `online-play-plan.md`. Version 1.
+What the game and the server say to each other when friends play one puzzle together: a Jigsaw, or Tile Swap, Overlap or Strips. The types are in `src/online/protocol.ts`, the rules a room enforces are in
+`src/core/jigsawRoom.ts` and `src/core/boardRoom.ts` (which both the server and the tests run), and the plan this belongs to is `online-play-plan.md`. Version 2 (1 had Jigsaw rooms only: a game that
+old would take a room of another kind for a Jigsaw, so the server tells it to update).
 
 ## What makes two screens show the same puzzle
 
@@ -77,6 +78,32 @@ a refusal means "ask for the state again".
 
 A lock's `until` is on the server's clock. The descriptor carries `serverTime`; a game works out its clock's offset from it (`lockHeld`).
 
+## Tile Swap, Overlap and Strips
+
+`RoomSettings.kind` says which puzzle a room has (`jigsaw`, `focus`, `overlap` or `strips`); the rest of `settings` is the same: `{ seed, width, height, opts }`, and `opts` holds what the size sets as plain numbers
+(Tile Swap `pieces`; Overlap `total` and `stacks`; Strips `cells`, `length` and `tabs`) with the puzzle's own options (`irregular`; `turned`, `windows`, `placed`; `placed`). `buildBoard(setup)` in `src/core/boardRoom.ts`
+makes the board from that and nothing else, as `buildJigsaw` does for a Jigsaw; the server refuses (`bad-request`) a size it will not keep (over `jigsawPieces` pieces or cells is `limit`) and a picture that cannot be cut.
+
+**Nobody holds a piece.** These puzzles have no hand, no lock and no reservation (`lock` is always `null`, `reserved` empty, `renew` is `not-holder`, and there are no hand messages): everybody may move anything at any time,
+and a piece that is being dragged is on its player's screen only. What a player does when they put something down is one operation (`BoardOp`), applied at once on their own screen and sent as a command:
+
+| op | puzzle | meaning |
+|---|---|---|
+| `swap a b` | Tile Swap | pieces `a` and `b` trade places (neither may be in its own place) |
+| `put piece x y` | Overlap | the piece is put down with its centre on cell (x, y): it stays if that is its place and it is turned right (else it is back on its stack, and nothing is sent) |
+| `turn piece` | Overlap | a quarter turn |
+| `toStack piece stack` | Overlap | the piece goes on top of another stack |
+| `cycle stack dir` | Overlap | the top piece of a stack goes to the bottom (`1`) or the bottom one to the top (`-1`) |
+| `place strip x y angle tab` | Strips | the strip is put down at this pose, on top of the others, and locks if it lies where it belongs |
+
+`applyBoardOp(board, op)` applies one if the board allows it, on the server and on every screen. A refusal is `bad-request` when the numbers make no sense or the operation is another puzzle's, and `no-group` when it was fine but the
+board has moved on (the piece was put in its place by someone else a moment ago): the screen says "Someone moved that piece first" and takes the room's board again.
+
+**Order.** The events are in the server's order, and a screen applies its own operations at once, so two players who move the same thing in the same moment see them in different orders. The `OnlineRoom` of a game of this kind notes it when
+another player's event arrives while its own commands are still on their way, and takes the room's board once they are all answered (`resync`). `groups` in an event is, for these puzzles, `boardCheck(board)`: a number of what the board
+comes to (which piece is where, which stacks hold which pieces, which strips are locked), which a screen compares with its own to find that it has drifted, as a Jigsaw does with its group count. It leaves out what a player's own hand
+changes before it is put down (where a strip being dragged is), so that a drag in progress is never taken for a drift.
+
 ## Live messages (MQTT topics)
 
 - `puzzle/{room}/events`: the server publishes `RoomMessage`s (an event, a player joined, left or was sent out (`removed`), a knock, solved, closed, `renewed` when the holder of a piece renews the hold, so that the others' copy of it does not run out, and `played` when the count of time spent on the puzzle starts or stops: it counts only while at least one player is connected, `solved` carries the total). Every member subscribes.
@@ -131,4 +158,4 @@ A code is five digits. A link is `https://<domain>/#/join/<code>~<secret>`: it o
 
 - How the time shown for a puzzle is counted (it does not count towards best times).
 - Whether hand messages should carry only the dragged group's pose or also the pointer.
-- Other puzzle types: the operations and the room are Jigsaw's; the turn-based types will have their own.
+- Showing the others a piece in hand in Tile Swap, Overlap and Strips (there are no hand messages for them): a piece appears on the others' screens when it is put down.
