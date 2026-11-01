@@ -4,15 +4,20 @@ import { boxOf, makeStrips, MARGIN, type StripsGame, type StripsState } from '..
 import { beginFrame, drawSlice, type View } from '../render';
 import { playEffect } from '../sounds';
 import { buzz, startLift, type Lift } from './feedback';
+import { Camera } from './camera';
 import { Ripples } from './ripple';
 import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const S = 30;                  // one cell, in board units
 const DWELL_MS = 600;          // a dragged strip that rests on a tab goes to it
-const TAP = 5;
+const TAP = 5;                 // CSS pixels
+const EDGE = 40;               // CSS pixels: a strip held this close to the edge of the canvas takes the camera with it...
+const EDGE_SPEED = 600;        // ...at up to this many CSS pixels a second
+const UNIT: View = { scale: 1, ox: 0, oy: 0 };     // the strip in hand is held in canvas pixels, which this view leaves as they are
+const dpr = (): number => window.devicePixelRatio || 1;
 
-/** The strip in hand: the cell it was grabbed by, where the pointer is, whether it has moved (else a tap), and - for a finger - the lift that holds it above the finger. */
+/** The strip in hand: the cell it was grabbed by, where the pointer is (canvas pixels, so that the strip stays under the pointer when the camera moves), whether it has moved (else a tap), and - for a finger - the lift that holds it above the finger. */
 interface Drag {
   id: number;
   gx: number;
@@ -27,6 +32,8 @@ interface Drag {
 /**
  * Strips: straight strips have been cut out of the picture and lie turned and scattered over the board. Drag each one back to the hole it came from; a tap (or the
  * right button, a second finger, R) turns it a quarter turn. It locks when it lies exactly in its hole, turned the right way.
+ *
+ * The board has a camera (zoom with the wheel, two fingers or the buttons; drag the bare board, or use the right button, to move it); a strip held near the edge of the canvas takes the camera along.
  *
  * With friends everybody plays on the same board: a strip that is put down (or turned) is sent to the room as the pose it now has, and what the others put down arrives in the room's order
  * (see core/boardRoom.ts). A strip in hand is on its player's screen only.
@@ -52,6 +59,9 @@ export class StripsSession implements PuzzleSession {
   private frontLayer: FrontLayer | null = null;
   private canvasW = 1;
   private canvasH = 1;
+  private cam: Camera;
+  private rightClick = false;
+  private tick = 0;
   videoFrame?: (now: number) => void;
 
   constructor(private readonly init: SessionInit) {
@@ -60,6 +70,7 @@ export class StripsSession implements PuzzleSession {
     this.picRows = made.picRows;
     this.game = made.game;
     this.rules = { kind: 'strips', game: made.game, picCols: made.picCols, picRows: made.picRows };
+    this.cam = new Camera(made.game.cols * S, made.game.rows * S, 4, () => init.requestDraw());
     let sw = init.width;
     let sh = init.height;
     if (sw * this.picRows > sh * this.picCols) sw = (sh * this.picCols) / this.picRows;
@@ -118,19 +129,24 @@ export class StripsSession implements PuzzleSession {
   draw(ctx: CanvasRenderingContext2D, view: View, now: number): boolean {
     beginFrame(ctx, view);
     this.lastView = view;
+    this.canvasW = ctx.canvas.width;
+    this.canvasH = ctx.canvas.height;
     const g = this.game;
+    const k = this.cam.lineK();
     let running = false;
-    const held = this.drag;
-    if (held?.lift && !held.lift.done(now)) {                      // a strip that a finger has picked up rises above it
+    const dt = Math.min(0.05, Math.max(0, (now - this.tick) / 1000));
+    this.tick = now;
+    if (this.drag?.lift && !this.drag.lift.done(now)) {            // a strip that a finger has picked up rises above it
       running = true;
-      this.placeDrag(held, now);
+      this.placeDrag(this.drag, now);
     }
+    if (this.drag?.moved && this.edgePan(this.drag, dt, now)) running = true;
     const { width, height } = this.layout();
     ctx.fillStyle = '#100a08';
     ctx.fillRect(0, 0, width, height);
     ctx.strokeStyle = '#6b4a36';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(-1.5, -1.5, width + 3, height + 3);
+    ctx.lineWidth = 3 * k;
+    ctx.strokeRect(-1.5 * k, -1.5 * k, width + 3 * k, height + 3 * k);
     const gpu = !!this.layer && !!this.frontLayer;
     // the picture: its cells show unless a strip that was cut from them is still loose
     for (let r = 0; r < this.picRows; r++) {
@@ -148,31 +164,29 @@ export class StripsSession implements PuzzleSession {
       }
     }
     if (gpu) {
-      this.canvasW = ctx.canvas.width;
-      this.canvasH = ctx.canvas.height;
       this.drawGl();
       return this.ripples.draw(this.frontLayer!.begin(this.canvasW, this.canvasH, view), now) || running;
     }
     if (this.init.flag('grid')) {
       ctx.strokeStyle = 'rgba(255,255,255,0.14)';
-      ctx.lineWidth = 1;
+      ctx.lineWidth = k;
       ctx.beginPath();
       for (let c = 0; c <= g.cols; c++) {
-        ctx.moveTo(c * S + 0.5, 0);
-        ctx.lineTo(c * S + 0.5, height);
+        ctx.moveTo(c * S + 0.5 * k, 0);
+        ctx.lineTo(c * S + 0.5 * k, height);
       }
       for (let r = 0; r <= g.rows; r++) {
-        ctx.moveTo(0, r * S + 0.5);
-        ctx.lineTo(width, r * S + 0.5);
+        ctx.moveTo(0, r * S + 0.5 * k);
+        ctx.lineTo(width, r * S + 0.5 * k);
       }
       ctx.stroke();
       ctx.strokeStyle = 'rgba(255,216,74,0.35)';
-      ctx.strokeRect(MARGIN * S + 0.5, MARGIN * S + 0.5, this.picCols * S, this.picRows * S);
+      ctx.strokeRect(MARGIN * S + 0.5 * k, MARGIN * S + 0.5 * k, this.picCols * S, this.picRows * S);
     }
     if (!g.solved) {
       for (const id of g.z) {
         const s = g.state[id];
-        if (!s.locked && s.tab === this.tab) this.drawStrip(ctx, id, id === this.selected);
+        if (!s.locked && s.tab === this.tab) this.drawStrip(ctx, id, id === this.selected, k);
       }
     }
     if (this.ripples.draw(ctx, now)) running = true;
@@ -184,6 +198,7 @@ export class StripsSession implements PuzzleSession {
     const L = this.layer!;
     const g = this.game;
     if (!L.begin(this.canvasW, this.canvasH, this.lastView)) return;
+    const k = this.cam.lineK();
     const { width, height } = this.layout();
     const { sx, sy, sw, sh } = this.crop;
     const w = sw / this.picCols;
@@ -198,21 +213,21 @@ export class StripsSession implements PuzzleSession {
     }
     if (this.init.flag('grid')) {
       const faint = rgba(255, 255, 255, 0.14);
-      for (let c = 0; c <= g.cols; c++) L.fill(c * S, 0, 1, height, faint);
-      for (let r = 0; r <= g.rows; r++) L.fill(0, r * S, width, 1, faint);
-      L.frame(MARGIN * S + 0.5, MARGIN * S + 0.5, this.picCols * S, this.picRows * S, 1, rgba(255, 216, 74, 0.35));
+      for (let c = 0; c <= g.cols; c++) L.fill(c * S, 0, k, height, faint);
+      for (let r = 0; r <= g.rows; r++) L.fill(0, r * S, width, k, faint);
+      L.frame(MARGIN * S + 0.5 * k, MARGIN * S + 0.5 * k, this.picCols * S, this.picRows * S, k, rgba(255, 216, 74, 0.35));
     }
     if (!g.solved) {
       for (const id of g.z) {
         const s = g.state[id];
-        if (!s.locked && s.tab === this.tab) this.drawStripGl(L, id, id === this.selected);
+        if (!s.locked && s.tab === this.tab) this.drawStripGl(L, id, id === this.selected, k);
       }
     }
     L.end();
   }
 
   /** One strip on the graphics card: its cells turned the way it lies, and the same two outlines as drawStrip (a strip turned by quarter turns fills the box of cells it stands on). */
-  private drawStripGl(L: VideoLayer, id: number, selected: boolean): void {
+  private drawStripGl(L: VideoLayer, id: number, selected: boolean, k: number): void {
     const d = this.game.defs[id];
     const s = this.game.state[id];
     const b = boxOf(d, s.angle);
@@ -234,11 +249,11 @@ export class StripsSession implements PuzzleSession {
     }
     const x = s.x * S;
     const y = s.y * S;
-    L.frame(x, y, b.w * S, b.h * S, 1.5, rgba(0, 0, 0, 0.55));
-    L.frame(x + 0.5, y + 0.5, b.w * S - 1, b.h * S - 1, selected ? 1.5 : 0.75, selected ? rgba(255, 216, 74) : rgba(255, 255, 255, 0.85));
+    L.frame(x, y, b.w * S, b.h * S, 1.5 * k, rgba(0, 0, 0, 0.55));
+    L.frame(x + 0.5 * k, y + 0.5 * k, b.w * S - k, b.h * S - k, (selected ? 1.5 : 0.75) * k, selected ? rgba(255, 216, 74) : rgba(255, 255, 255, 0.85));
   }
 
-  private drawStrip(ctx: CanvasRenderingContext2D, id: number, selected: boolean): void {
+  private drawStrip(ctx: CanvasRenderingContext2D, id: number, selected: boolean, k: number): void {
     const d = this.game.defs[id];
     const s = this.game.state[id];
     const b = boxOf(d, s.angle);
@@ -254,11 +269,11 @@ export class StripsSession implements PuzzleSession {
     }
     ctx.lineJoin = 'round';
     ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 1.5 * k;
     ctx.strokeRect(-(hw * S) / 2, -(hh * S) / 2, hw * S, hh * S);
     ctx.strokeStyle = selected ? '#ffd84a' : 'rgba(255,255,255,0.85)';
-    ctx.lineWidth = selected ? 1.5 : 0.75;
-    ctx.strokeRect(-(hw * S) / 2 + 0.5, -(hh * S) / 2 + 0.5, hw * S - 1, hh * S - 1);
+    ctx.lineWidth = (selected ? 1.5 : 0.75) * k;
+    ctx.strokeRect(-(hw * S) / 2 + 0.5 * k, -(hh * S) / 2 + 0.5 * k, hw * S - k, hh * S - k);
     ctx.restore();
   }
 
@@ -272,10 +287,12 @@ export class StripsSession implements PuzzleSession {
     const id = g.stripAt(cx, cy, this.tab);
     if (id < 0) {
       this.selected = -1;
+      this.cam.startPan(p);                                          // a drag on the bare board moves the camera
     } else {
       g.bringToFront(id);
       this.selected = id;
-      this.drag = { id, gx: cx - g.state[id].x, gy: cy - g.state[id].y, start: p, moved: false, at: p, touch, lift: null };
+      const at = this.cam.screen(p);
+      this.drag = { id, gx: cx - g.state[id].x, gy: cy - g.state[id].y, start: at, moved: false, at, touch, lift: null };
       buzz(this.init, 'grab');
       playEffect('pickup');
     }
@@ -283,12 +300,17 @@ export class StripsSession implements PuzzleSession {
   }
 
   pointerMove(p: Pt): void {
+    if (this.cam.panning) {
+      this.cam.panTo(p);
+      return;
+    }
     const d = this.drag;
     if (!d) return;
-    d.at = p;
-    if (!d.moved && Math.hypot(p.x - d.start.x, p.y - d.start.y) > TAP) {
+    const s = this.cam.screen(p);
+    d.at = s;
+    if (!d.moved && Math.hypot(s.x - d.start.x, s.y - d.start.y) > TAP * dpr()) {
       d.moved = true;
-      d.lift = startLift(this.init, d.touch, this.lastView, performance.now());       // a finger lifts the strip above itself from here on (a tap does not)
+      d.lift = startLift(this.init, d.touch, UNIT, performance.now());                // a finger lifts the strip above itself from here on (a tap does not)
     }
     if (d.moved) this.placeDrag(d, performance.now());
     this.init.requestDraw();
@@ -296,7 +318,7 @@ export class StripsSession implements PuzzleSession {
 
   /** Puts the dragged strip where the pointer holds it - or, for a finger, a little above it - and drops it if that is its own hole, turned right. */
   private placeDrag(d: Drag, now: number): void {
-    const p = d.lift ? d.lift.held(d.at, now) : d.at;
+    const p = this.cam.world(d.lift ? d.lift.held(d.at, now) : d.at);
     this.game.moveTo(d.id, Math.floor(p.x / S) - d.gx, Math.floor(p.y / S) - d.gy);
     if (this.game.lockIfHome(d.id)) {                              // over its own hole, turned right: it drops by itself, the button need not be released
       this.locked(d.id);
@@ -308,7 +330,22 @@ export class StripsSession implements PuzzleSession {
     }
   }
 
+  /** A strip held near the edge of the canvas takes the camera towards that edge (not while it is over a tab's button). True while it does. */
+  private edgePan(d: Drag, dt: number, now: number): boolean {
+    if (!this.cam.canPan || this.overTab >= 0) return false;
+    const zone = EDGE * dpr();
+    const push = (v: number, size: number): number => (v < zone ? -(1 - v / zone) : v > size - zone ? 1 - (size - v) / zone : 0);
+    const vx = push(d.at.x, this.canvasW);
+    const vy = push(d.at.y, this.canvasH);
+    if (!vx && !vy) return false;
+    const step = EDGE_SPEED * dpr() * dt;
+    this.cam.panBy(vx * step, vy * step);
+    this.placeDrag(d, now);
+    return true;
+  }
+
   pointerUp(): void {
+    this.cam.endPan();
     const d = this.drag;
     this.drag = null;
     window.clearTimeout(this.dwell);
@@ -326,11 +363,58 @@ export class StripsSession implements PuzzleSession {
   }
 
   pointerCancel(): void {
+    this.cam.endPan();
+    this.rightClick = false;
     window.clearTimeout(this.dwell);
     this.overTab = -1;
     if (this.drag?.moved) this.commit(this.drag.id);                 // (where it was put stays: the room has to know)
     this.drag = null;
     this.init.requestDraw();
+  }
+
+  /** A second finger turns the strip in hand (and pinches when there is none). */
+  holding(): boolean {
+    return !!this.drag?.moved;
+  }
+
+  /** The right button: a drag on the board moves the camera, a click turns a strip. */
+  rightDown(p: Pt): void {
+    this.rightClick = true;
+    this.cam.startPan(p);
+  }
+
+  rightMove(p: Pt): void {
+    this.cam.panTo(p);
+  }
+
+  rightUp(): void {
+    const moved = this.cam.endPan();
+    if (this.rightClick && !moved) this.secondary();
+    this.rightClick = false;
+  }
+
+  view(cw: number, ch: number): View {
+    return this.cam.view(cw, ch);
+  }
+
+  wheel(at: Pt, deltaY: number): void {
+    this.cam.wheel(at, deltaY);
+  }
+
+  pinch(from: Pt, to: Pt, factor: number): void {
+    this.cam.pinch(from, to, factor);
+  }
+
+  zoomBy(factor: number): void {
+    this.cam.zoomBy(factor);
+  }
+
+  zoomFit(): void {
+    this.cam.zoomFit();
+  }
+
+  zoomLabel(): string {
+    return this.cam.zoomLabel();
   }
 
   secondary(): void {

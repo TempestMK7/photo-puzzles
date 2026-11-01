@@ -69,6 +69,12 @@ Playable now:
   when every piece is home. The empty cell and the middle show a dimmed ghost of the picture. Videos keep playing in the pieces, drawn on the graphics card like the tiles of Sliding Tiles
   (each wedge is a few triangles whose colours come from the turned and scaled picture).
 
+**Zoom.** Every puzzle has a camera. The mouse wheel, two fingers on a touch screen, or the control at the bottom right (-, the zoom, +; click the zoom to show everything) zooms about the pointer;
+a drag on the bare board (or anywhere, with the right button) moves it. Showing the whole board is as far out as it goes, so a player who never zooms sees what they always saw. Overlap and Jigsaw have
+their own cameras (Overlap's trays stay in a panel at the left; Jigsaw's table is bigger than the screen); Tile Swap, Sliding Tiles, Rotascope and Strips share `src/sessions/camera.ts`. In the click
+puzzles (Tile Swap, Sliding Tiles, Rotascope) a click counts when the button is let go, and only if the pointer has not moved enough to drag the board. In Strips a strip held near the edge of the
+screen takes the camera along, and a second finger turns a strip in hand (and pinches when none is). A saved puzzle starts with the whole board in view.
+
 **Touch.** On a touch screen the dragging puzzles (Overlap, Strips, Jigsaw) hold a piece you pick up 76 px above your finger (it rises over a tenth of a second, and stays at least 24 px from the
 top of the screen) so that the finger does not hide it; a mouse or a pen holds it where it is, and the **Raise piece above touch point** setting switches it off. Every puzzle gives a small
 vibration at its key moments (the **Vibration** setting). Tile Swap: each piece you select (and the swap); Sliding Tiles and Rotascope: a piece
