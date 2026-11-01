@@ -23,7 +23,7 @@ describe.each(stores)('accounts and credits on %s', (_name, store) => {
     it('is made free, with the starting photo credits and no video credits, the first time it is asked about', async () => {
       const w = world();
       expect(await w.store.getAccount('ann')).toBeUndefined();
-      expect(await w.service.summary(ann)).toEqual({ type: 'free', photo: 5, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 5, videoAdsLeft: 0, adPhoto: 5, adVideo: 1 });
+      expect(await w.service.summary(ann)).toEqual({ type: 'free', photo: 5, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 5, videoAdsLeft: 0, adPhoto: 5, adVideo: 1, hints: 10, bombs: 2, hintsInfinite: false, bombsInfinite: false });
       expect(await w.store.getAccount('ann')).toMatchObject({ type: 'free', photo: 5, video: 0 });
       expect(await w.service.profile(ann)).toMatchObject({ ok: true, id: 'ann', account: { type: 'free', photo: 5 } });
     });
@@ -256,15 +256,15 @@ describe.each(stores)('accounts and credits on %s', (_name, store) => {
   describe('the operator changes accounts', () => {
     it('sets the type and the credits, and refuses what makes no sense', async () => {
       const w = world();
-      expect(await w.service.adminSetAccount('ann', { type: 'paid', photo: 9, video: 4 })).toEqual({ ok: true, account: { type: 'paid', photo: 9, video: 4 } });
-      expect(await w.service.adminSetAccount('ann', { video: 0 })).toEqual({ ok: true, account: { type: 'paid', photo: 9, video: 0 } });
+      expect(await w.service.adminSetAccount('ann', { type: 'paid', photo: 9, video: 4 })).toEqual({ ok: true, account: { type: 'paid', photo: 9, video: 4, hints: 10, bombs: 2 } });
+      expect(await w.service.adminSetAccount('ann', { video: 0 })).toEqual({ ok: true, account: { type: 'paid', photo: 9, video: 0, hints: 10, bombs: 2 } });
       for (const bad of [{ type: 'gold' }, { type: 5 }, { photo: -1 }, { photo: 1.5 }, { video: 1_000_001 }, { video: '3' }, { photo: Number.NaN }]) {
         expect(await w.service.adminSetAccount('ann', bad as never), JSON.stringify(bad)).toEqual({ ok: false, error: 'bad-request' });
       }
       expect(await w.service.adminAccounts(['ann', 'nobody'])).toEqual(
         new Map([
-          ['ann', { type: 'paid', photo: 9, video: 0 }],
-          ['nobody', { type: 'free', photo: 5, video: 0 }],                                                // an account nobody has asked about yet: what it will start with
+          ['ann', { type: 'paid', photo: 9, video: 0, hints: 10, bombs: 2 }],
+          ['nobody', { type: 'free', photo: 5, video: 0, hints: 10, bombs: 2 }],                                                // an account nobody has asked about yet: what it will start with
         ]),
       );
       expect(await w.store.getAccount('nobody')).toBeUndefined();

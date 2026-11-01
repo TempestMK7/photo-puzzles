@@ -96,6 +96,7 @@ async function main(): Promise<void> {
     onExit: () => showLibrary(),
     otherPhoto: (id) => library.otherPhoto(id),
     online: api ? { api } : undefined,
+    player,
     photoAdded: (id) => void library.photoAdded(id),
   });
   // the pop-ups for signing in (the game's own pages, in a build whose accounts have them) and for the profile, with the round badge on the main screen

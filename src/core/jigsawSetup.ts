@@ -94,7 +94,11 @@ export type PieceOp =
    */
   | { t: 'drop'; piece: number; dx: number; dy: number; rot: number; tol: number | null; tray?: number }
   /** A loose group is turned a quarter turn about its middle; with `tol` it then joins what it lies right against. */
-  | { t: 'rotate'; piece: number; tol: number | null };
+  | { t: 'rotate'; piece: number; tol: number | null }
+  /** A hint: the group the piece belongs to is put where it belongs in the picture, and stays there. */
+  | { t: 'hint'; piece: number }
+  /** A bomb at this point of the picture (picture pixels from its top left corner): every piece round it is put in the picture, with its group. */
+  | { t: 'bomb'; x: number; y: number };
 
 /** Applies an operation. A piece that is not there, or lies in the picture already, is left alone. Returns the id of the group that now holds the operation's group (-1: none), and how many joins happened. */
 export function applyOp(game: JigsawGame, op: JigsawOp): { id: number; joins: number } {
@@ -105,6 +109,10 @@ export function applyOp(game: JigsawGame, op: JigsawOp): { id: number; joins: nu
   if (op.t === 'trayRemove') {
     game.removeTray(op.tray);
     return { id: -1, joins: 0 };
+  }
+  if (op.t === 'bomb') {
+    if (![op.x, op.y].every((v) => typeof v === 'number' && Number.isFinite(v))) return { id: -1, joins: 0 };
+    return { id: -1, joins: game.bomb(op.x, op.y).length };
   }
   if (!Number.isInteger(op.piece) || op.piece < 0 || op.piece >= game.count) return { id: -1, joins: 0 };
   const gid = game.groupOf[op.piece];
@@ -122,6 +130,9 @@ export function applyOp(game: JigsawGame, op: JigsawOp): { id: number; joins: nu
       g.tray = -1;
       game.setPose(gid, op.dx, op.dy, op.rot);
       return op.tol === null ? { id: gid, joins: 0 } : game.connect(gid, op.tol);
+    case 'hint':
+      game.anchorGroup(op.piece);
+      return { id: game.groupOf[op.piece], joins: 1 };
     case 'rotate': {
       const [cx, cy] = game.centre(gid);
       game.rotate(gid, cx, cy);

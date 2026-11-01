@@ -1,4 +1,5 @@
 import { buildBoard, isBoardKind, openRoom, type BoardKind } from '../../src/core/boardRoom';
+import { hasHelp, hintsFor, HINTS_LARGE, HINTS_SMALL } from '../../src/core/help';
 import { layoutJigsaw } from '../../src/core/jigsaw';
 import { findKind, optionsOf } from '../../src/core/kinds';
 import { overlapGrid } from '../../src/core/overlap';
@@ -11,6 +12,8 @@ import {
   normalizeCode,
   ACCOUNT_TYPES,
   adGives,
+  helpIsFree,
+  isHelpItem,
   mayStartVideos,
   photosAreFree,
   PROTOCOL_VERSION,
@@ -28,6 +31,10 @@ import {
   type AdStartRequest,
   type AdStartResponse,
   type ApiFailure,
+  type AwardRequest,
+  type HelpItem,
+  type ItemRequest,
+  type ItemResponse,
   type CommandRequest,
   type CommandResponse,
   type CreateRoomRequest,
@@ -45,7 +52,8 @@ import {
   type ReportRequest,
   type RoomSummary,
 } from '../../src/online/protocol';
-import { adsToday, dayOf, GUEST_SUMMARY, newAccount, summaryOf } from './accounts';
+import { adsToday, dayOf, GUEST_SUMMARY, helpHeld, newAccount, summaryOf } from './accounts';
+import { isGuestId } from './guest';
 import { sniffImage } from './image';
 import type { AdminFile, AdminRoomSummary } from '../../src/online/adminProtocol';
 import { playedMs } from './played';
@@ -536,6 +544,60 @@ export class RoomService {
     });
   }
 
+  /** Takes one hint or bomb from the account (the operator's account has an endless stock, and nothing is taken). `free` says that nothing was, so that there is nothing to give back. */
+  private async takeItem(who: Player, item: HelpItem): Promise<{ free: boolean } | ApiFailure> {
+    const key = item === 'hint' ? 'hints' : 'bombs';
+    if (helpIsFree(this.typeOf(who, await this.accountOf(who.id)))) return { free: true };
+    const done = await this.changeAccount(who.id, (a) => {
+      Object.assign(a, helpHeld(a, this.d.limits));                                  // (an account from before they existed is given its starting number now)
+      if (a[key]! < 1) return fail('no-credits', { item });
+      a[key]!--;
+      return a;
+    });
+    if ('error' in done) return done.error === 'no-credits' ? fail('no-credits', { item, account: await this.summary(who) }) : done;
+    return { free: false };
+  }
+
+  /** Puts back what a puzzle did not use after all (a hint or bomb that the room refused), or adds what a puzzle gave. */
+  private async giveItem(playerId: string, item: HelpItem, n = 1): Promise<void> {
+    const key = item === 'hint' ? 'hints' : 'bombs';
+    await this.changeAccount(playerId, (a) => {
+      Object.assign(a, helpHeld(a, this.d.limits));
+      a[key]! += n;
+      return a;
+    });
+  }
+
+  /** The player is about to use a hint or a bomb in a puzzle that they play alone: it is taken from their account (the game places nothing until the server has said yes). */
+  async useItem(who: Player, req: ItemRequest): Promise<ItemResponse> {
+    if (who.guest) return fail('account-required');
+    if (!isHelpItem(req?.item)) return fail('bad-request');
+    const taken = await this.takeItem(who, req.item);
+    if ('error' in taken) return taken;
+    return { ok: true, account: await this.summary(who) };
+  }
+
+  /** A puzzle that the player played alone was solved: its hints are added. (Nobody but the game can say so, since the puzzle is on the player's own device.) */
+  async awardSolved(who: Player, req: AwardRequest): Promise<ItemResponse> {
+    if (who.guest) return fail('account-required');
+    if (!Number.isInteger(req?.size) || req.size < 0 || req.size > 9) return fail('bad-request');
+    await this.giveItem(who.id, 'hint', req.size >= 2 ? HINTS_LARGE : HINTS_SMALL);
+    return { ok: true, account: await this.summary(who) };
+  }
+
+  /** A puzzle played with friends was solved: every member who has an account is given the hints it is worth (a guest has nothing to put them in). */
+  private async awardRoom(room: RoomRecord): Promise<void> {
+    const n = hintsFor(findKind(room.settings.kind)!, room.settings.opts);
+    for (const m of room.members) {
+      if (isGuestId(m.id)) continue;
+      try {
+        await this.giveItem(m.id, 'hint', n);
+      } catch (e) {
+        console.error(e);                                                           // (the move has been made: a failure here must not undo it)
+      }
+    }
+  }
+
   /** A paid account's payment period has begun (the payments, when they are built, call this): it is given its video credits, which add to what it has and roll over for ever. */
   async grantPaidPeriod(playerId: string): Promise<void> {
     await this.changeAccount(playerId, (a) => {
@@ -545,28 +607,32 @@ export class RoomService {
   }
 
   /** For the operator: the type and credits of each of these accounts (an account that has never been asked about shows what it will start with). */
-  async adminAccounts(ids: string[]): Promise<Map<string, { type: AccountType; photo: number; video: number }>> {
-    const out = new Map<string, { type: AccountType; photo: number; video: number }>();
+  async adminAccounts(ids: string[]): Promise<Map<string, { type: AccountType; photo: number; video: number; hints: number; bombs: number }>> {
+    const { limits } = this.d;
+    const out = new Map<string, { type: AccountType; photo: number; video: number; hints: number; bombs: number }>();
     for (const id of ids) {
       const a = await this.d.store.getAccount(id);
-      out.set(id, a ? { type: a.type, photo: a.photo, video: a.video } : { type: 'free', photo: this.d.limits.freePhotoCredits, video: 0 });
+      out.set(id, a ? { type: a.type, photo: a.photo, video: a.video, ...helpHeld(a, limits) } : { type: 'free', photo: limits.freePhotoCredits, video: 0, hints: limits.startHints, bombs: limits.startBombs });
     }
     return out;
   }
 
   /** For the operator: changes an account's type and/or credits (payment is not built: this is how a type is given). Credits are whole numbers from 0 to a million. */
-  async adminSetAccount(id: string, patch: { type?: unknown; photo?: unknown; video?: unknown }): Promise<{ ok: true; account: { type: AccountType; photo: number; video: number } } | ApiFailure> {
+  async adminSetAccount(id: string, patch: { type?: unknown; photo?: unknown; video?: unknown; hints?: unknown; bombs?: unknown }): Promise<{ ok: true; account: { type: AccountType; photo: number; video: number; hints: number; bombs: number } } | ApiFailure> {
     const credits = (v: unknown) => v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 1_000_000);
     if (patch.type !== undefined && !(ACCOUNT_TYPES as readonly unknown[]).includes(patch.type)) return fail('bad-request');
-    if (!credits(patch.photo) || !credits(patch.video)) return fail('bad-request');
+    if (!credits(patch.photo) || !credits(patch.video) || !credits(patch.hints) || !credits(patch.bombs)) return fail('bad-request');
     const done = await this.changeAccount(id, (a) => {
       if (patch.type !== undefined) a.type = patch.type as AccountType;
       if (patch.photo !== undefined) a.photo = patch.photo as number;
       if (patch.video !== undefined) a.video = patch.video as number;
+      Object.assign(a, helpHeld(a, this.d.limits));
+      if (patch.hints !== undefined) a.hints = patch.hints as number;
+      if (patch.bombs !== undefined) a.bombs = patch.bombs as number;
       return a;
     });
     if ('error' in done) return done;
-    return { ok: true, account: { type: done.account.type, photo: done.account.photo, video: done.account.video } };
+    return { ok: true, account: { type: done.account.type, photo: done.account.photo, video: done.account.video, ...helpHeld(done.account, this.d.limits) } };
   }
 
   /** Whether the account's own record makes it an administrator (the page may then be used without being in the group). */
@@ -635,6 +701,7 @@ export class RoomService {
       settings,
       sourceId: typeof req.sourceId === 'string' ? req.sourceId.slice(0, 64) : undefined,
       ownerId: player.id,
+      helpers: (req.helpers === true && hasHelp(settings.kind)) || undefined,
       members: [{ id: player.id, name: player.name, color: 0 }],
       code,
       secretHash: await sha256(secret),
@@ -973,6 +1040,7 @@ export class RoomService {
       id: room.id,
       protocol: PROTOCOL_VERSION,
       settings: room.settings,
+      helpers: room.helpers === true,
       media: { url: await this.d.media.signedUrl(room.id), type: room.video ? 'video' : 'image', video: room.video, sourceId: room.sourceId, fileId: room.fileId },
       owner: room.ownerId,
       members: room.members,
@@ -995,6 +1063,17 @@ export class RoomService {
     const { clock, limits } = this.d;
     const before = await this.memberRoom(player, roomId);
     if ('error' in before) return before;
+    // a hint or a bomb comes out of the player's own stock, and only where the host allowed them (it is given back if the room does not take the operation after all)
+    const op = (req.command as { t?: unknown } | undefined)?.t;
+    const item: HelpItem | null = isHelpItem(op) ? op : null;
+    let spent = false;
+    if (item) {
+      if (!before.room.helpers) return fail('helpers-off');
+      if (player.guest) return fail('account-required');
+      const taken = await this.takeItem(player, item);
+      if ('error' in taken) return taken;
+      spent = !taken.free;
+    }
     let event: Extract<CommandResponse, { ok: true }>['event'] | undefined;
     let refusal: ApiFailure | undefined;
     const done = await this.update(roomId, (r) => {
@@ -1015,10 +1094,15 @@ export class RoomService {
       r.expiresAt = this.expiry(r, now + (room.solved ? limits.solvedKeepMs : limits.idleMs));
       return r;
     });
-    if ('error' in done) return done;
-    if (refusal) return refusal;
+    if ('error' in done || refusal) {
+      if (item && spent) await this.giveItem(player.id, item);
+      return 'error' in done ? done : refusal!;
+    }
     await this.publish(roomId, { t: 'event', ...event! });
-    if (event!.solved) await this.publish(roomId, { t: 'solved', at: clock.now(), ms: done.room.solvedMs });
+    if (event!.solved) {
+      await this.publish(roomId, { t: 'solved', at: clock.now(), ms: done.room.solvedMs });
+      await this.awardRoom(done.room);
+    }
     return { ok: true, event: event! };
   }
 

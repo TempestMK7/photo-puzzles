@@ -75,6 +75,16 @@ their own cameras (Overlap's trays stay in a panel at the left; Jigsaw's table i
 puzzles (Tile Swap, Sliding Tiles, Rotascope) a click counts when the button is let go, and only if the pointer has not moved enough to drag the board. In Strips a strip held near the edge of the
 screen takes the camera along, and a second finger turns a strip in hand (and pinches when none is). A saved puzzle starts with the whole board in view.
 
+**Hints and bombs.** In Tile Swap, Overlap, Strips and Jigsaw the header has a **Hint** and a **Bomb** button, each with how many the account holds (the operator's account has as many as it likes).
+Pick one, then tap the board: a hint places the one piece you tap (in Overlap, the piece on top of a stack; in Jigsaw, the whole group it is joined to), a bomb places every piece within about a piece's width of
+the point (`BLAST` in `src/core/help.ts`). A tap that would place nothing costs nothing; Esc, or the button again, puts the choice away. Sliding Tiles and Rotascope have neither: half of all arrangements of
+their pieces cannot be solved, so a piece put in place by hand could make the rest impossible. They are the account's, kept on the server (`hints` and `bombs` of the account record): every new account starts
+with 10 hints and 2 bombs (`startHints`, `startBombs`; an account that was made before they existed is given the same the first time it is read), and a solved puzzle gives 1 hint for size S or M and 2 for a larger one
+(for every puzzle of every type, played alone or with friends). Played alone, the game asks the server to take one (`POST /items/use`) before it places anything, so hints and bombs need an account and a
+connection; solved puzzles ask for their hints with `POST /items/award` (the server cannot see a puzzle on the player's own device, so it takes the game's word). In a puzzle played with friends the **host** chooses
+when starting it whether hints and bombs may be used (off unless ticked); each player then uses their own, as an operation of the room (`hint` and `bomb` of `BoardOp` and `JigsawOp`) that the server
+takes from the player's account and gives back if the room does not take it, and when the puzzle is solved the server gives every member with an account its hints. They do not change best times.
+
 **Touch.** On a touch screen the dragging puzzles (Overlap, Strips, Jigsaw) hold a piece you pick up 76 px above your finger (it rises over a tenth of a second, and stays at least 24 px from the
 top of the screen) so that the finger does not hide it; a mouse or a pen holds it where it is, and the **Raise piece above touch point** setting switches it off. Every puzzle gives a small
 vibration at its key moments (the **Vibration** setting). Tile Swap: each piece you select (and the swap); Sliding Tiles and Rotascope: a piece

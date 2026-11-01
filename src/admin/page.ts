@@ -17,6 +17,15 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'logs', label: 'Logs' },
 ];
 
+/** What the administrator has typed for an account (its type, credits, hints and bombs) and not saved yet. */
+interface Edit {
+  type: AccountType;
+  photo: string;
+  video: string;
+  hints: string;
+  bombs: string;
+}
+
 const when = (ms: number): string => (ms ? new Date(ms).toLocaleString() : '');
 const short = (id: string): string => (id.length > 10 ? `${id.slice(0, 8)}…` : id);
 
@@ -50,7 +59,7 @@ class AdminPage {
   private logs = { groups: [] as AdminLogGroup[], group: '', minutes: 60, filter: '', events: null as AdminLogEvent[] | null };
   private players: { list: AdminPlayer[]; next: string | null } = { list: [], next: null };
   /** What the administrator has typed for an account (its type and credits) and not saved yet, by account id. */
-  private edits = new Map<string, { type: AccountType; photo: string; video: string }>();
+  private edits = new Map<string, Edit>();
   private files: { list: AdminFile[]; next: string | null; loaded: boolean; loading: boolean } = { list: [], next: null, loaded: false, loading: false };
   /** The file that is open in full, to be removed. */
   private open: AdminFile | null = null;
@@ -218,7 +227,7 @@ class AdminPage {
       {},
       h('div', { class: 'row' }, h('span', { class: 'dim' }, `${p.list.length} account${p.list.length === 1 ? '' : 's'}${p.next ? ' so far' : ''}`), this.refreshButton()),
       this.table(
-        ['Name', 'E-mail', 'Joined', 'Status', 'Type', 'Photo credits', 'Video credits', 'Id', '', ''],
+        ['Name', 'E-mail', 'Joined', 'Status', 'Type', 'Photo credits', 'Video credits', 'Hints', 'Bombs', 'Id', '', ''],
         p.list.map((u) => {
           const edit = this.editOf(u);
           return [
@@ -233,6 +242,8 @@ class AdminPage {
             ),
             this.creditInput(u, edit, 'photo'),
             this.creditInput(u, edit, 'video'),
+            this.creditInput(u, edit, 'hints'),
+            this.creditInput(u, edit, 'bombs'),
             this.copy(u.id),
             h('button', { type: 'button', class: 'small', onclick: () => void this.saveAccount(u) }, 'Save'),
             this.banControl(u),
@@ -244,13 +255,13 @@ class AdminPage {
   }
 
   /** What is typed for an account so far: what it is now, until the administrator changes it. */
-  private editOf(u: AdminPlayer): { type: AccountType; photo: string; video: string } {
+  private editOf(u: AdminPlayer): Edit {
     let e = this.edits.get(u.id);
-    if (!e) this.edits.set(u.id, (e = { type: u.type, photo: String(u.photo), video: String(u.video) }));
+    if (!e) this.edits.set(u.id, (e = { type: u.type, photo: String(u.photo), video: String(u.video), hints: String(u.hints), bombs: String(u.bombs) }));
     return e;
   }
 
-  private creditInput(u: AdminPlayer, edit: { photo: string; video: string }, kind: 'photo' | 'video'): HTMLElement {
+  private creditInput(u: AdminPlayer, edit: Edit, kind: 'photo' | 'video' | 'hints' | 'bombs'): HTMLElement {
     return h('input', {
       type: 'number',
       class: 'num',
@@ -258,7 +269,7 @@ class AdminPage {
       max: 1_000_000,
       step: 1,
       value: edit[kind],
-      'aria-label': `${kind === 'photo' ? 'Photo' : 'Video'} credits of ${u.email}`,
+      'aria-label': `${{ photo: 'Photo credits', video: 'Video credits', hints: 'Hints', bombs: 'Bombs' }[kind]} of ${u.email}`,
       oninput: (e: Event) => (edit[kind] = (e.target as HTMLInputElement).value),            // (nothing is drawn again: the box would lose the cursor)
     });
   }
@@ -267,12 +278,12 @@ class AdminPage {
   private async saveAccount(u: AdminPlayer): Promise<void> {
     const e = this.editOf(u);
     const num = (t: string) => (/^\d{1,7}$/.test(t.trim()) ? Number(t) : NaN);
-    if (!Number.isInteger(num(e.photo)) || !Number.isInteger(num(e.video))) return this.say('Credits are whole numbers, from 0.');
-    const res = await this.api.post<{ account: { type: AccountType; photo: number; video: number } }>('/admin/account', { id: u.id, type: e.type, photo: num(e.photo), video: num(e.video) });
+    if (![e.photo, e.video, e.hints, e.bombs].every((t) => Number.isInteger(num(t)))) return this.say('Credits, hints and bombs are whole numbers, from 0.');
+    const res = await this.api.post<{ account: { type: AccountType; photo: number; video: number; hints: number; bombs: number } }>('/admin/account', { id: u.id, type: e.type, photo: num(e.photo), video: num(e.video), hints: num(e.hints), bombs: num(e.bombs) });
     if (!res.ok) return this.say(sayAdminError(res));
     Object.assign(u, res.account);
     this.edits.delete(u.id);
-    this.message = `${u.email}: ${ACCOUNT_NAMES[res.account.type]} account, ${res.account.photo} photo and ${res.account.video} video credits.`;
+    this.message = `${u.email}: ${ACCOUNT_NAMES[res.account.type]} account, ${res.account.photo} photo and ${res.account.video} video credits, ${res.account.hints} hints and ${res.account.bombs} bombs.`;
     this.redraw();
   }
 

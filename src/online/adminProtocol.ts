@@ -20,6 +20,8 @@ export interface AdminPlayer {
   type: AccountType;
   photo: number;
   video: number;
+  hints: number;
+  bombs: number;
 }
 
 /** A puzzle that exists now, as the admin page lists it. */

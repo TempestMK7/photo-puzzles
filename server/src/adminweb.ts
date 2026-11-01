@@ -83,7 +83,7 @@ export function makeAdminWeb(d: { service: RoomService; directory: Directory; lo
     // an account's type and credits (there is no payment yet: this is how a type is given)
     if (post && path === '/admin/account') {
       if (!isId(body.id)) return no(400, 'id');
-      const done = await service.adminSetAccount(body.id, { type: body.type, photo: body.photo, video: body.video });
+      const done = await service.adminSetAccount(body.id, { type: body.type, photo: body.photo, video: body.video, hints: body.hints, bombs: body.bombs });
       return done.ok ? ok({ account: done.account }) : no(400, done.error);
     }
 

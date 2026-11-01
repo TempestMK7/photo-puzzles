@@ -1,5 +1,6 @@
 import { applyBoardOp, boardCheck, type Board, type BoardOp } from '../core/boardRoom';
 import { FocusGame, type FocusState } from '../core/focus';
+import type { HelpKind } from '../core/help';
 import type { RoomEvent, RoomState } from '../core/jigsawRoom';
 import type { Rect } from '../core/layout';
 import { beginFrame, draw, rectNow, SWAP_MS, type Anim, type View } from '../render';
@@ -154,6 +155,33 @@ export class FocusSession implements PuzzleSession {
       }
     }
     return found;
+  }
+
+  /** Applies a hint or a bomb to the board, shown as a swap is (the pieces glide to their places, and those that found them get a ripple). */
+  private run(op: BoardOp): boolean {
+    const game = this.game;
+    const before = game.slotOf.map((_, i) => game.slotRect(i));
+    const wasPlaced = game.slotOf.map((_, i) => game.placed(i));
+    if (!applyBoardOp(this.board, op).ok) return false;
+    buzz(this.init, game.solved ? 'solved' : 'join');
+    if (this.showSwap(before, wasPlaced) && !game.solved) playEffect('placed');
+    this.init.requestDraw();
+    this.init.progress?.();
+    return true;
+  }
+
+  canHelp(kind: HelpKind, p: Pt): boolean {
+    const game = this.game;
+    if (game.solved) return false;
+    if (kind === 'bomb') return game.bombHits(p.x, p.y).length > 0;
+    const piece = game.pieceAt(p.x, p.y);
+    return piece >= 0 && !game.placed(piece);
+  }
+
+  help(kind: HelpKind, p: Pt): void {
+    if (!this.canHelp(kind, p)) return;
+    const op: BoardOp = kind === 'hint' ? { t: 'hint', piece: this.game.pieceAt(p.x, p.y) } : { t: 'bomb', x: Math.min(this.init.width, Math.max(0, p.x)), y: Math.min(this.init.height, Math.max(0, p.y)) };
+    if (this.run(op)) this.init.online?.send(op);
   }
 
   pointerMove(p: Pt): void {

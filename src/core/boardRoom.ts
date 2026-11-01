@@ -36,7 +36,11 @@ export type BoardOp =
   /** Overlap: the top piece of a stack goes to the bottom (`dir` 1) or the bottom one to the top (`dir` -1). */
   | { t: 'cycle'; stack: number; dir: 1 | -1 }
   /** Strips: the strip is put down at this pose (its box's top left corner, turned `angle` quarter turns, on `tab`), on top of the others; it locks if it lies where it belongs. */
-  | { t: 'place'; strip: number; x: number; y: number; angle: number; tab: number };
+  | { t: 'place'; strip: number; x: number; y: number; angle: number; tab: number }
+  /** A hint (not Sliding Tiles or Rotascope: see help.ts): the piece (a strip, in Strips) is put where it belongs. */
+  | { t: 'hint'; piece: number }
+  /** A bomb: every piece round the point is put where it belongs. The point is in picture pixels (Tile Swap), or a cell of the grid (Overlap; Strips: of the field, with its margin). */
+  | { t: 'bomb'; x: number; y: number };
 
 export type Board =
   | { kind: 'focus'; game: FocusGame }
@@ -60,6 +64,22 @@ export function buildBoard(setup: RoomSetup & { kind: BoardKind }): Board {
 
 const whole = (n: unknown, lo: number, hi: number): n is number => typeof n === 'number' && Number.isInteger(n) && n >= lo && n <= hi;
 
+/** The hint or bomb of an operation, as far as every kind of puzzle reads them alike: the pieces it places, or null if it is neither. Nothing is changed. */
+function helpOf(board: Board, op: BoardOp): { ok: false; stale?: boolean } | { ok: true; run(): number[] } | null {
+  if (op.t !== 'hint' && op.t !== 'bomb') return null;
+  const g = board.game;
+  const count = board.kind === 'focus' ? board.game.count : board.game.total;
+  if (op.t === 'hint') {
+    if (!whole(op.piece, 0, count - 1)) return { ok: false };
+    const left = board.kind === 'focus' ? !board.game.placed(op.piece) : board.kind === 'overlap' ? !board.game.done[op.piece] : !board.game.state[op.piece].locked;
+    return left ? { ok: true, run: () => ((g as { hint(i: number): boolean }).hint(op.piece) ? [op.piece] : []) } : { ok: false, stale: true };
+  }
+  const [maxX, maxY] = board.kind === 'focus' ? [board.game.width, board.game.height] : board.kind === 'overlap' ? [board.cols - 1, board.rows - 1] : [board.game.cols - 1, board.game.rows - 1];
+  if (typeof op.x !== 'number' || typeof op.y !== 'number' || !Number.isFinite(op.x) || !Number.isFinite(op.y) || op.x < 0 || op.y < 0 || op.x > maxX || op.y > maxY) return { ok: false };
+  if (board.kind !== 'focus' && (!Number.isInteger(op.x) || !Number.isInteger(op.y))) return { ok: false };
+  return { ok: true, run: () => (g as { bomb(x: number, y: number): number[] }).bomb(op.x, op.y) };
+}
+
 /** What an operation did, for the screen that shows it. */
 export interface BoardResult {
   /** The operation was allowed and has been applied. */
@@ -73,6 +93,12 @@ export interface BoardResult {
 /** Applies an operation to a board if it is allowed in the state the board is in (anything else is `ok: false` and changes nothing). The same function runs on the server and on every screen. */
 export function applyBoardOp(board: Board, op: BoardOp): BoardResult {
   if (!op || typeof op !== 'object') return { ok: false };
+  const help = helpOf(board, op);
+  if (help) {
+    if (!help.ok) return help;
+    const hit = help.run();
+    return { ok: hit.length > 0, stale: hit.length === 0 || undefined, placed: hit.length > 0 };      // (a bomb that placed nothing is a refusal: nothing was there)
+  }
   switch (board.kind) {
     case 'focus': {
       const g = board.game;
@@ -210,7 +236,7 @@ export class BoardRoom implements RoomRules {
 
 /** Is this operation one that this kind of puzzle has (whatever state it is in)? */
 function shapeOk(kind: BoardKind, op: BoardOp): boolean {
-  const ops: Record<BoardKind, readonly string[]> = { focus: ['swap'], overlap: ['put', 'turn', 'toStack', 'cycle'], strips: ['place'] };
+  const ops: Record<BoardKind, readonly string[]> = { focus: ['swap', 'hint', 'bomb'], overlap: ['put', 'turn', 'toStack', 'cycle', 'hint', 'bomb'], strips: ['place', 'hint', 'bomb'] };
   return ops[kind].includes(op.t);
 }
 

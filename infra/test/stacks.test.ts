@@ -305,6 +305,8 @@ describe('api', () => {
         ['POST /rooms', 'JWT'],                  // making a puzzle: only with an account
         ['POST /credits/ad', 'JWT'],             // credits for an ad (only where the game's word is taken): an account's too
         ['POST /credits/ad/start', 'JWT'],
+        ['POST /items/use', 'JWT'],              // hints and bombs: an account's (a guest has none)
+        ['POST /items/award', 'JWT'],
         ['GET /credits/ad/callback', 'NONE'],    // the ad network's own call: signed, checked in the function
         ['GET /rooms', 'NONE'],                  // from here the function checks the token itself, a Cognito one or a guest's
         ['GET /rooms/{proxy+}', 'NONE'],
