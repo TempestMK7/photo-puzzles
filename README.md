@@ -13,7 +13,9 @@ or Restart keeps the video where it is. Videos are stored as they are in the bro
 
 **Sound effects and celebration.** A piece that locks in place gets a brief ripple (Tile Swap, Overlap, Strips and Jigsaw; in Jigsaw it travels over every piece that is locked together, also when loose
 pieces join each other), and when a puzzle is finished a party blower sounds and confetti and streamers fly in from the bottom corners (fast at first, slowing down, then drifting down) as the "Solved!" window comes up. The game's sound effects (`src/sounds.ts`,
-the files in `src/sounds/`) have a switch of their own - **Mute sound effects** in the settings window - apart from the sound of a video puzzle. The party blower is a public-domain sound.
+the files in `src/sounds/`) have a switch of their own - **Mute sound effects** in the settings window - apart from the sound of a video puzzle. The party blower is a public-domain sound; the others are free sounds the owner supplied. Which plays when:
+a piece in its place - a bell (Tile Swap, Overlap, Strips, Jigsaw; not for the last piece, which has the party blower); a piece chosen in Tile Swap - a click; a piece lifted (Overlap, Strips, Jigsaw) or two Tile Swap
+pieces traded without either finding its place - a pick-up sound; a piece put in the wrong place in Overlap, which goes back to its stack - a buzz; a Jigsaw piece set down that neither joined nor found its place - a soft thud.
 
 **Size.** Every puzzle type has a slider that moves between a few named sizes (S, M, L, XL, XXL, and XXXL for Jigsaw; Sliding Tiles and Rotascope stop at XL) instead of a count: the size
 sets the pieces, cells, tiles or rings (`sizes` of each type in `src/core/kinds.ts`, which also lists what each size means) and starts at M. Options that are not part of the size (turned

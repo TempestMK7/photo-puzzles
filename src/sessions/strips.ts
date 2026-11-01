@@ -1,6 +1,7 @@
 import { Rng } from '../core/rng';
 import { boxOf, generateStrips, MARGIN, pictureSize, StripsGame, type StripsState } from '../core/strips';
 import { beginFrame, drawSlice, type View } from '../render';
+import { playEffect } from '../sounds';
 import { buzz, startLift, type Lift } from './feedback';
 import { Ripples } from './ripple';
 import type { Pt, PuzzleSession, SessionInit } from './types';
@@ -182,6 +183,7 @@ export class StripsSession implements PuzzleSession {
       this.selected = id;
       this.drag = { id, gx: cx - g.state[id].x, gy: cy - g.state[id].y, start: p, moved: false, at: p, touch, lift: null };
       buzz(this.init, 'grab');
+      playEffect('pickup');
     }
     this.init.requestDraw();
   }
@@ -253,6 +255,7 @@ export class StripsSession implements PuzzleSession {
     if (this.selected === id) this.selected = -1;
     this.game.moves++;
     buzz(this.init, this.game.solved ? 'solved' : 'placed');
+    if (!this.game.solved) playEffect('placed');                    // (the end of the puzzle has its own sound)
     const counts = this.game.looseCounts();                       // the tab is empty: on to the next one that still has strips
     if (counts[this.tab] === 0 && !this.game.solved) {
       for (let k = 1; k <= counts.length; k++) {

@@ -3,11 +3,17 @@
  * wants the video quiet still hears the effects, and the other way round. Browsers (and the Android web view) only let a page make a sound after the player has touched it,
  * which a puzzle's end always follows, so a refused `play()` is not an error.
  */
+import incorrect from './sounds/incorrect.wav?url';
 import partyBlower from './sounds/party-blower.mp3?url';
+import pickup from './sounds/pickup.wav?url';
+import place from './sounds/place.wav?url';
+import select from './sounds/select.wav?url';
+import successBell from './sounds/success-bell.mp3?url';
 
-export type Effect = 'solved';
+/** solved: the puzzle is done; placed: a piece is in its place; select: a piece is chosen; pickup: a piece is lifted (or traded); drop: a piece is set down loose; wrong: a piece does not go there. */
+export type Effect = 'solved' | 'placed' | 'select' | 'pickup' | 'drop' | 'wrong';
 
-const FILES: Record<Effect, string> = { solved: partyBlower };
+const FILES: Record<Effect, string> = { solved: partyBlower, placed: successBell, select, pickup, drop: place, wrong: incorrect };
 
 const players = new Map<Effect, HTMLAudioElement>();
 const listeners = new Set<() => void>();

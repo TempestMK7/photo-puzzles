@@ -3,6 +3,7 @@ import { Rng } from '../core/rng';
 import { makePattern } from './patterns';
 import { Ripples } from './ripple';
 import { beginFrame, drawSlice, type View } from '../render';
+import { playEffect } from '../sounds';
 import { buzz, startLift, type Lift } from './feedback';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
@@ -343,6 +344,7 @@ export class OverlapSession implements PuzzleSession {
     if (top >= 0 && p.x >= slot.x + SLOT_PAD && p.x < slot.x + SLOT_PAD + reach && p.y >= slot.y + PIECE_Y && p.y < slot.y + PIECE_Y + reach) {
       this.held = { id: top, stack: s, at: p, moved: false, start: p, touch, lift: null };
       buzz(this.init, 'grab');
+      playEffect('pickup');
     }
     this.init.requestDraw();
   }
@@ -380,10 +382,12 @@ export class OverlapSession implements PuzzleSession {
         if (g.drop(h.id, box.cell.x, box.cell.y) === 'placed') {
           this.ripples.add(g.cellsNow(h.id).map((c) => ({ x: this.gridX + (box.cell!.x + c.x) * CELL, y: this.gridY + (box.cell!.y + c.y) * CELL, w: CELL, h: CELL })), performance.now());
           buzz(this.init, g.solved ? 'solved' : 'placed');
+          if (!g.solved) playEffect('placed');                    // (the end of the puzzle has its own sound)
         } else {
           const cell = box.cell;
           this.wrong = { cells: g.cellsNow(h.id).map((c) => ({ x: cell.x + c.x, y: cell.y + c.y })).filter((c) => c.x >= 0 && c.y >= 0 && c.x < this.cols && c.y < this.rows), at: performance.now() };
           buzz(this.init, 'drop');
+          playEffect('wrong');                                    // it does not go there: it is back on its stack
         }
       } else buzz(this.init, 'drop');
     }

@@ -8,6 +8,7 @@ import { beginFrame, type View } from '../render';
 import { buildAtlas, buildMasks, buildSprite, snapshot, type Atlas, type Sprite } from './jigsawArt';
 import { glAvailable, PieceRenderer, type GlGroup } from './jigsawGl';
 import { GroupRipple } from './ripple';
+import { playEffect } from '../sounds';
 import { LIFT_CSS, LIFT_MS } from './feedback';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
@@ -622,9 +623,12 @@ export class JigsawSession implements PuzzleSession {
     this.init.requestDraw();
   }
 
-  /** Gives touch feedback (on a device that can, if the player has not turned it off). */
+  /** Gives touch feedback (on a device that can, if the player has not turned it off), and the sound that goes with the moment: a piece lifted, set down loose, or put in its place. */
   private buzz(kind: Haptic): void {
     if (this.init.flag('haptics')) haptic(kind);
+    if (kind === 'grab') playEffect('pickup');
+    else if (kind === 'drop') playEffect('drop');
+    else if (kind === 'placed') playEffect('placed');                // (the end of the puzzle has its own sound)
   }
 
   /** Where the dragged group is held: at the pointer, or, for a finger, a little above it. It may go up past the top of the screen (a piece for the top edge of the board needs that), but not off the table. */
