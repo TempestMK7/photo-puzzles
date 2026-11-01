@@ -1,3 +1,4 @@
+import type { BoardOp, BoardState } from './boardRoom';
 import { TRAY_MAX, type JigsawState } from './jigsaw';
 import { centreAt, traySize } from './trays';
 import { applyOp, buildJigsaw, TOL_MAX_K, TOL_MIN_K, type JigsawBoard, type JigsawOp, type JigsawSetup } from './jigsawSetup';
@@ -34,7 +35,12 @@ export interface Lock {
   until: number;
 }
 
-export type Command = JigsawOp | { t: 'release' } | { t: 'select'; piece: number } | { t: 'unselect' };
+export type JigsawCommand = JigsawOp | { t: 'release' } | { t: 'select'; piece: number } | { t: 'unselect' };
+
+/** What a player asks of a room: a Jigsaw's commands, or an operation of one of the other puzzles (see boardRoom.ts). */
+export type Command = JigsawCommand | BoardOp;
+
+const JIGSAW_COMMANDS: readonly string[] = ['grab', 'drop', 'rotate', 'trayAdd', 'trayRemove', 'release', 'select', 'unselect'];
 
 /** What the room tells everyone after it accepted a command. */
 export interface RoomEvent {
@@ -42,14 +48,14 @@ export interface RoomEvent {
   v: number;
   by: string;
   /** The operation to apply to the board (a release has none). `tol` is what the room allowed, which may differ from what was asked. */
-  op?: JigsawOp;
+  op?: JigsawOp | BoardOp;
   /** Who holds a piece now. */
   lock: Lock | null;
   /** Every piece that is reserved now (a screen replaces what it had by this). */
   reserved: Reservation[];
   /** How many groups the operation joined, and whether that finished the puzzle. */
   joins: number;
-  /** How many groups the board has now: a screen that counts a different number has gone wrong and asks for the whole state. */
+  /** How many groups the board has now (for the other puzzles, a number that says what the board comes to: `boardCheck`): a screen that counts a different number has gone wrong and asks for the whole state. */
   groups: number;
   solved: boolean;
 }
@@ -72,7 +78,7 @@ export interface RoomState {
   v: number;
   lock: Lock | null;
   solved: boolean;
-  game: JigsawState;
+  game: JigsawState | BoardState;
   /** The reserved pieces (a room from before they existed has none). */
   reserved?: Reservation[];
 }
@@ -88,7 +94,7 @@ export class JigsawRoom {
   constructor(readonly setup: JigsawSetup, state?: RoomState) {
     this.board = buildJigsaw(setup);
     if (state) {
-      this.board.game.restore(state.game);               // throws if it is not this puzzle
+      this.board.game.restore(state.game as JigsawState);               // throws if it is not this puzzle
       this.v = state.v;
       this.lock = state.lock;
       this.done = state.solved;
@@ -142,8 +148,10 @@ export class JigsawRoom {
     return { ok: true, until: this.lock.until };
   }
 
-  submit(player: string, cmd: Command, now: number): RoomResult {
+  submit(player: string, command: Command, now: number): RoomResult {
     if (this.done) return { ok: false, reason: 'ended' };
+    if (!command || typeof command !== 'object' || !JIGSAW_COMMANDS.includes(command.t)) return { ok: false, reason: 'bad' };         // (an operation of another kind of puzzle)
+    const cmd = command as JigsawCommand;
     this.at = now;
     const g = this.board.game;
     const others = this.holder(now);

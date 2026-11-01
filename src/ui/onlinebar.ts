@@ -56,6 +56,12 @@ export class OnlineBar {
     }
   }
 
+  /** The picture is in the player's own list already: the button that keeps it is greyed out. */
+  setSaved(saved: boolean): void {
+    this.saveBtn.disabled = saved;
+    this.saveBtn.title = saved ? 'This picture is in your list already' : 'Keep this picture in your own list';
+  }
+
   show(room: OnlineRoom, invite: Invite | null): void {
     this.room = room;
     this.invite = invite;

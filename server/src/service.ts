@@ -1,6 +1,8 @@
-import { JigsawRoom } from '../../src/core/jigsawRoom';
+import { buildBoard, isBoardKind, openRoom, type BoardKind } from '../../src/core/boardRoom';
 import { layoutJigsaw } from '../../src/core/jigsaw';
 import { findKind, optionsOf } from '../../src/core/kinds';
+import { overlapGrid } from '../../src/core/overlap';
+import { pictureSize } from '../../src/core/strips';
 import { Rng } from '../../src/core/rng';
 import {
   cleanName,
@@ -95,17 +97,48 @@ async function sha256(text: string): Promise<string> {
 }
 
 /** The settings of a puzzle as the server will keep them: checked, the options within their limits, nothing else. */
+/** How big a room's puzzle is, for the operator's lists: its pieces, or its cells for Overlap and Strips. */
+function sizeOf(settings: RoomSettings): number {
+  return settings.opts.pieces ?? settings.opts.total ?? settings.opts.cells ?? 0;
+}
+
+/** What a size sets for each of the puzzles that are played together besides the Jigsaw: the option, the least and the most it may be (the most of the first is the limit of the puzzle's size). */
+const SIZED: Record<BoardKind, { key: string; lo: number; hi: number }[]> = {
+  focus: [{ key: 'pieces', lo: 4, hi: 5000 }],
+  overlap: [{ key: 'total', lo: 20, hi: 5000 }, { key: 'stacks', lo: 1, hi: 10 }],
+  strips: [{ key: 'cells', lo: 20, hi: 5000 }, { key: 'length', lo: 3, hi: 12 }, { key: 'tabs', lo: 1, hi: 12 }],
+};
+
 export function checkSettings(raw: RoomSettings, limits: Limits): RoomSettings | ApiFailure {
-  const kind = findKind('jigsaw')!;
-  if (!raw || raw.kind !== 'jigsaw') return fail('bad-request');
+  if (!raw || (raw.kind !== 'jigsaw' && !isBoardKind(raw.kind))) return fail('bad-request');
+  const kind = findKind(raw.kind)!;
   const whole = (n: unknown, lo: number, hi: number) => typeof n === 'number' && Number.isInteger(n) && n >= lo && n <= hi;
   if (!whole(raw.width, 64, 4096) || !whole(raw.height, 64, 4096) || !whole(raw.seed, 0, 4294967295)) return fail('bad-request');
   if (!raw.opts || typeof raw.opts !== 'object') return fail('bad-request');
   const given: Record<string, number> = {};
-  for (const [k, v] of Object.entries(raw.opts)) given[`jigsaw.${k}`] = v;
+  for (const [k, v] of Object.entries(raw.opts)) given[`${raw.kind}.${k}`] = v;
   const all = optionsOf(given, kind);
   const opts: Record<string, number> = {};
   for (const o of kind.options) if (!o.display && !o.tiers) opts[o.key] = all[o.key];            // what a player sees on their own screen is not part of the puzzle
+  if (raw.kind !== 'jigsaw') {
+    // the sizes are asked for as numbers (what a size sets), and the board has to be one that a server can keep
+    const sized = SIZED[raw.kind];
+    for (const { key, lo, hi } of sized) {
+      const v = raw.opts[key];
+      if (!whole(v, lo, hi)) return fail('bad-request');
+      opts[key] = v;
+    }
+    if (opts[sized[0].key] > limits.jigsawPieces) return fail('limit');
+    const cells = raw.kind === 'overlap' ? overlapGrid(opts.total, raw.width, raw.height) : raw.kind === 'strips' ? pictureSize(raw.width, raw.height, opts.cells) : null;
+    if (cells && (('cols' in cells ? cells.cols * cells.rows : cells.picCols * cells.picRows) > limits.jigsawPieces * 1.2)) return fail('limit');
+    const checked: RoomSettings = { kind: raw.kind, seed: raw.seed, width: raw.width, height: raw.height, opts };
+    try {
+      buildBoard(checked as RoomSettings & { kind: BoardKind });
+    } catch {
+      return fail('bad-request');                                                    // (a picture of a shape that cannot be cut into strips)
+    }
+    return checked;
+  }
   const pieces = raw.opts.pieces;                                                    // (the number of pieces is asked for as a number: the sizes of the main screen are not the room's business)
   if (!whole(pieces, 20, 5000)) return fail('bad-request');
   opts.pieces = pieces;
@@ -227,7 +260,7 @@ export class RoomService {
       ready: room.ready,
       createdAt: room.createdAt,
       expiresAt: room.expiresAt,
-      pieces: room.settings.opts.pieces,
+      pieces: sizeOf(room.settings),
       picture: room.ready ? await this.d.media.signedUrl(room.id) : null,
       video: room.video,
     };
@@ -244,7 +277,7 @@ export class RoomService {
         id: room.id,
         owner: { id: room.ownerId, name: room.members.find((m) => m.id === room.ownerId)?.name ?? '' },
         members: room.members.map((m) => ({ id: m.id, name: m.name, online: online.has(m.id) })),
-        pieces: room.settings.opts.pieces,
+        pieces: sizeOf(room.settings),
         status: room.status,
         ready: room.ready,
         createdAt: room.createdAt,
@@ -615,7 +648,7 @@ export class RoomService {
       status: 'open',
       createdAt: now,
       expiresAt: Math.min(now + limits.idleMs, now + limits.maxAgeMs),
-      state: new JigsawRoom(settings).state(),
+      state: openRoom(settings).state(),
       rev: 0,
     };
     // paid for just before the room is written, so that nothing is lost when something fails before (two puzzles started at once with one credit left: one of them is turned away here)
@@ -930,7 +963,7 @@ export class RoomService {
     for (const id of await this.d.store.roomsOf(player.id)) {
       const r = await this.live(id);
       if (!r?.ready) continue;
-      rooms.push({ id, settings: { kind: 'jigsaw', opts: r.settings.opts }, owner: r.ownerId, members: r.members, online: (await this.d.presence.online(id)).length, status: r.status, expiresAt: r.expiresAt });
+      rooms.push({ id, settings: { kind: r.settings.kind, opts: r.settings.opts }, owner: r.ownerId, members: r.members, online: (await this.d.presence.online(id)).length, status: r.status, expiresAt: r.expiresAt });
     }
     return { ok: true, rooms: rooms.sort((a, b) => b.expiresAt - a.expiresAt) };
   }
@@ -969,7 +1002,7 @@ export class RoomService {
       refusal = undefined;
       if (r.status === 'solved') return fail('ended');
       const now = clock.now();
-      const room = new JigsawRoom(r.settings, r.state);
+      const room = openRoom(r.settings, r.state);
       const res = room.submit(player.id, req.command, now);
       if (!res.ok) {
         refusal = fail(res.reason === 'bad' ? 'bad-request' : res.reason, res.holder ? { holder: res.holder } : {});
@@ -997,7 +1030,7 @@ export class RoomService {
     let refusal: ApiFailure | undefined;
     const done = await this.update(roomId, (r) => {
       refusal = undefined;
-      const room = new JigsawRoom(r.settings, r.state);
+      const room = openRoom(r.settings, r.state);
       const res = room.renew(player.id, this.d.clock.now());
       if (!res.ok) {
         refusal = fail(res.reason === 'bad' ? 'bad-request' : res.reason);
@@ -1034,7 +1067,7 @@ export class RoomService {
 
   /** A player who goes (or is sent) out of the room does not keep a piece in their hand, or the piece they had chosen. */
   private letGo(r: RoomRecord, id: string): void {
-    const room = new JigsawRoom(r.settings, r.state);
+    const room = openRoom(r.settings, r.state);
     if (room.holder(this.d.clock.now())?.holder === id) room.submit(id, { t: 'release' }, this.d.clock.now());
     room.unreserve(id);
     r.state = room.state();

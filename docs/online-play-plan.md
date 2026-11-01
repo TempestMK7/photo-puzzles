@@ -6,8 +6,8 @@ Status (2026-10-30): Phases 0 and 1 are built (a local prototype); Phase 2 is **
 
 ## What it is
 
-Someone starts a Jigsaw puzzle, agrees that the picture goes to our server, and gets a 5-digit code and an invite link. Friends join with either. Everyone shares one board and
-can move pieces, but only one person has a piece in hand at a time. Players can leave and come back until the puzzle is solved or has been idle for 24 hours. Solving it ends
+Someone starts a Jigsaw, Tile Swap, Overlap or Strips puzzle (the type chosen on the main screen), agrees that the picture goes to our server, and gets a 5-digit code and an invite link. Friends join with either. Everyone shares one board and
+can move pieces; in a Jigsaw only one person has a piece in hand at a time, in the other three everybody moves at once and the server puts the moves in order (`online-protocol.md`, *Tile Swap, Overlap and Strips*). Players can leave and come back until the puzzle is solved or has been idle for 24 hours. Solving it ends
 the online puzzle: people still in it can watch the finished board until they leave, then the puzzle is gone from their list. Anyone can save the picture to their own library.
 
 Local play stays exactly as it is: free, unlimited, no account, nothing leaves the device.

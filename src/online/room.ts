@@ -3,14 +3,14 @@ import type { CallError, RoomApi } from './api';
 import { HAND_INTERVAL_MS, lockHeld, RENEW_INTERVAL_MS, type HandMessage, type Member, type Playback, type RoomDescriptor, type RoomMessage } from './protocol';
 import type { Connection, Realtime } from './realtime';
 
-/** What the room needs from the puzzle on the screen (the Jigsaw session): it applies what the others did, and tells how many groups it has. */
+/** What the room needs from the puzzle on the screen (a session): it applies what the others did, and tells how many groups it has (for the puzzles without groups, the number `boardCheck` makes). */
 export interface RoomView {
   /** Another player's operation, to be applied to the board. */
   applyEvent(event: RoomEvent): void;
   /** Throw the board away and take this one (after a gap in the messages, or a refusal). */
   resync(state: RoomState): void;
-  /** Where the piece another player holds is now, or `null` when it is let go (it goes back to where the board has it). */
-  hand(by: string, pose: HandMessage | null): void;
+  /** Where the piece another player holds is now, or `null` when it is let go (it goes back to where the board has it). Only a Jigsaw has hands. */
+  hand?(by: string, pose: HandMessage | null): void;
   groupCount(): number;
   /** The pieces that other players have chosen (and so nobody else may take) changed, or one ran out: draw them again. */
   reservations?(): void;
@@ -68,6 +68,9 @@ export class OnlineRoom {
   /** Commands sent (or waiting to be) that the server has not answered yet: the board here is ahead of the server's by those. */
   private pending = 0;
   private ended = false;
+  /** Another player's operation was applied while this player's own were still on their way (in a puzzle where everybody moves at once): the boards may now differ in order, so the room's is taken once those are answered. */
+  private mixedUp = false;
+  private readonly shared: boolean;
 
   constructor(
     private readonly api: RoomApi,
@@ -89,6 +92,7 @@ export class OnlineRoom {
     this.descriptor = descriptor;
     this.playback = descriptor.playback ?? null;
     this.ownerId = descriptor.owner;
+    this.shared = descriptor.settings.kind !== 'jigsaw';
   }
 
   readonly id: string;
@@ -206,6 +210,7 @@ export class OnlineRoom {
       if (!res) return;
       if (res.ok) {
         this.process(res.event);
+        if (this.mixedUp && this.pending === 0) await this.resync();
         return;
       }
       this.onRefused(res.error, 'holder' in res ? res.holder : undefined);
@@ -326,7 +331,7 @@ export class OnlineRoom {
     if (this.lock?.holder !== by || (this.handSeen.get(by) ?? 0) >= msg.n) return;       // not who holds a piece, or an older message that came late
     this.handSeen.set(by, msg.n);
     this.handBy = by;
-    this.view?.hand(by, msg);
+    this.view?.hand?.(by, msg);
   }
 
   /** An event of the room, in order: the one after the last seen is applied, an older one is ignored, a later one means something was missed. */
@@ -341,6 +346,7 @@ export class OnlineRoom {
     const ownTray = ev.by === this.me && (ev.op?.t === 'trayAdd' || ev.op?.t === 'trayRemove');
     if (ev.by !== this.me || ownTray) {
       if (!ownTray) this.dropHand();
+      if (this.shared && ev.by !== this.me && this.pending > 0) this.mixedUp = true;
       this.view?.applyEvent(ev);
     }
     this.reserved = ev.reserved ?? [];
@@ -353,7 +359,7 @@ export class OnlineRoom {
   }
 
   private dropHand(): void {
-    if (this.handBy) this.view?.hand(this.handBy, null);
+    if (this.handBy) this.view?.hand?.(this.handBy, null);
     this.handBy = null;
   }
 
@@ -418,6 +424,7 @@ export class OnlineRoom {
         this.ownerId = r.owner;
         if (r.playback && !this.host && this.takePlayback(r.playback)) this.onPlayback();
         this.version = r.state.v;
+        this.mixedUp = false;
         this.handSeen.clear();
         this.handBy = null;
         this.reserved = r.state.reserved ?? [];

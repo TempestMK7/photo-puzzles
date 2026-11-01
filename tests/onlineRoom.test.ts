@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { JigsawGame } from '../src/core/jigsaw';
+import { applyBoardOp, boardCheck, buildBoard, type Board, type BoardKind, type BoardOp, type RoomSetup } from '../src/core/boardRoom';
+import type { FocusGame, FocusState } from '../src/core/focus';
+import type { JigsawGame, JigsawState } from '../src/core/jigsaw';
 import { JigsawRoom, LOCK_MS, type Command, type RoomEvent, type RoomState } from '../src/core/jigsawRoom';
 import { applyOp, type JigsawOp } from '../src/core/jigsawSetup';
 import type { RoomApi } from '../src/online/api';
@@ -7,7 +9,7 @@ import { PROTOCOL_VERSION, topics, type HandMessage, type RoomDescriptor } from 
 import type { Connection, Realtime, RealtimeHandlers } from '../src/online/realtime';
 import { OnlineRoom, type RoomView } from '../src/online/room';
 import type { Player } from '../server/src/types';
-import { ann, bob, joined, open, world, type World } from './helpers/world';
+import { ann, bob, joined, open, request, world, type World } from './helpers/world';
 
 /** The live side with no network: what the service publishes goes straight to whoever is connected, and a hand goes to the others. */
 class Net {
@@ -64,11 +66,11 @@ class View implements RoomView {
     this.game = new JigsawRoom(d.settings, d.state).board.game;
   }
   applyEvent(e: RoomEvent): void {
-    if (e.op) applyOp(this.game, e.op);
+    if (e.op) applyOp(this.game, e.op as JigsawOp);
   }
   resync(state: RoomState): void {
     this.resyncs++;
-    this.game.restore(state.game);
+    this.game.restore(state.game as JigsawState);
   }
   hand(by: string, pose: HandMessage | null): void {
     this.hands.push({ by, piece: pose ? pose.piece : null });
@@ -290,5 +292,97 @@ describe('OnlineRoom', () => {
     expect(b.room.holderOther()?.id).toBe('ann');
     expect(a.room.holderOther()).toBeNull();                              // a player's own hold is not "another's"
     expect(b.room.serverNow).toBeGreaterThan(0);
+  });
+});
+
+/** The screen of a puzzle that everybody moves at once (Tile Swap here): its board, and what it was told. */
+class SharedView implements RoomView {
+  board: Board;
+  resyncs = 0;
+  constructor(d: RoomDescriptor) {
+    this.board = buildBoard(d.settings as RoomSetup & { kind: BoardKind });
+    (this.board.game as FocusGame).restore(d.state.game as FocusState);
+  }
+  applyEvent(e: RoomEvent): void {
+    if (e.op) applyBoardOp(this.board, e.op as BoardOp);
+  }
+  resync(state: RoomState): void {
+    this.resyncs++;
+    (this.board.game as FocusGame).restore(state.game as FocusState);
+  }
+  groupCount(): number {
+    return boardCheck(this.board);
+  }
+  slots(): string {
+    return JSON.stringify((this.board.game as FocusGame).slotOf);
+  }
+}
+
+describe('OnlineRoom, a puzzle that everybody moves at once', () => {
+  let w: World;
+  let net: Net;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    w = world();
+    net = new Net(w);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  async function twoOnFocus() {
+    const req = { ...request(), settings: { kind: 'focus' as const, seed: 21, width: 400, height: 300, opts: { pieces: 20, irregular: 1 } } };
+    const made = await open(w, ann, req);
+    const dBob = await joined(w, made, bob);
+    const dAnn = (await w.service.getRoom(ann, made.roomId)) as { ok: true; room: RoomDescriptor };
+    const make = (p: Player, d: RoomDescriptor) => {
+      const view = new SharedView(d);
+      const room = new OnlineRoom(apiFor(w, p), net.realtime(p.id), d, p.id);
+      room.attach(view);
+      return { room, view, do: (op: BoardOp) => (applyBoardOp(view.board, op), room.send(op as Command)) };
+    };
+    const a = make(ann, dAnn.room);
+    const b = make(bob, dBob);
+    await vi.waitFor(() => expect([a.view.resyncs, b.view.resyncs]).toEqual([1, 1]));
+    const slotOf = (a.view.board.game as FocusGame).slotOf;
+    const loose = slotOf.map((s, i) => (s === i ? -1 : i)).filter((i) => i >= 0);
+    return { a, b, made, loose };
+  }
+
+  it('shows each player what the other did, without a hold on anything', async () => {
+    const { a, b, loose } = await twoOnFocus();
+    a.do({ t: 'swap', a: loose[0], b: loose[1] });
+    await a.room.whenSent();
+    expect(b.view.slots()).toBe(a.view.slots());
+    expect(b.room.holderOther()).toBeNull();
+    b.do({ t: 'swap', a: loose[2], b: loose[3] });
+    await b.room.whenSent();
+    expect(a.view.slots()).toBe(b.view.slots());
+    expect(a.view.resyncs).toBe(1);                                       // (nothing was out of step: no need to ask for the board again)
+  });
+
+  it('puts the boards right when two players move the same pieces at the same moment', async () => {
+    const { a, b, made, loose } = await twoOnFocus();
+    // both swap at once, before either has heard of the other's: the pieces they move overlap, so the order in which they are applied matters
+    a.do({ t: 'swap', a: loose[0], b: loose[1] });
+    b.do({ t: 'swap', a: loose[1], b: loose[2] });
+    await a.room.whenSent();
+    await b.room.whenSent();
+    await vi.waitFor(() => expect(a.view.slots()).toBe(b.view.slots()));
+    const server = (await w.service.getRoom(ann, made.roomId)) as { ok: true; room: RoomDescriptor };
+    expect(JSON.parse(a.view.slots())).toEqual((server.room.state.game as FocusState).slotOf);
+  });
+
+  it('is told when somebody else was first, and takes the room\'s board', async () => {
+    const { a, b, loose } = await twoOnFocus();
+    const refused: string[] = [];
+    b.room.onRefused = (e) => refused.push(e);
+    const slotOf = (a.view.board.game as FocusGame).slotOf;
+    const i = loose[0];
+    const j = slotOf.findIndex((s) => s === i);                        // the piece in i's place: swapping them puts i home
+    a.do({ t: 'swap', a: i, b: j });
+    b.do({ t: 'swap', a: i, b: loose.find((k) => k !== i && k !== j)! });
+    await a.room.whenSent();
+    await b.room.whenSent();
+    await vi.waitFor(() => expect(a.view.slots()).toBe(b.view.slots()));
+    expect(refused).toEqual(['no-group']);
   });
 });

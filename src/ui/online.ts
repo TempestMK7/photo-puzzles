@@ -1,4 +1,4 @@
-import { findKind, optionsOf, puzzleSeedText, type Settings } from '../core/kinds';
+import { describeDifficulty, findKind, optionsOf, puzzleSeedText, type KindId, type Settings } from '../core/kinds';
 import type { Prefs } from '../core/prefs';
 import { seedFromText } from '../core/rng';
 import type { CallError, Offline, OnlineApi } from '../online/api';
@@ -122,16 +122,35 @@ export function sayError(error: CallError, failure?: { retryAt?: number; credits
   }
 }
 
-/** The pop-up for playing with friends: make a puzzle, join one with a code or a link, and the puzzles the player is in. */
-/** The options of an online Jigsaw: the puzzle's own (not the size, which has set the number of pieces), at most as many pieces as an online puzzle may have. */
-function roomOpts(settings: Settings): Record<string, number> {
-  const kind = findKind('jigsaw')!;
+/** The puzzles that can be played together, and what a size sets in each (the first is how many pieces or cells it has). */
+const ROOM_KINDS: Partial<Record<KindId, string[]>> = { jigsaw: ['pieces'], focus: ['pieces'], overlap: ['total', 'stacks'], strips: ['cells', 'length', 'tabs'] };
+
+/** The puzzle a room is started with: the type chosen on the main screen if it can be played together, else a Jigsaw. */
+function roomKind(prefs: Prefs): KindId {
+  return prefs.data.kind in ROOM_KINDS ? (prefs.data.kind as KindId) : 'jigsaw';
+}
+
+/** The options of an online puzzle: the puzzle's own, with what the size sets as plain numbers (the sizes of the main screen are not the room's business), at most as many pieces as an online puzzle may have. */
+function roomOpts(settings: Settings, id: KindId): Record<string, number> {
+  const kind = findKind(id)!;
   const all = optionsOf(settings, kind);
   const opts: Record<string, number> = {};
   for (const o of kind.options) if (!o.display && !o.tiers) opts[o.key] = all[o.key];
-  opts.pieces = Math.min(all.pieces, DEFAULT_LIMITS.jigsawPieces);
+  for (const key of ROOM_KINDS[id]!) opts[key] = all[key];
+  const main = ROOM_KINDS[id]![0];
+  opts[main] = Math.min(all[main], DEFAULT_LIMITS.jigsawPieces);
   return opts;
 }
+
+/** What a puzzle in the list is: "Jigsaw · 200 pieces". */
+export function roomLabel(settings: Pick<RoomSettings, 'kind'> & { opts: Record<string, number> }): string {
+  const kind = findKind(settings.kind);
+  const o = settings.opts;
+  const size = settings.kind === 'overlap' ? `${o.total} cells` : settings.kind === 'strips' ? `${o.cells} cells` : `${o.pieces} pieces`;
+  return `${kind?.name ?? 'Puzzle'} · ${size}`;
+}
+
+/** The pop-up for playing with friends: make a puzzle, join one with a code or a link, and the puzzles the player is in. */
 
 export class OnlinePanel {
   readonly el: HTMLElement;
@@ -143,11 +162,13 @@ export class OnlinePanel {
   private whoEl = h('div', { class: 'who' });
   /** Stands in for everything else while the account's name is being fetched, so that nothing is drawn twice. */
   private loadingEl = h('p', { class: 'chosen' }, 'Loading…');
-  /** What stands where "Start a Jigsaw" is for a player who has no account: joining needs only a name, making a puzzle needs an account. */
+  /** What stands where "Start a puzzle" is for a player who has no account: joining needs only a name, making a puzzle needs an account. */
+  private startTitle = h('h3', {}, 'Start a puzzle');
+  private needTitle = h('h3', {}, 'Start a puzzle');
   private needAccount = h(
     'section',
     { hidden: true },
-    h('h3', {}, 'Start a Jigsaw'),
+    this.needTitle,
     h('p', { class: 'chosen' }, 'Making a puzzle needs an account. Joining one only needs a name.'),
     h('button', { type: 'button', class: 'primary', onclick: () => void this.signIn() }, 'Sign in or create an account'),
   );
@@ -176,7 +197,7 @@ export class OnlinePanel {
     this.startSection = h(
       'section',
       {},
-      h('h3', {}, 'Start a Jigsaw'),
+      this.startTitle,
       this.chosenEl,
       h(
         'label',
@@ -313,9 +334,13 @@ export class OnlinePanel {
   /** What is shown about the chosen photo and the settings the puzzle would have. */
   private refresh(): void {
     const entry = this.deps.chosen();
-    const kind = findKind('jigsaw')!;
-    const opts = optionsOf(this.deps.prefs.data.settings, kind);
-    const note = opts.pieces > DEFAULT_LIMITS.jigsawPieces ? ` (online puzzles have at most ${DEFAULT_LIMITS.jigsawPieces} pieces: it will have that many)` : '';
+    const id = roomKind(this.deps.prefs);
+    const kind = findKind(id)!;
+    const settings = this.deps.prefs.data.settings;
+    const opts = optionsOf(settings, kind);
+    const main = ROOM_KINDS[id]![0];
+    const note = opts[main] > DEFAULT_LIMITS.jigsawPieces ? ` (online puzzles have at most ${DEFAULT_LIMITS.jigsawPieces} ${id === 'overlap' || id === 'strips' ? 'cells' : 'pieces'}: it will have that many)` : '';
+    this.startTitle.textContent = this.needTitle.textContent = `Start ${/^[aeiou]/i.test(kind.name) ? 'an' : 'a'} ${kind.name}`;
     const admin = this.deps.identity.isAdmin();                                  // an administrator may try a video of any length and size
     const tooLong = !admin && !!entry?.video && entry.duration * 1000 > DEFAULT_LIMITS.videoMs;
     const wrongKind = !!entry?.video && /[.](webm|mkv)$/i.test(entry.name);          // plays here, but cannot be checked to be shared (the check reads MP4 and MOV)
@@ -325,7 +350,7 @@ export class OnlinePanel {
         ? `${entry.name} cannot be shared online: online puzzles take MP4 or MOV videos (made with H.264).`
         : tooLong
         ? `${entry.name} is longer than the ${DEFAULT_LIMITS.videoMs / 1000} seconds an online video puzzle may be: choose another, or a picture.`
-        : `${entry.name}: ${entry.video ? 'a video, ' : ''}about ${Math.min(opts.pieces, DEFAULT_LIMITS.jigsawPieces)} pieces${opts.turning ? ', turned pieces' : ''}${note}. The settings are the Jigsaw settings of the main screen. ${costNote(!!entry.video, this.deps.identity.summary())}`.trim();
+        : `${entry.name}: ${entry.video ? 'a video, ' : ''}${describeDifficulty(kind, settings)}${note}. The settings are the ${kind.name} settings of the main screen. ${costNote(!!entry.video, this.deps.identity.summary())}`.trim();
     const said = entry?.video
       ? 'I agree that this video is sent to the online server, where the players of this puzzle can see and download it, and that all of it is checked automatically. The puzzle is deleted when it is solved or when nobody has touched it for a day, but the server keeps a copy of the video for a week after you last make a puzzle from it, so that you can make another without sending it again. I confirm that it has no sexual or adult content: that is not allowed in online puzzles.'
       : 'I agree that this picture is sent to the online server, where the players of this puzzle can see it. The puzzle is deleted when it is solved or when nobody has touched it for a day, but the server keeps a copy of the picture for a week after you last make a puzzle from it, so that you can make another without sending it again. I confirm that it has no sexual or adult content: that is not allowed in online puzzles.';
@@ -356,7 +381,7 @@ export class OnlinePanel {
               h(
                 'span',
                 { class: 'what' },
-                `Jigsaw · ${r.settings.opts.pieces} pieces · ${r.members.map((m) => m.name).join(', ')}`,
+                `${roomLabel(r.settings)} · ${r.members.map((m) => m.name).join(', ')}`,
                 h(
                   'small',
                   { title: 'A puzzle that nobody touches for a day ends; a solved one stays for a while so that the others can still look at it' },
@@ -411,8 +436,9 @@ export class OnlinePanel {
     let src: Awaited<ReturnType<PhotoLibrary['load']>> | null = null;
     try {
       src = await photos.load(entry);
-      const opts = roomOpts(prefs.data.settings);
-      const settings: RoomSettings = { kind: 'jigsaw', seed: seedFromText(puzzleSeedText(prefs.data.seed, entry.id, 'jigsaw')), width: src.width, height: src.height, opts };
+      const id = roomKind(prefs);
+      const opts = roomOpts(prefs.data.settings, id);
+      const settings: RoomSettings = { kind: id as RoomSettings['kind'], seed: seedFromText(puzzleSeedText(prefs.data.seed, entry.id, id)), width: src.width, height: src.height, opts };
       this.say('Making the puzzle…');
       const kept = await this.fromKept(entry, settings);
       if (kept) return kept.ok ? this.openMade(kept.roomId, kept.invite, entry) : this.fail(kept);
@@ -479,8 +505,9 @@ export class OnlinePanel {
       if (!(seconds > 0) || !Number.isFinite(seconds)) throw new Error('This browser cannot tell how long that video is.');
       if (!this.deps.identity.isAdmin() && (seconds * 1000 > DEFAULT_LIMITS.videoMs || file.size > DEFAULT_LIMITS.videoBytes)) throw new Error(sayError('too-big'));
       if (src.width > 4096 || src.height > 4096) throw new Error('That video is too large (over 4096 pixels) for an online puzzle.');
-      const opts = roomOpts(prefs.data.settings);
-      const settings: RoomSettings = { kind: 'jigsaw', seed: seedFromText(puzzleSeedText(prefs.data.seed, entry.id, 'jigsaw')), width: src.width, height: src.height, opts };
+      const id = roomKind(prefs);
+      const opts = roomOpts(prefs.data.settings, id);
+      const settings: RoomSettings = { kind: id as RoomSettings['kind'], seed: seedFromText(puzzleSeedText(prefs.data.seed, entry.id, id)), width: src.width, height: src.height, opts };
       this.say('Making the puzzle…');
       const kept = await this.fromKept(entry, settings);
       if (kept) return kept.ok ? this.openMade(kept.roomId, kept.invite, entry) : this.fail(kept);
