@@ -13,6 +13,7 @@ import {
   ACCOUNT_TYPES,
   adGives,
   helpIsFree,
+  earnsUncapped,
   isHelpItem,
   mayStartVideos,
   photosAreFree,
@@ -32,6 +33,7 @@ import {
   type AdStartResponse,
   type ApiFailure,
   type AwardRequest,
+  type AwardResponse,
   type HelpItem,
   type ItemRequest,
   type ItemResponse,
@@ -52,7 +54,7 @@ import {
   type ReportRequest,
   type RoomSummary,
 } from '../../src/online/protocol';
-import { adsToday, dayOf, GUEST_SUMMARY, helpHeld, newAccount, summaryOf } from './accounts';
+import { adsToday, dayOf, earnedToday, GUEST_SUMMARY, helpHeld, newAccount, summaryOf } from './accounts';
 import { isGuestId } from './guest';
 import { sniffImage } from './image';
 import type { AdminFile, AdminRoomSummary } from '../../src/online/adminProtocol';
@@ -577,12 +579,32 @@ export class RoomService {
     return { ok: true, account: await this.summary(who) };
   }
 
-  /** A puzzle that the player played alone was solved: its hints are added. (Nobody but the game can say so, since the puzzle is on the player's own device.) */
-  async awardSolved(who: Player, req: AwardRequest): Promise<ItemResponse> {
+  /**
+   * Adds the hints that a solved puzzle is worth to an account, as many as its type may earn today: a free account up to `freeHintsPerDay` in a day (counted from midnight UTC, and a puzzle
+   * that is worth more than is left gives what is left), the others as many as they solve. Returns how many were given.
+   */
+  private async earnHints(playerId: string, type: AccountType, n: number): Promise<number> {
+    const { limits, clock } = this.d;
+    let given = 0;
+    const done = await this.changeAccount(playerId, (a) => {
+      const now = clock.now();
+      const earned = earnedToday(a, now);
+      given = earnsUncapped(type) ? n : Math.min(n, Math.max(0, limits.freeHintsPerDay - earned));
+      Object.assign(a, helpHeld(a, limits));
+      a.hints! += given;
+      a.hintDay = dayOf(now);
+      a.hintsEarned = earned + given;
+      return a;
+    });
+    return 'error' in done ? 0 : given;
+  }
+
+  /** A puzzle that the player played alone was solved: its hints are added (up to what the account may earn today). (Nobody but the game can say so, since the puzzle is on the player's own device.) */
+  async awardSolved(who: Player, req: AwardRequest): Promise<AwardResponse> {
     if (who.guest) return fail('account-required');
     if (!Number.isInteger(req?.size) || req.size < 0 || req.size > 9) return fail('bad-request');
-    await this.giveItem(who.id, 'hint', req.size >= 2 ? HINTS_LARGE : HINTS_SMALL);
-    return { ok: true, account: await this.summary(who) };
+    const given = await this.earnHints(who.id, this.typeOf(who, await this.accountOf(who.id)), req.size >= 2 ? HINTS_LARGE : HINTS_SMALL);
+    return { ok: true, account: await this.summary(who), given };
   }
 
   /** A puzzle played with friends was solved: every member who has an account is given the hints it is worth (a guest has nothing to put them in). */
@@ -591,7 +613,7 @@ export class RoomService {
     for (const m of room.members) {
       if (isGuestId(m.id)) continue;
       try {
-        await this.giveItem(m.id, 'hint', n);
+        await this.earnHints(m.id, (await this.accountOf(m.id)).type, n);
       } catch (e) {
         console.error(e);                                                           // (the move has been made: a failure here must not undo it)
       }
@@ -1098,11 +1120,9 @@ export class RoomService {
       if (item && spent) await this.giveItem(player.id, item);
       return 'error' in done ? done : refusal!;
     }
+    if (event!.solved) await this.awardRoom(done.room);              // (before the others hear that it is solved, so that what they ask the server about then is up to date)
     await this.publish(roomId, { t: 'event', ...event! });
-    if (event!.solved) {
-      await this.publish(roomId, { t: 'solved', at: clock.now(), ms: done.room.solvedMs });
-      await this.awardRoom(done.room);
-    }
+    if (event!.solved) await this.publish(roomId, { t: 'solved', at: clock.now(), ms: done.room.solvedMs });
     return { ok: true, event: event! };
   }
 

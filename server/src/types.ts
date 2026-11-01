@@ -109,6 +109,9 @@ export interface AccountRecord {
   /** Hints and bombs held (an account from before they existed has none of the fields: it is given the starting number the first time it is read). */
   hints?: number;
   bombs?: number;
+  /** The day (UTC, YYYY-MM-DD) that `hintsEarned` is counted for: the hints that solved puzzles gave that day (a free account may earn so many a day). */
+  hintDay?: string;
+  hintsEarned?: number;
   createdAt: number;
   /** Counts up with every write, so that two writers cannot overwrite each other (a conditional write, as for a room). */
   rev: number;
@@ -299,6 +302,8 @@ export interface Limits {
   /** The hints and bombs a new account starts with. */
   startHints: number;
   startBombs: number;
+  /** The hints a free account can earn in a day. */
+  freeHintsPerDay: number;
   idleMs: number;
   solvedKeepMs: number;
   /** A puzzle goes this long after it was made, whatever happens to it. */

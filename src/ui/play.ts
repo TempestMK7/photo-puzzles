@@ -1,4 +1,4 @@
-import { hintsFor, type HelpKind } from '../core/help';
+import type { HelpKind } from '../core/help';
 import { findKind, generalValue, optionsOf, puzzleSeedText, recordKey, SIZE, type KindDef, type KindId } from '../core/kinds';
 import { formatTime, type Prefs } from '../core/prefs';
 import { randomSeedText, seedFromText } from '../core/rng';
@@ -6,7 +6,7 @@ import { loadPhoto } from '../image';
 import type { OnlineApi } from '../online/api';
 import { PLAYER_COLORS } from '../online/config';
 import { PlaybackSync } from '../online/playbackSync';
-import type { Invite } from '../online/protocol';
+import { DEFAULT_LIMITS, type Invite } from '../online/protocol';
 import type { OnlineRoom, RoomView } from '../online/room';
 import type { OnlineSession } from '../online/session';
 import { fitView, type View } from '../render';
@@ -501,7 +501,22 @@ export class PlayScreen {
   // ---------------------------------------------------------------------------------------------------------------- hints and bombs
 
   private helpButton(kind: HelpKind, label: string): HTMLButtonElement {
-    return h('button', { type: 'button', class: 'toggle', 'aria-pressed': 'false', onclick: () => this.arm(this.armed === kind ? null : kind) }, label, h('span', { class: 'n' }, '0'));
+    return h('button', { type: 'button', class: 'toggle', 'aria-pressed': 'false', onclick: () => this.pressHelp(kind) }, label, h('span', { class: 'n' }, '0'));
+  }
+
+  /** What the buttons say to someone who is not signed in (they have none, and earn none). */
+  private noAccountText(): string {
+    return `Hints place one piece and bombs place the pieces round a point. Sign in to get ${DEFAULT_LIMITS.startHints} hints and ${DEFAULT_LIMITS.startBombs} bombs, and to earn more by solving puzzles.`;
+  }
+
+  /** A button of the header was pressed: chooses that one, or (nobody is signed in) says what they are and how to get them. */
+  private pressHelp(kind: HelpKind): void {
+    if (this.deps.player?.summary().type === 'guest') {
+      this.arm(null);
+      this.flash(this.noAccountText(), 8000);
+      return;
+    }
+    this.arm(this.armed === kind ? null : kind);
   }
 
   /** Whether this puzzle has hints and bombs for this player to use: the puzzle has them (not Sliding Tiles, not Rotascope), the host of a puzzle played with friends allowed them, and this is a build with accounts. */
@@ -526,10 +541,10 @@ export class PlayScreen {
     }
     const guest = a.type === 'guest';
     const set = (kind: HelpKind, btn: HTMLButtonElement, n: number, infinite: boolean): void => {
-      btn.querySelector('.n')!.textContent = guest ? '' : creditText(n, infinite);
-      btn.disabled = over || guest || (!infinite && n < 1);
+      btn.querySelector('.n')!.textContent = guest ? '0' : creditText(n, infinite);
+      btn.disabled = over || (!guest && !infinite && n < 1);
       btn.title = guest
-        ? 'Sign in to use hints and bombs'
+        ? this.noAccountText()
         : !infinite && n < 1
           ? `You have no ${kind}s left. Solving puzzles earns hints.`
           : kind === 'hint'
@@ -562,11 +577,11 @@ export class PlayScreen {
   }
 
   /** Says something over the board for a moment (why a hint or a bomb was not used), and then goes back to what was there. */
-  private flash(text: string): void {
+  private flash(text: string, ms = 2600): void {
     window.clearTimeout(this.noteTimer);
     this.helpNote.textContent = text;
     this.helpNote.hidden = false;
-    this.noteTimer = window.setTimeout(() => this.instruct(), 2600);
+    this.noteTimer = window.setTimeout(() => this.instruct(), ms);
   }
 
   /** The tap that uses the chosen hint or bomb, at a board point. Played alone, the server takes it from the account first; played with friends, the room does that with the operation. */
@@ -615,11 +630,25 @@ export class PlayScreen {
   private async awardSolved(): Promise<number> {
     const { player, online, prefs } = this.deps;
     if (!player || !online || player.kind() !== 'account') return 0;
-    const opts = optionsOf(prefs.data.settings, this.kind);
-    const res = await online.api.awardSolved(opts[SIZE] ?? 0);
+    const res = await online.api.awardSolved(optionsOf(prefs.data.settings, this.kind)[SIZE] ?? 0);
     if (!res.ok) return 0;
     player.setSummary(res.account);
-    return hintsFor(this.kind, opts);
+    return res.given;
+  }
+
+  /**
+   * What the end-of-puzzle window says about hints: what the puzzle gave (a free account stops at so many a day, and the window says how many it can still earn), that it has had all of today's, or
+   * - to someone who is not signed in, who earns none - how to earn them.
+   */
+  private earnLines(given: number): HTMLElement[] {
+    const { player, online } = this.deps;
+    if (!player?.hasAccounts || !online) return [];
+    const a = player.summary();
+    if (a.type === 'guest') return [h('p', { class: 'best' }, 'Sign in to earn hints by solving puzzles.')];
+    const plural = `${given} hint${given === 1 ? '' : 's'}`;
+    if (given > 0) return [h('p', { class: 'best' }, `+${plural} earned${a.earnInfinite ? '' : a.earnLeft > 0 ? ` · ${a.earnLeft} more can be earned today` : ' · that is all you can earn today'}`)];
+    if (!a.earnInfinite && a.earnLeft === 0) return [h('p', { class: 'best' }, `You have earned today's ${a.earnPerDay} hints. You can earn more tomorrow.`)];
+    return [];
   }
 
   // ---------------------------------------------------------------------------------------------------------------- playing with friends
@@ -795,9 +824,17 @@ export class PlayScreen {
     if (!o || o.shown) return;
     o.shown = true;
     const player = this.deps.player;
-    this.earned = player?.kind() === 'account' ? hintsFor(this.kind, o.room.descriptor.settings.opts) : 0;      // (the server gave them to everyone with an account when the last piece went in)
-    if (this.earned) window.setTimeout(() => void player?.refreshProfile(), 1200);
-    window.setTimeout(() => this.showOnlineDialog(), 700);              // after the last move has finished showing
+    // the server gave the hints to everyone with an account (as many as each may earn today) before it said that the puzzle was solved: what this player was given is what their count grew by
+    const before = player?.summary().hints ?? 0;
+    const settled = player?.kind() === 'account' ? Promise.race([player.refreshProfile(), new Promise<void>((r) => window.setTimeout(r, 1500))]) : Promise.resolve();
+    window.setTimeout(
+      () =>
+        void settled.then(() => {
+          this.earned = Math.max(0, (player?.summary().hints ?? 0) - before);
+          this.showOnlineDialog();
+        }),
+      700,
+    );              // after the last move has finished showing
   }
 
   private showOnlineDialog(): void {
@@ -806,7 +843,7 @@ export class PlayScreen {
     this.dialogEl.replaceChildren(
       h('h2', {}, 'Solved!'),
       h('p', {}, `You finished it together in ${formatTime(this.online.room.playedMs())}.`),
-      ...(this.earned ? [h('p', { class: 'best' }, `+${this.earned} hint${this.earned === 1 ? '' : 's'} earned`)] : []),
+      ...this.earnLines(this.earned),
       h(
         'div',
         { class: 'buttons' },
@@ -1308,7 +1345,7 @@ export class PlayScreen {
       h('h2', {}, 'Solved!'),
       h('p', {}, `Time ${formatTime(this.elapsed)} · ${this.session.status()}`),
       h('p', { class: 'best' }, isBest ? 'New best time!' : `Best time ${formatTime(best)}`),
-      ...(earned ? [h('p', { class: 'best' }, `+${earned} hint${earned === 1 ? '' : 's'} earned`)] : []),
+      ...this.earnLines(earned),
       h(
         'div',
         { class: 'buttons' },
