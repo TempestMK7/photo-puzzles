@@ -44,6 +44,17 @@ describe('VideoLayer shapes', () => {
     expect(v.slice(6).every((p) => p[4] === -1)).toBe(true);
   });
 
+  it('marks how much of a frame is clipped to the right of the panel: what was added before the mark, and not what comes after', () => {
+    const { layer } = collector();
+    const inner = layer as unknown as { n: number; cut: number; cutLeft: number };
+    layer.fill(0, 0, 1, 1, [1, 1, 1, 1]);
+    layer.clipBefore(160.4);
+    layer.fill(0, 0, 1, 1, [1, 1, 1, 1]);
+    expect(inner.cut).toBe(6 * 8);
+    expect(inner.cutLeft).toBe(160);
+    expect(inner.n).toBe(12 * 8);
+  });
+
   it('draws the outline of a rectangle in four pieces that do not overlap, as wide as the pen', () => {
     const { layer, vertices } = collector();
     layer.frame(10, 10, 100, 50, 2, [1, 1, 1, 0.5]);
