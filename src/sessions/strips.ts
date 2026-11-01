@@ -1,7 +1,7 @@
 import { Rng } from '../core/rng';
 import { boxOf, generateStrips, MARGIN, pictureSize, StripsGame, type StripsState } from '../core/strips';
 import { beginFrame, drawSlice, type View } from '../render';
-import { buzz, hapticToggles, startLift, type Lift } from './feedback';
+import { buzz, startLift, type Lift } from './feedback';
 import { Ripples } from './ripple';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
@@ -26,7 +26,6 @@ interface Drag {
  * right button, a second finger, R) turns it a quarter turn. It locks when it lies exactly in its hole, turned the right way.
  */
 export class StripsSession implements PuzzleSession {
-  readonly toggles = [{ key: 'grid', label: 'Grid', title: 'Grid lines' }, ...hapticToggles()];
   readonly rotatable = true;
   private game: StripsGame;
   private picCols: number;

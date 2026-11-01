@@ -48,6 +48,7 @@ npm run server     # the online server on this machine, http://localhost:8787 (m
 ## Conventions
 
 - Match the surrounding code: comment density, naming, idiom. Comments explain why. Prefer a small change over a rewrite.
+- How big a puzzle is comes from its **size** (`sizes` of the kind in `kinds.ts`: S, M, L... each sets the pieces, cells, tiles or rings; `optionsOf` adds what the size sets to the options, so a session reads `opts.pieces` and the like). Settings that hold for every kind (grid lines, animations, vibration, raise piece, light background) are `GENERAL` in `kinds.ts`, kept as `all.<key>` and changed in the settings window (`src/ui/settings.ts`); a session reads them with `init.flag(key)`.
 - Game rules go in `src/core/` with tests in `tests/`; a new puzzle option is described in `kinds.ts`, and the setting that decides whether a best time is shared goes
   through `recordKey` (display-only options are marked `display`).
 - A puzzle must be reproducible from its seed. Anything the player changes while playing is part of the puzzle's `snapshot()`, and a snapshot that does not fit is refused

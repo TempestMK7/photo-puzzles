@@ -1,9 +1,9 @@
-import { generateOverlap, OverlapGame, overlapGrid, stackCount, type OverlapState } from '../core/overlap';
+import { generateOverlap, OverlapGame, overlapGrid, type OverlapState } from '../core/overlap';
 import { Rng } from '../core/rng';
 import { makePattern } from './patterns';
 import { Ripples } from './ripple';
 import { beginFrame, drawSlice, type View } from '../render';
-import { buzz, hapticToggles, startLift, type Lift } from './feedback';
+import { buzz, startLift, type Lift } from './feedback';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const CELL = 50;
@@ -40,7 +40,6 @@ interface Held {
  * the pieces under it.
  */
 export class OverlapSession implements PuzzleSession {
-  readonly toggles = [{ key: 'grid', label: 'Grid', title: 'Grid lines' }, ...hapticToggles()];
   readonly rotatable = true;
   private game: OverlapGame;
   private cols: number;
@@ -63,7 +62,7 @@ export class OverlapSession implements PuzzleSession {
 
   constructor(private readonly init: SessionInit) {
     ({ cols: this.cols, rows: this.rows } = overlapGrid(init.opts.total, init.width, init.height));
-    this.stackN = stackCount(init.opts.total);
+    this.stackN = init.opts.stacks;
     const setup = generateOverlap(new Rng(init.seed), { cols: this.cols, rows: this.rows, turned: init.opts.turned === 1, placed: init.opts.placed, windows: init.opts.windows === 1, stacks: this.stackN });
     this.pattern = makePattern(new Rng((init.seed + 0x9e3779b9) >>> 0), this.cols * CELL * 2, this.rows * CELL * 2);
     this.game = new OverlapGame(setup);

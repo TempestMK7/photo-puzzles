@@ -1,4 +1,4 @@
-import { findKind, optionsOf, puzzleSeedText } from '../core/kinds';
+import { findKind, optionsOf, puzzleSeedText, type Settings } from '../core/kinds';
 import type { Prefs } from '../core/prefs';
 import { seedFromText } from '../core/rng';
 import type { CallError, Offline, OnlineApi } from '../online/api';
@@ -123,6 +123,16 @@ export function sayError(error: CallError, failure?: { retryAt?: number; credits
 }
 
 /** The pop-up for playing with friends: make a puzzle, join one with a code or a link, and the puzzles the player is in. */
+/** The options of an online Jigsaw: the puzzle's own (not the size, which has set the number of pieces), at most as many pieces as an online puzzle may have. */
+function roomOpts(settings: Settings): Record<string, number> {
+  const kind = findKind('jigsaw')!;
+  const all = optionsOf(settings, kind);
+  const opts: Record<string, number> = {};
+  for (const o of kind.options) if (!o.display && !o.tiers) opts[o.key] = all[o.key];
+  opts.pieces = Math.min(all.pieces, DEFAULT_LIMITS.jigsawPieces);
+  return opts;
+}
+
 export class OnlinePanel {
   readonly el: HTMLElement;
   private nameInput = h('input', { type: 'text', class: 'plain', maxLength: NAME_MAX, 'aria-label': 'Your name', onkeydown: (e: KeyboardEvent) => e.key === 'Enter' && void this.saveName() });
@@ -401,11 +411,7 @@ export class OnlinePanel {
     let src: Awaited<ReturnType<PhotoLibrary['load']>> | null = null;
     try {
       src = await photos.load(entry);
-      const kind = findKind('jigsaw')!;
-      const opts: Record<string, number> = {};
-      const all = optionsOf(prefs.data.settings, kind);
-      for (const o of kind.options) if (!o.display) opts[o.key] = all[o.key];
-      opts.pieces = Math.min(opts.pieces, DEFAULT_LIMITS.jigsawPieces);
+      const opts = roomOpts(prefs.data.settings);
       const settings: RoomSettings = { kind: 'jigsaw', seed: seedFromText(puzzleSeedText(prefs.data.seed, entry.id, 'jigsaw')), width: src.width, height: src.height, opts };
       this.say('Making the puzzle…');
       const kept = await this.fromKept(entry, settings);
@@ -473,11 +479,7 @@ export class OnlinePanel {
       if (!(seconds > 0) || !Number.isFinite(seconds)) throw new Error('This browser cannot tell how long that video is.');
       if (!this.deps.identity.isAdmin() && (seconds * 1000 > DEFAULT_LIMITS.videoMs || file.size > DEFAULT_LIMITS.videoBytes)) throw new Error(sayError('too-big'));
       if (src.width > 4096 || src.height > 4096) throw new Error('That video is too large (over 4096 pixels) for an online puzzle.');
-      const kind = findKind('jigsaw')!;
-      const opts: Record<string, number> = {};
-      const all = optionsOf(prefs.data.settings, kind);
-      for (const o of kind.options) if (!o.display) opts[o.key] = all[o.key];
-      opts.pieces = Math.min(opts.pieces, DEFAULT_LIMITS.jigsawPieces);
+      const opts = roomOpts(prefs.data.settings);
       const settings: RoomSettings = { kind: 'jigsaw', seed: seedFromText(puzzleSeedText(prefs.data.seed, entry.id, 'jigsaw')), width: src.width, height: src.height, opts };
       this.say('Making the puzzle…');
       const kept = await this.fromKept(entry, settings);

@@ -1,6 +1,6 @@
 import { slidingGrid, SlidingGame, type SlidingState } from '../core/sliding';
 import { beginFrame, drawSlice, type View } from '../render';
-import { buzz, hapticToggles } from './feedback';
+import { buzz } from './feedback';
 import { VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
@@ -19,11 +19,6 @@ const ease = (t: number) => t * t * (3 - 2 * t);
  * cell) slides over. The picture is complete again when every tile is back at its own place.
  */
 export class SlidingSession implements PuzzleSession {
-  readonly toggles = [
-    { key: 'grid', label: 'Grid', title: 'Lines between the tiles' },
-    { key: 'animate', label: 'Animate', title: 'Sliding animations' },
-    ...hapticToggles(),
-  ];
   readonly rotatable = false;
   private game: SlidingGame;
   private cw: number;

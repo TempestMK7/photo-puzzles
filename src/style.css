@@ -191,7 +191,6 @@ body.dragging .library::after {
 .tab .tc { font-size: 11px; min-width: 1ch; }
 .tab.on { background: #4a2a18; color: var(--text); border-color: var(--accent2); }
 .tab.empty { opacity: 0.5; }
-.play .toggles { display: flex; gap: 8px; }
 .play button.toggle { padding: 5px 10px; font-size: 13px; color: var(--dim); background: var(--panel2); }
 .play button.toggle.on { color: var(--text); border-color: var(--accent2); }
 .play .stats { display: flex; gap: 14px; font-variant-numeric: tabular-nums; color: var(--dim); }
@@ -390,8 +389,11 @@ button.link:hover:not(:disabled) { background: none; color: var(--text); }
 .bar .online-group { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .bar .online-group .friends { margin-left: 0; }
 .bar .online-group + .progress-btn { margin-left: 0; }
-.bar button.effects { padding: 5px 10px; font-size: 13px; color: var(--dim); background: var(--panel2); }
-.bar button.effects.on { color: var(--text); border-color: var(--accent2); }
+.bar button.settings-btn { padding: 5px 10px; font-size: 13px; color: var(--text); background: var(--panel2); }
+.bar button.settings-btn:hover { border-color: var(--accent2); }
+.settings .card { width: min(420px, 100%); }
+.settings .body { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px 16px; }
+.settings .note { margin: 4px 0 0; font-size: 13px; color: var(--dim); }
 .sortbar { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--dim); }
 .sortbar select { flex: 1; font: inherit; padding: 4px 8px; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; }
 

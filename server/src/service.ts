@@ -105,7 +105,10 @@ export function checkSettings(raw: RoomSettings, limits: Limits): RoomSettings |
   for (const [k, v] of Object.entries(raw.opts)) given[`jigsaw.${k}`] = v;
   const all = optionsOf(given, kind);
   const opts: Record<string, number> = {};
-  for (const o of kind.options) if (!o.display) opts[o.key] = all[o.key];            // what a player sees on their own screen is not part of the puzzle
+  for (const o of kind.options) if (!o.display && !o.tiers) opts[o.key] = all[o.key];            // what a player sees on their own screen is not part of the puzzle
+  const pieces = raw.opts.pieces;                                                    // (the number of pieces is asked for as a number: the sizes of the main screen are not the room's business)
+  if (!whole(pieces, 20, 5000)) return fail('bad-request');
+  opts.pieces = pieces;
   if (opts.pieces > limits.jigsawPieces) return fail('limit');
   const layout = layoutJigsaw(new Rng(raw.seed), raw.width, raw.height, opts.pieces);
   if (layout.cols * layout.rows > limits.jigsawPieces * 1.2) return fail('limit');        // the grid is only about as many as asked

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findKind, KINDS, optionValue, optionsOf, puzzleSeedText, recordKey } from '../src/core/kinds';
+import { findKind, GENERAL, generalValue, KINDS, migrateGeneral, optionValue, optionsOf, puzzleSeedText, recordKey, type Settings } from '../src/core/kinds';
 import { formatTime, Prefs, type StorageLike } from '../src/core/prefs';
 
 function memoryStorage(initial: Record<string, string> = {}): StorageLike & { map: Record<string, string> } {
@@ -16,40 +16,76 @@ describe('kinds', () => {
   });
 
   it('falls back to defaults and clamps option values', () => {
-    const pieces = focus.options[0];
-    expect(optionValue({}, 'focus', pieces)).toBe(pieces.def);
-    expect(optionValue({ 'focus.pieces': 1000 }, 'focus', pieces)).toBe(pieces.max);
-    expect(optionValue({ 'focus.pieces': -3 }, 'focus', pieces)).toBe(pieces.min);
-    expect(optionValue({ 'focus.pieces': NaN }, 'focus', pieces)).toBe(pieces.def);
-    expect(optionsOf({}, focus)).toEqual({ pieces: 20, irregular: 1, grid: 1, animate: 1, haptics: 1 });
+    const size = focus.options[0];
+    expect(optionValue({}, 'focus', size)).toBe(size.def);
+    expect(optionValue({ 'focus.size': 1000 }, 'focus', size)).toBe(size.max);
+    expect(optionValue({ 'focus.size': -3 }, 'focus', size)).toBe(size.min);
+    expect(optionValue({ 'focus.size': NaN }, 'focus', size)).toBe(size.def);
+    expect(optionsOf({}, focus)).toEqual({ size: 1, pieces: 50, irregular: 1 });
   });
 
   it('a record belongs to photo, type and difficulty - not to the seed', () => {
     const a = recordKey(focus, 'p1', {});
-    expect(recordKey(focus, 'p1', { 'focus.pieces': 20 })).toBe(a);
-    expect(recordKey(focus, 'p1', { 'focus.pieces': 30 })).not.toBe(a);
+    expect(recordKey(focus, 'p1', { 'focus.size': 1 })).toBe(a);
+    expect(recordKey(focus, 'p1', { 'focus.size': 2 })).not.toBe(a);
     expect(recordKey(focus, 'p2', {})).not.toBe(a);
-    expect(recordKey(focus, 'p1', { 'focus.grid': 0, 'focus.animate': 0 })).toBe(a);        // how it is shown is not a difficulty
+    expect(recordKey(focus, 'p1', { 'all.grid': 0, 'all.animate': 0 })).toBe(a);        // how it is shown is not a difficulty
   });
 
-  it('Tile Swap steps by ten pieces from 10 to 300, and Overlap by ten cells from 50 to 500; every slider starts on one of its steps', () => {
-    const range = (kind: string, key: string) => findKind(kind)!.options.find((o) => o.key === key)!;
-    expect(range('focus', 'pieces')).toMatchObject({ min: 10, max: 300, step: 10 });
-    expect(range('overlap', 'total')).toMatchObject({ min: 50, max: 500, step: 10 });
-    for (const k of KINDS) for (const o of k.options) if (o.step) expect((o.def - o.min) % o.step, `${k.id}.${o.key}`).toBe(0);
+  it('each type has its sizes: a slider between named steps, and what every step sets', () => {
+    const at = (kind: string, size: number) => optionsOf({ [`${kind}.size`]: size }, findKind(kind)!);
+    const column = (kind: string, key: string) => findKind(kind)!.sizes!.values.map((v) => v[key]);
+    expect(findKind('focus')!.options[0].tiers).toEqual(['S', 'M', 'L', 'XL', 'XXL']);
+    expect(findKind('jigsaw')!.options[0].tiers).toEqual(['S', 'M', 'L', 'XL', 'XXL', 'XXXL']);
+    expect(findKind('sliding')!.options[0].tiers).toEqual(['S', 'M', 'L', 'XL']);
+    expect(column('focus', 'pieces')).toEqual([20, 50, 100, 200, 500]);
+    expect(column('overlap', 'total')).toEqual([50, 100, 200, 500, 1000]);
+    expect(column('overlap', 'stacks')).toEqual([3, 4, 5, 6, 7]);
+    expect(column('strips', 'cells')).toEqual([50, 100, 200, 500, 1000]);
+    expect(column('strips', 'length')).toEqual([4, 6, 8, 10, 12]);
+    expect(column('strips', 'tabs')).toEqual([4, 6, 8, 10, 12]);
+    expect(column('jigsaw', 'pieces')).toEqual([50, 100, 200, 500, 1000, 2000]);
+    expect(column('sliding', 'tiles')).toEqual([20, 50, 100, 200]);
+    expect(column('rotascope', 'rings')).toEqual([2, 3, 4, 5]);
+    expect(column('rotascope', 'wedges')).toEqual([4, 4, 5, 5]);
+    expect(at('jigsaw', 5).pieces).toBe(2000);
+    expect(at('rotascope', 2)).toMatchObject({ rings: 4, wedges: 5 });
+    for (const k of KINDS) {
+      const size = k.options.find((o) => o.key === 'size')!;
+      expect(size.max, k.id).toBe(k.sizes!.values.length - 1);
+      expect(size.tiers, k.id).toHaveLength(k.sizes!.values.length);
+      expect(k.options.map((o) => o.key).filter((key) => key in k.sizes!.values[0]), k.id).toEqual([]);          // what a size sets is not an option of its own as well
+    }
   });
 
-  it('the jigsaw background is dark unless chosen, and is not a difficulty', () => {
+  it('the settings for every type are kept apart from the options of a type, and are not difficulties', () => {
+    expect(GENERAL.map((o) => o.label)).toEqual(['Grid lines', 'Animations', 'Vibration', 'Raise piece above touch point', 'Light background']);
+    expect(generalValue({}, 'light')).toBe(0);
+    expect(generalValue({}, 'grid')).toBe(1);
+    expect(generalValue({ 'all.light': 1, 'all.grid': 0 }, 'light')).toBe(1);
+    expect(generalValue({ 'all.grid': 0 }, 'grid')).toBe(0);
+    for (const k of KINDS) for (const o of GENERAL) expect(k.options.some((x) => x.key === o.key), `${k.id}.${o.key}`).toBe(false);
     const jigsaw = findKind('jigsaw')!;
-    expect(optionsOf({}, jigsaw).light).toBe(0);
-    expect(optionsOf({ 'jigsaw.light': 1 }, jigsaw).light).toBe(1);
-    expect(recordKey(jigsaw, 'p1', { 'jigsaw.light': 1 })).toBe(recordKey(jigsaw, 'p1', {}));
+    expect(recordKey(jigsaw, 'p1', { 'all.light': 1 })).toBe(recordKey(jigsaw, 'p1', {}));
+  });
+
+  it('takes what a player had set for one type before the settings were shared', () => {
+    const s: Settings = { 'jigsaw.light': 1, 'sliding.animate': 0, 'focus.grid': 1, 'overlap.haptics': 0, 'strips.offset': 0, 'focus.pieces': 30 };
+    migrateGeneral(s);
+    expect(generalValue(s, 'light')).toBe(1);
+    expect(generalValue(s, 'animate')).toBe(0);
+    expect(generalValue(s, 'grid')).toBe(1);
+    expect(generalValue(s, 'haptics')).toBe(0);
+    expect(generalValue(s, 'offset')).toBe(0);
+    const chosen: Settings = { 'all.grid': 1, 'focus.grid': 0 };
+    migrateGeneral(chosen);
+    expect(chosen['all.grid']).toBe(1);                                                    // (a choice made since stays)
   });
 
   it('the jigsaw start options are difficulties, but at their defaults the key is what it was before they existed', () => {
     const jigsaw = findKind('jigsaw')!;
     expect(optionsOf({}, jigsaw)).toMatchObject({ placed: 0, edges: 0 });
-    expect(recordKey(jigsaw, 'p1', {})).toBe('jigsaw|p1|pieces=300|snap=0|turning=0');
+    expect(recordKey(jigsaw, 'p1', {})).toBe('jigsaw|p1|size=1|snap=0|turning=0');
     expect(recordKey(jigsaw, 'p1', { 'jigsaw.placed': 40 })).not.toBe(recordKey(jigsaw, 'p1', {}));
     expect(recordKey(jigsaw, 'p1', { 'jigsaw.edges': 1 })).not.toBe(recordKey(jigsaw, 'p1', {}));
     expect(optionValue({ 'jigsaw.placed': 500 }, 'jigsaw', jigsaw.options.find((o) => o.key === 'placed')!)).toBe(80);
@@ -68,12 +104,12 @@ describe('prefs', () => {
     const p = new Prefs(st);
     p.data.seed = 'ABCD2345';
     p.data.photo = 'p9';
-    p.data.settings['focus.pieces'] = 30;
+    p.data.settings['focus.size'] = 3;
     p.save();
     const q = new Prefs(st);
     expect(q.data.seed).toBe('ABCD2345');
     expect(q.data.photo).toBe('p9');
-    expect(q.data.settings['focus.pieces']).toBe(30);
+    expect(q.data.settings['focus.size']).toBe(3);
   });
 
   it('remembers how My Files is sorted, and ignores a sort it does not know', () => {

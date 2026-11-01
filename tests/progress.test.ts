@@ -18,30 +18,30 @@ describe('settingsOfKey', () => {
 
   it('leaves out display settings, and what it does not know', () => {
     const jig = findKind('jigsaw')!;
-    expect(settingsOfKey(jig, 'jigsaw|p|pieces=900|bogus=3|haptics=0')).toEqual({ 'jigsaw.pieces': 900 });
-    expect(settingsOfKey(jig, 'jigsaw|p|pieces=abc')).toEqual({});
+    expect(settingsOfKey(jig, 'jigsaw|p|size=3|pieces=900|bogus=3|haptics=0')).toEqual({ 'jigsaw.size': 3 });
+    expect(settingsOfKey(jig, 'jigsaw|p|size=abc')).toEqual({});
   });
 });
 
 describe('describeDifficulty', () => {
   it('names each difficulty option and its value, but not the display settings', () => {
     const jig = findKind('jigsaw')!;
-    const text = describeDifficulty(jig, { 'jigsaw.pieces': 900, 'jigsaw.turning': 1, 'jigsaw.snap': 2 });
-    expect(text).toBe('Approximate pieces: 900 · Turned pieces: on · Snap on release');
+    const text = describeDifficulty(jig, { 'jigsaw.size': 3, 'jigsaw.turning': 1, 'jigsaw.snap': 2 });
+    expect(text).toBe('Size: XL (about 500 pieces) · Turned pieces: on · Snap on release');
     expect(text).not.toContain('Vibration');
   });
 
   it('leaves out options added later while they are at their default, and says them once they are not', () => {
     const jig = findKind('jigsaw')!;
-    expect(describeDifficulty(jig, { 'jigsaw.placed': 0, 'jigsaw.edges': 0 })).toBe('Approximate pieces: 300 · Turned pieces: off · Snap while dragging');
+    expect(describeDifficulty(jig, { 'jigsaw.placed': 0, 'jigsaw.edges': 0 })).toBe('Size: M (about 100 pieces) · Turned pieces: off · Snap while dragging');
     expect(describeDifficulty(jig, { 'jigsaw.placed': 25, 'jigsaw.edges': 1 })).toBe(
-      'Approximate pieces: 300 · Placed at the start (%): 25 · Edge pieces start in the picture area: on · Turned pieces: off · Snap while dragging',
+      'Size: M (about 100 pieces) · Placed at the start (%): 25 · Edge pieces start in the picture area: on · Turned pieces: off · Snap while dragging',
     );
   });
 
   it('uses the defaults for what is missing', () => {
-    expect(describeDifficulty(findKind('sliding')!, {})).toBe('Approximate tiles: 15');
-    expect(optionsOf({}, findKind('sliding')!).tiles).toBe(15);
+    expect(describeDifficulty(findKind('sliding')!, {})).toBe('Size: M (about 50 tiles)');
+    expect(optionsOf({}, findKind('sliding')!).tiles).toBe(50);
   });
 });
 

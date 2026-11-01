@@ -12,7 +12,7 @@ import { appVersion, versionLabel } from '../version';
 import { h, svg } from './dom';
 import { KIND_ICONS } from './icons';
 import { aiMark, attribution, creditLine, siteMark } from './stocksite';
-import { effectsButton } from './effects';
+import { settingsButton } from './settings';
 
 export interface LibraryDeps {
   prefs: Prefs;
@@ -199,7 +199,7 @@ export class LibraryScreen {
             ]
           : []),
         this.progressBtn,
-        effectsButton(deps.prefs),
+        settingsButton(deps.prefs),
         ...(deps.badge ? [deps.badge] : []),
       ),
       this.kindsEl,
@@ -521,7 +521,10 @@ export class LibraryScreen {
             ),
           );
         }
-        const out = h('output', {}, String(v));
+        const tiers = o.tiers;
+        const sizes = this.kind.sizes;
+        const say = (n: number): string => (tiers && sizes ? `${tiers[n]} · ${sizes.describe(sizes.values[n])}` : String(n));          // a size is told by its name and what it makes
+        const out = h('output', {}, say(v));
         return h(
           'label',
           { class: 'field' },
@@ -532,7 +535,7 @@ export class LibraryScreen {
             max: o.max,
             step: o.step ?? 1,
             value: v,
-            oninput: (ev: Event) => (out.value = (ev.target as HTMLInputElement).value),
+            oninput: (ev: Event) => (out.value = say(Number((ev.target as HTMLInputElement).value))),
             onchange: (ev: Event) => this.setOption(key, Number((ev.target as HTMLInputElement).value)),
           }),
         );

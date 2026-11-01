@@ -2,16 +2,11 @@ import { FocusGame, type FocusState } from '../core/focus';
 import type { Rect } from '../core/layout';
 import { draw, SWAP_MS, type Anim, type View } from '../render';
 import { Ripples } from './ripple';
-import { buzz, hapticToggles } from './feedback';
+import { buzz } from './feedback';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 /** Tile Swap: click two pieces to trade places and sizes. */
 export class FocusSession implements PuzzleSession {
-  readonly toggles = [
-    { key: 'grid', label: 'Grid', title: 'Grid lines' },
-    { key: 'animate', label: 'Animate', title: 'Swap animations' },
-    ...hapticToggles(),
-  ];
   readonly rotatable = false;
   private game: FocusGame;
   private anims = new Map<number, Anim>();
