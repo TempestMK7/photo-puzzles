@@ -12,7 +12,7 @@ frame copying - so a 30 fps clip redraws 30 times a second. A bar under the boar
 or Restart keeps the video where it is. Videos are stored as they are in the browser's storage (nothing is uploaded or re-encoded).
 
 **Sound effects and celebration.** A piece that locks in place gets a brief ripple (Tile Swap, Overlap, Strips and Jigsaw; in Jigsaw it travels over every piece that is locked together, also when loose
-pieces join each other), and when a puzzle is finished a party blower sounds and confetti flies in from the bottom corners as the "Solved!" window comes up. The game's sound effects (`src/sounds.ts`,
+pieces join each other), and when a puzzle is finished a party blower sounds and confetti and streamers fly in from the bottom corners (fast at first, slowing down, then drifting down) as the "Solved!" window comes up. The game's sound effects (`src/sounds.ts`,
 the files in `src/sounds/`) have a switch of their own - the **Effects** button on the main screen and while playing, remembered - apart from the sound of a video puzzle. The party blower is a public-domain sound.
 
 **Display settings** for Tile Swap: grid lines and swap animations can be switched off (on the main screen or with the Grid / Animate buttons while playing). They are

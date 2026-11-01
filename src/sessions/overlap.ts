@@ -164,13 +164,10 @@ export class OverlapSession implements PuzzleSession {
       else this.cellImage(ctx, home[k].x, home[k].y, -CELL / 2, -CELL / 2, CELL);
       ctx.restore();
     });
-    if (this.init.flag('grid')) {                                  // with the grid off a piece has no border at all
-      ctx.lineJoin = 'round';
-      for (const [colour, width, inset] of [['rgba(0,0,0,0.55)', 3, 0], [edge, 1.5, 1]] as const) {
-        ctx.strokeStyle = colour;
-        ctx.lineWidth = width;
-        for (const c of now) ctx.strokeRect(ox + c.x * CELL + inset, oy + c.y * CELL + inset, CELL - 2 * inset, CELL - 2 * inset);
-      }
+    if (this.init.flag('grid')) {                                  // with the grid off a piece has no border at all; with it on, a line as thin as the board's own grid lines
+      ctx.strokeStyle = edge;
+      ctx.lineWidth = 1;
+      for (const c of now) ctx.strokeRect(ox + c.x * CELL + 0.5, oy + c.y * CELL + 0.5, CELL - 1, CELL - 1);
     }
     ctx.restore();
   }
