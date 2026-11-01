@@ -1,9 +1,10 @@
 import { FocusGame, type FocusState } from '../core/focus';
 import type { Rect } from '../core/layout';
-import { draw, SWAP_MS, type Anim, type View } from '../render';
+import { beginFrame, draw, rectNow, SWAP_MS, type Anim, type View } from '../render';
 import { Ripples } from './ripple';
 import { playEffect } from '../sounds';
 import { buzz } from './feedback';
+import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 /** Tile Swap: click two pieces to trade places and sizes. */
@@ -13,10 +14,39 @@ export class FocusSession implements PuzzleSession {
   private anims = new Map<number, Anim>();
   private hover = -1;
   private ripples = new Ripples();
+  /** A puzzle made from a video draws its pieces on the graphics card (see videoGl.ts), with the ripples on a canvas over them; both lie over the board's canvas. */
+  private layer: VideoLayer | null = null;
+  private frontLayer: FrontLayer | null = null;
+  private lastView: View = { scale: 1, ox: 0, oy: 0 };
+  private canvasW = 1;
+  private canvasH = 1;
+  videoFrame?: (now: number) => void;
 
   constructor(private readonly init: SessionInit) {
     this.game = new FocusGame(init.width, init.height, { seed: init.seed, pieces: init.opts.pieces, irregular: init.opts.irregular === 1 });
     if (init.restore) this.game.restore(init.restore as FocusState);
+    if (init.video && videoGlAvailable()) {
+      try {
+        this.layer = new VideoLayer(init.video);
+        this.frontLayer = new FrontLayer();
+        this.videoFrame = (now) => void this.drawGl(now);
+      } catch {
+        this.layer = null;                                        // no graphics card to draw with: the pieces are cut from copies of the video's pictures
+        this.frontLayer = null;
+      }
+    }
+  }
+
+  get overlay(): HTMLCanvasElement | undefined {
+    return this.layer?.canvas;
+  }
+
+  get front(): HTMLCanvasElement | undefined {
+    return this.frontLayer?.canvas;
+  }
+
+  dispose(): void {
+    this.layer?.dispose();
   }
 
   serialize(): unknown {
@@ -27,7 +57,45 @@ export class FocusSession implements PuzzleSession {
     return { width: this.init.width, height: this.init.height };
   }
 
+  /** The pieces of a video puzzle with their borders and outlines, drawn on the graphics card (a piece that is moving over the others, last); true while one is moving. */
+  private drawGl(now: number): boolean {
+    const L = this.layer!;
+    const g = this.game;
+    const view = this.lastView;
+    if (!L.begin(this.canvasW, this.canvasH, view)) return false;
+    const { width, height } = this.init;
+    const line = 1 / view.scale;
+    const grid = this.init.flag('grid');
+    let running = false;
+    const order = [...Array(g.count).keys()].sort((a, b) => Number(this.anims.has(a)) - Number(this.anims.has(b)));
+    for (const i of order) {
+      const home = g.homes[i];
+      const r = rectNow(g, this.anims, i, now);
+      if (this.anims.has(i)) running = true;
+      L.quad(r.x, r.y, r.w, r.h, home.x / width, home.y / height, (home.x + home.w) / width, (home.y + home.h) / height);
+      if (!g.solved && grid) L.frame(r.x, r.y, r.w, r.h, line * 1.5, rgba(255, 255, 255, 0.85));
+    }
+    if (!g.solved) {
+      const outline = (i: number, colour: [number, number, number, number], w: number): void => {
+        const r = rectNow(g, this.anims, i, now);
+        L.frame(r.x + w / 2, r.y + w / 2, r.w - w, r.h - w, w, colour);
+      };
+      if (this.hover >= 0 && this.hover !== g.selected) outline(this.hover, rgba(255, 255, 255), line * 3);
+      if (g.selected >= 0) outline(g.selected, rgba(255, 216, 74), line * 5);
+    }
+    L.end();
+    return running;
+  }
+
   draw(ctx: CanvasRenderingContext2D, view: View, now: number): boolean {
+    if (this.layer && this.frontLayer) {
+      beginFrame(ctx, view);                                       // (the background; the pieces are on the layer over it)
+      this.lastView = view;
+      this.canvasW = ctx.canvas.width;
+      this.canvasH = ctx.canvas.height;
+      const moving = this.drawGl(now);
+      return this.ripples.draw(this.frontLayer.begin(this.canvasW, this.canvasH, view), now) || moving;
+    }
     const moving = draw(ctx, this.init.source, this.game, view, this.anims, this.hover, now, this.init.flag('grid'));
     return this.ripples.draw(ctx, now) || moving;
   }

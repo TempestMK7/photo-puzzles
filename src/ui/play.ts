@@ -60,6 +60,7 @@ export class PlayScreen {
   private syncTimer = 0;
   // the zoom control of a board with a camera (Jigsaw), bottom right
   private overlay: HTMLCanvasElement | null = null;
+  private front: HTMLCanvasElement | null = null;
   private zoomLabel = h('button', { type: 'button', class: 'zlabel', title: 'Show everything', 'aria-label': 'Show everything', onclick: () => this.zoomFit() }, '100%');
   private zoomEl = h(
     'div',
@@ -411,6 +412,7 @@ export class PlayScreen {
       });
     this.session?.dispose?.();
     this.overlay?.remove();
+    this.front?.remove();
     try {
       this.session = make(rec?.state);
     } catch {
@@ -428,6 +430,11 @@ export class PlayScreen {
     if (this.overlay) {
       this.overlay.className = 'board overlay';
       this.stage.insertBefore(this.overlay, this.dialogEl);
+    }
+    this.front = session.front ?? null;
+    if (this.front) {
+      this.front.className = 'board overlay';
+      this.stage.insertBefore(this.front, this.dialogEl);
     }
     this.buildTabs();
     this.refreshTrays();
@@ -516,6 +523,7 @@ export class PlayScreen {
     };
     this.session?.dispose?.();
     this.overlay?.remove();
+    this.front?.remove();
     this.session = startSession('jigsaw', {
       source: this.frameCanvas ?? src.source,
       video: src.video ?? undefined,
@@ -809,7 +817,9 @@ export class PlayScreen {
     this.closeSource();
     this.session?.dispose?.();
     this.overlay?.remove();
+    this.front?.remove();
     this.overlay = null;
+    this.front = null;
     this.session = null;
     this.deps.onExit();
   }

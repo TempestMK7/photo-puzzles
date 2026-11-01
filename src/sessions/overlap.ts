@@ -5,6 +5,7 @@ import { Ripples } from './ripple';
 import { beginFrame, drawSlice, type View } from '../render';
 import { playEffect } from '../sounds';
 import { buzz, startLift, type Lift } from './feedback';
+import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const CELL = 50;
@@ -60,6 +61,12 @@ export class OverlapSession implements PuzzleSession {
   /** How many stacks the pieces wait in: more for a bigger puzzle. */
   private readonly stackN: number;
   private wrong: { cells: { x: number; y: number }[]; at: number } | null = null;
+  /** A puzzle made from a video draws its pieces on the graphics card (see videoGl.ts), with the ripples on a canvas over them; both lie over the board's canvas, which has the empty board and the stacks. */
+  private layer: VideoLayer | null = null;
+  private frontLayer: FrontLayer | null = null;
+  private canvasW = 1;
+  private canvasH = 1;
+  videoFrame?: (now: number) => void;
 
   constructor(private readonly init: SessionInit) {
     ({ cols: this.cols, rows: this.rows } = overlapGrid(init.opts.total, init.width, init.height));
@@ -81,6 +88,29 @@ export class OverlapSession implements PuzzleSession {
       if (Number.isInteger(saved.activeStack) && saved.activeStack >= 0 && saved.activeStack < this.game.stacks.length) this.activeStack = saved.activeStack;
     }
     this.arrange('side');
+    if (init.video && videoGlAvailable()) {
+      try {
+        this.layer = new VideoLayer(init.video);
+        this.layer.setImage(this.pattern);                           // (the window cells of a piece show the empty board)
+        this.frontLayer = new FrontLayer();
+        this.videoFrame = (now) => void this.drawGl(now);
+      } catch {
+        this.layer = null;                                           // no graphics card to draw with: the cells are cut from copies of the video's pictures
+        this.frontLayer = null;
+      }
+    }
+  }
+
+  get overlay(): HTMLCanvasElement | undefined {
+    return this.layer?.canvas;
+  }
+
+  get front(): HTMLCanvasElement | undefined {
+    return this.frontLayer?.canvas;
+  }
+
+  dispose(): void {
+    this.layer?.dispose();
   }
 
   serialize(): unknown {
@@ -172,9 +202,93 @@ export class OverlapSession implements PuzzleSession {
     ctx.restore();
   }
 
+  /** The colour of an outline given as CSS, as the graphics layer takes it. */
+  private static colour(edge: string): [number, number, number, number] {
+    return edge === '#ffd84a' ? rgba(255, 216, 74) : rgba(255, 255, 255, 0.9);
+  }
+
+  /**
+   * A piece as drawPiece draws it, on the graphics card: each cell turned with the piece, a window cell showing the empty board, the thin outline of each cell (grid on) and, for the piece
+   * in hand, its shadow (a few see-through rectangles that spread, in place of the blur of a 2D canvas).
+   */
+  private drawPieceGl(L: VideoLayer, id: number, ox: number, oy: number, scale: number, edge: string, shadow = false): void {
+    const g = this.game;
+    const cells = g.cellsNow(id);
+    const home = g.homeCells(id);
+    const win = g.windowOf(id);
+    const turn = g.rot[id];
+    const size = CELL * scale;
+    const { sx, sy, sw, sh } = this.crop;
+    const w = sw / this.cols;
+    const h = sh / this.rows;
+    const iw = this.init.width;
+    const ih = this.init.height;
+    if (shadow) {
+      for (const [spread, alpha] of [[8, 0.08], [4, 0.1], [1, 0.12]]) {
+        for (const c of cells) L.fill(ox + c.x * size - spread, oy + c.y * size + 6 - spread, size + 2 * spread, size + 2 * spread, rgba(0, 0, 0, alpha));
+      }
+    }
+    cells.forEach((c, k) => {
+      const hx = home[k].x;
+      const hy = home[k].y;
+      const cx = ox + c.x * size + size / 2;
+      const cy = oy + c.y * size + size / 2;
+      if (k === win) L.turned(cx, cy, size / 2, turn, hx / this.cols, hy / this.rows, (hx + 1) / this.cols, (hy + 1) / this.rows, true);
+      else L.turned(cx, cy, size / 2, turn, (sx + hx * w) / iw, (sy + hy * h) / ih, (sx + (hx + 1) * w) / iw, (sy + (hy + 1) * h) / ih);
+    });
+    if (this.init.flag('grid')) {
+      const colour = OverlapSession.colour(edge);
+      for (const c of cells) L.frame(ox + c.x * size + 0.5 * scale, oy + c.y * size + 0.5 * scale, size - scale, size - scale, scale, colour);
+    }
+  }
+
+  /** What lies over the board's canvas for a video puzzle, in the order a 2D canvas would draw it: the cells that show, the grid, the board's edge, the red flash of a wrong move, the stacks' top pieces, the piece in hand. */
+  private drawGl(now: number): void {
+    const L = this.layer!;
+    const g = this.game;
+    if (!L.begin(this.canvasW, this.canvasH, this.lastView)) return;
+    const gw = this.cols * CELL;
+    const gh = this.rows * CELL;
+    const { sx, sy, sw, sh } = this.crop;
+    const w = sw / this.cols;
+    const h = sh / this.rows;
+    const iw = this.init.width;
+    const ih = this.init.height;
+    for (let cy = 0; cy < this.rows; cy++) {
+      for (let cx = 0; cx < this.cols; cx++) {
+        if (g.revealed[cy * this.cols + cx] || g.solved) L.quad(this.gridX + cx * CELL, this.gridY + cy * CELL, CELL, CELL, (sx + cx * w) / iw, (sy + cy * h) / ih, (sx + (cx + 1) * w) / iw, (sy + (cy + 1) * h) / ih);
+      }
+    }
+    if (this.init.flag('grid')) {
+      const faint = rgba(255, 255, 255, 0.22);
+      for (let cx = 0; cx <= this.cols; cx++) L.fill(this.gridX + cx * CELL, this.gridY, 1, gh, faint);
+      for (let cy = 0; cy <= this.rows; cy++) L.fill(this.gridX, this.gridY + cy * CELL, gw, 1, faint);
+    }
+    L.frame(this.gridX - 1.5, this.gridY - 1.5, gw + 3, gh + 3, 3, rgba(0x6b, 0x4a, 0x36));
+    if (this.wrong) {
+      const k = 1 - (now - this.wrong.at) / WRONG_MS;
+      if (k > 0) for (const c of this.wrong.cells) L.fill(this.gridX + c.x * CELL, this.gridY + c.y * CELL, CELL, CELL, rgba(230, 60, 40, 0.45 * k));
+    }
+    if (!g.solved) {
+      for (let s = 0; s < this.stackN; s++) {
+        const top = g.top(s);
+        if (top < 0 || (this.held && this.held.id === top)) continue;
+        const at = this.slotCentre(s);
+        this.drawPieceGl(L, top, at.x, at.y, SLOT_SCALE, 'rgba(255,255,255,0.9)');
+      }
+      const held = this.held;
+      if (held?.moved) {
+        const box = this.heldBox({ at: this.heldPoint(held, now) });
+        this.drawPieceGl(L, held.id, box.x, box.y, 1, '#ffd84a', this.init.flag('grid'));
+      }
+    }
+    L.end();
+  }
+
   draw(ctx: CanvasRenderingContext2D, view: View, now: number): boolean {
     beginFrame(ctx, view);
     this.lastView = view;
+    const gpu = !!this.layer && !!this.frontLayer;
     let running = false;
     const g = this.game;
     const gw = this.cols * CELL;
@@ -187,12 +301,12 @@ export class OverlapSession implements PuzzleSession {
         const i = cy * this.cols + cx;
         const x = this.gridX + cx * CELL;
         const y = this.gridY + cy * CELL;
-        if (g.revealed[i] || g.solved) {
+        if ((g.revealed[i] || g.solved) && !gpu) {
           this.cellImage(ctx, cx, cy, x, y, CELL);
         }
       }
     }
-    if (grid) {
+    if (grid && !gpu) {
       ctx.strokeStyle = 'rgba(255,255,255,0.22)';
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -206,15 +320,19 @@ export class OverlapSession implements PuzzleSession {
       }
       ctx.stroke();
     }
-    ctx.strokeStyle = '#6b4a36';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(this.gridX - 1.5, this.gridY - 1.5, gw + 3, gh + 3);
-    if (this.ripples.draw(ctx, now)) running = true;
+    if (!gpu) {
+      ctx.strokeStyle = '#6b4a36';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(this.gridX - 1.5, this.gridY - 1.5, gw + 3, gh + 3);
+      if (this.ripples.draw(ctx, now)) running = true;
+    }
     if (this.wrong) {
       const k = 1 - (now - this.wrong.at) / WRONG_MS;
       if (k > 0) {
-        ctx.fillStyle = `rgba(230,60,40,${0.45 * k})`;
-        for (const c of this.wrong.cells) ctx.fillRect(this.gridX + c.x * CELL, this.gridY + c.y * CELL, CELL, CELL);
+        if (!gpu) {
+          ctx.fillStyle = `rgba(230,60,40,${0.45 * k})`;
+          for (const c of this.wrong.cells) ctx.fillRect(this.gridX + c.x * CELL, this.gridY + c.y * CELL, CELL, CELL);
+        }
         running = true;
       } else this.wrong = null;
     }
@@ -222,9 +340,15 @@ export class OverlapSession implements PuzzleSession {
     if (!g.solved) {
       for (let s = 0; s < this.stackN; s++) this.drawSlot(ctx, s);
       if (this.held) {
-        this.drawHeld(ctx, now);
+        if (!gpu) this.drawHeld(ctx, now);
         if (this.held.lift && !this.held.lift.done(now)) running = true;           // a piece a finger has picked up is still rising
       }
+    }
+    if (gpu) {                                                                    // the pieces, over what the canvas has drawn, and the ripples over them
+      this.canvasW = ctx.canvas.width;
+      this.canvasH = ctx.canvas.height;
+      this.drawGl(now);
+      if (this.ripples.draw(this.frontLayer!.begin(this.canvasW, this.canvasH, view), now)) running = true;
     }
     return running;
   }
@@ -241,7 +365,7 @@ export class OverlapSession implements PuzzleSession {
     ctx.fill();
     ctx.stroke();
     const top = g.top(s);
-    if (top >= 0 && !(this.held && this.held.id === top)) {
+    if (top >= 0 && !(this.held && this.held.id === top) && !this.layer) {
       const at = this.slotCentre(s);
       this.drawPiece(ctx, top, at.x, at.y, 1, 'rgba(255,255,255,0.9)', SLOT_SCALE);
     }
