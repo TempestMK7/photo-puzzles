@@ -74,6 +74,8 @@ export class VideoLayer {
   private lastTime = -1;
   private data = new Float32Array(FLOATS * 6 * 256);
   private n = 0;                        // floats used
+  private cut = -1;                     // floats used when clipBefore was called, or -1
+  private cutLeft = 0;
   private view: View = { scale: 1, ox: 0, oy: 0 };
   private width = 1;
   private height = 1;
@@ -184,6 +186,7 @@ export class VideoLayer {
       this.lastTime = v.currentTime;
     }
     this.n = 0;
+    this.cut = -1;
     return this.hasFrame;
   }
 
@@ -278,6 +281,12 @@ export class VideoLayer {
     this.flatTri(x0 - nx - dx, y0 - ny - dy, x1 + nx + dx, y1 + ny + dy, x1 - nx + dx, y1 - ny + dy, rgba);
   }
 
+  /** Everything added so far is drawn only where the canvas is at least `left` pixels from its left edge (what comes after is not clipped): the board, under the panel that lies beside it. */
+  clipBefore(left: number): void {
+    this.cut = this.n;
+    this.cutLeft = Math.max(0, Math.round(left));
+  }
+
   /** Draws everything added since `begin`. */
   end(): void {
     if (this.lost) return;
@@ -299,7 +308,14 @@ export class VideoLayer {
     gl.bindTexture(gl.TEXTURE_2D, this.tex);
     gl.uniform2f(this.uRes, this.width, this.height);
     gl.uniform3f(this.uXf, this.view.scale, this.view.ox, this.view.oy);
-    gl.drawArrays(gl.TRIANGLES, 0, this.n / FLOATS);
+    const cut = this.cut >= 0 && this.cutLeft > 0 ? Math.min(this.cut, this.n) : 0;
+    if (cut > 0) {
+      gl.enable(gl.SCISSOR_TEST);
+      gl.scissor(this.cutLeft, 0, Math.max(0, this.width - this.cutLeft), this.height);
+      gl.drawArrays(gl.TRIANGLES, 0, cut / FLOATS);
+      gl.disable(gl.SCISSOR_TEST);
+    }
+    if (this.n > cut) gl.drawArrays(gl.TRIANGLES, cut / FLOATS, (this.n - cut) / FLOATS);
   }
 
   dispose(): void {
@@ -315,14 +331,22 @@ export class FrontLayer {
   readonly canvas = document.createElement('canvas');
   private readonly ctx = this.canvas.getContext('2d')!;
 
-  begin(width: number, height: number, view: View): CanvasRenderingContext2D {
+  /** `clipLeft`: what is drawn shows only where the canvas is at least that many pixels from its left edge. */
+  begin(width: number, height: number, view: View, clipLeft = 0): CanvasRenderingContext2D {
     const { canvas, ctx } = this;
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
     }
+    ctx.restore();                                              // the clip of the last frame (nothing to undo before the first)
+    ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, width, height);
+    if (clipLeft > 0) {
+      ctx.beginPath();
+      ctx.rect(clipLeft, 0, Math.max(0, width - clipLeft), height);
+      ctx.clip();
+    }
     ctx.setTransform(view.scale, 0, 0, view.scale, view.ox, view.oy);
     return ctx;
   }

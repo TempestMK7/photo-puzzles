@@ -11,21 +11,27 @@ import type { Pt, PuzzleSession, SessionInit } from './types';
 const CELL = 50;
 const SLOT_W = 144;
 const SLOT_H = 130;
-const GAP = 18;
+const SLOT_GAP = 10;
+const PANEL_PAD = 8;           // room around the stacks in their panel
+const PANEL_W = SLOT_W + 2 * PANEL_PAD;
 const PIECE_Y = 3;             // a piece in a stack sits this far below the top of its slot, clear of the label under it
 const SLOT_SCALE = 0.7;        // a piece in a stack is drawn this much smaller than on the board: it reaches a cell out from its centre in every direction
 const SLOT_PAD = 4;
 /** Bumped when pieces changed what they are: a puzzle that was saved with older ones starts again. */
 const LAYOUT = 2;
-const TAP = 6;                 // a press that moves less than this is a tap (it turns the piece)
+const TAP = 6;                 // a press that moves less than this many CSS pixels is a tap (it turns the piece)
 const WRONG_MS = 350;
+const MARGIN = 12;             // CSS pixels of room around the board when all of it shows
+const EDGE = 40;               // a piece held this close (CSS pixels) to the top or bottom of the stacks' panel makes the panel scroll
+const SCROLL_SPEED = 700;      // CSS pixels a second, at the very edge
+const UNIT: View = { scale: 1, ox: 0, oy: 0 };
 
 interface Slot {
   x: number;
   y: number;
 }
 
-/** The piece in hand: where the pointer is, whether it has moved (else a tap), and - for a finger - the lift that holds the piece above it. */
+/** The piece in hand: where the pointer is and where it went down (canvas pixels), whether it has moved (else a tap), and - for a finger - the lift that holds the piece above it. */
 interface Held {
   id: number;
   stack: number;
@@ -40,6 +46,9 @@ interface Held {
  * Overlap: the picture is covered by pieces that overlap, each a centre cell and some of the cells around it. Pieces wait in stacks; drag the top one onto the grid, turned the
  * way it lies in the picture, with its centre over its own cell, and it stays and shows its part of the picture. A tap on a piece turns it; the arrows next to a stack shuffle
  * the pieces under it.
+ *
+ * The board has a camera (zoom with the wheel, two fingers or the buttons; drag the bare board to move it). The stacks do not: they are a panel down the left side of the canvas, in canvas
+ * pixels, that scrolls when there are more stacks than fit.
  */
 export class OverlapSession implements PuzzleSession {
   readonly rotatable = true;
@@ -49,12 +58,9 @@ export class OverlapSession implements PuzzleSession {
   private crop: { sx: number; sy: number; sw: number; sh: number };
   /** The empty board: a radial pattern. A window cell on a piece shows the bit of it that lies under the piece's home. */
   private pattern: HTMLCanvasElement;
-  private mode: 'side' | 'top' = 'side';
-  private gridX = 0;
-  private gridY = 0;
+  /** The stacks' places in the panel, in the panel's own units (see `trayK`). */
   private slots: Slot[] = [];
   private held: Held | null = null;
-  private lastView: View = { scale: 1, ox: 0, oy: 0 };
   private hoverStack = -1;
   private activeStack = 0;
   private ripples = new Ripples();
@@ -67,6 +73,23 @@ export class OverlapSession implements PuzzleSession {
   private canvasW = 1;
   private canvasH = 1;
   videoFrame?: (now: number) => void;
+
+  // the camera: the board point at the middle of the area right of the panel, and how many canvas pixels a board unit is
+  private cam = { zoom: 1, cx: 0, cy: 0 };
+  private fitZoom = 1;
+  private inited = false;
+  private pendingCam: { ratio: number; cx: number; cy: number } | null = null;        // the camera of a saved game, until the canvas has a size
+  private cur: View = { scale: 1, ox: 0, oy: 0 };
+  // the panel of stacks: its width in canvas pixels, canvas pixels a panel unit is, where the panel's top is on the canvas, how far it is scrolled and how tall all of it is
+  private panelW = 0;
+  private trayK = 1;
+  private trayOy = 0;
+  private scroll = 0;
+  private listH = 0;
+  private scrolling: { y: number; from: number } | null = null;
+  private scrollAt = 0;                       // when the panel last scrolled by itself (a held piece near its edge), or 0
+  private pan: { anchor: Pt; moved: boolean } | null = null;
+  private rightClick = false;                 // the right button is down and has not moved the camera: letting go turns a piece
 
   constructor(private readonly init: SessionInit) {
     ({ cols: this.cols, rows: this.rows } = overlapGrid(init.opts.total, init.width, init.height));
@@ -82,12 +105,13 @@ export class OverlapSession implements PuzzleSession {
     this.crop = { sx: (init.width - sw) / 2, sy: (init.height - sh) / 2, sw, sh };
     this.activeStack = Math.max(0, this.game.stacks.findIndex((s) => s.length));
     if (init.restore) {
-      const saved = init.restore as { layout?: number; game: OverlapState; activeStack: number };
+      const saved = init.restore as { layout?: number; game: OverlapState; activeStack: number; cam?: { ratio: number; cx: number; cy: number } };
       if (saved.layout !== LAYOUT) throw new Error('not this puzzle');         // made when pieces were L-shaped
       this.game.restore(saved.game);
       if (Number.isInteger(saved.activeStack) && saved.activeStack >= 0 && saved.activeStack < this.game.stacks.length) this.activeStack = saved.activeStack;
+      if (saved.cam && [saved.cam.ratio, saved.cam.cx, saved.cam.cy].every(Number.isFinite)) this.pendingCam = saved.cam;
     }
-    this.arrange('side');
+    for (let i = 0; i < this.stackN; i++) this.slots.push({ x: PANEL_PAD, y: PANEL_PAD + i * (SLOT_H + SLOT_GAP) });
     if (init.video && videoGlAvailable()) {
       try {
         this.layer = new VideoLayer(init.video);
@@ -114,47 +138,154 @@ export class OverlapSession implements PuzzleSession {
   }
 
   serialize(): unknown {
-    return { layout: LAYOUT, game: this.game.snapshot(), activeStack: this.activeStack };
+    return { layout: LAYOUT, game: this.game.snapshot(), activeStack: this.activeStack, cam: this.inited ? { ratio: this.cam.zoom / this.fitZoom, cx: this.cam.cx, cy: this.cam.cy } : this.pendingCam };
   }
 
-  // ---------------------------------------------------------------------------------------------------------------- layout
+  // ---------------------------------------------------------------------------------------------------------------- layout and camera
 
-  private sizeFor(mode: 'side' | 'top'): { width: number; height: number } {
-    const gw = this.cols * CELL;
-    const gh = this.rows * CELL;
-    if (mode === 'side') return { width: SLOT_W + GAP + gw, height: Math.max(gh, this.stackN * SLOT_H + (this.stackN - 1) * 10) };
-    return { width: Math.max(gw, this.stackN * SLOT_W + (this.stackN - 1) * 10), height: SLOT_H + GAP + gh };
+  private get dpr(): number {
+    return window.devicePixelRatio || 1;
   }
 
-  /** Puts the stacks beside the grid on a wide canvas and above it on a tall one - whichever lets the board be bigger. */
-  layout(cw: number, ch: number): { width: number; height: number } {
-    const fit = (m: 'side' | 'top') => {
-      const s = this.sizeFor(m);
-      return Math.min(cw / s.width, ch / s.height);
-    };
-    this.arrange(fit('side') >= fit('top') ? 'side' : 'top');
-    return this.sizeFor(this.mode);
+  /** The size of the board (the grid; the stacks are not part of it). */
+  layout(): { width: number; height: number } {
+    return { width: this.cols * CELL, height: this.rows * CELL };
   }
 
-  private arrange(mode: 'side' | 'top'): void {
-    this.mode = mode;
-    const size = this.sizeFor(mode);
-    const gw = this.cols * CELL;
-    const gh = this.rows * CELL;
-    this.slots = [];
-    if (mode === 'side') {
-      this.gridX = SLOT_W + GAP;
-      this.gridY = (size.height - gh) / 2;
-      const total = this.stackN * SLOT_H + (this.stackN - 1) * 10;
-      const y0 = (size.height - total) / 2;
-      for (let i = 0; i < this.stackN; i++) this.slots.push({ x: 0, y: y0 + i * (SLOT_H + 10) });
-    } else {
-      this.gridX = (size.width - gw) / 2;
-      this.gridY = SLOT_H + GAP;
-      const total = this.stackN * SLOT_W + (this.stackN - 1) * 10;
-      const x0 = (size.width - total) / 2;
-      for (let i = 0; i < this.stackN; i++) this.slots.push({ x: x0 + i * (SLOT_W + 10), y: 0 });
+  /** Where the panel of stacks is on a canvas of this size: a third of the width at most, smaller on a narrow screen, and scrolled if its stacks are too many for the height. */
+  private place(cw: number, ch: number): void {
+    if (this.game.solved) {                                          // nothing is left in the stacks: the board has all the room
+      this.panelW = 0;
+      return;
     }
+    const k = this.dpr;
+    this.trayK = Math.min(1, Math.max(0.6, ((cw / k) * 0.3) / PANEL_W)) * k;
+    this.panelW = PANEL_W * this.trayK;
+    this.listH = (2 * PANEL_PAD + this.stackN * SLOT_H + (this.stackN - 1) * SLOT_GAP) * this.trayK;
+    const over = Math.max(0, this.listH - ch);
+    this.scroll = Math.min(over, Math.max(0, this.scroll));
+    this.trayOy = over > 0 ? -this.scroll : (ch - this.listH) / 2;
+  }
+
+  private screen(p: Pt): Pt {
+    const v = this.cur;
+    return { x: p.x * v.scale + v.ox, y: p.y * v.scale + v.oy };
+  }
+
+  private board(s: Pt): Pt {
+    const v = this.cur;
+    return { x: (s.x - v.ox) / v.scale, y: (s.y - v.oy) / v.scale };
+  }
+
+  /** A canvas point as a point of the panel's units, and back. */
+  private tray(s: Pt): Pt {
+    return { x: s.x / this.trayK, y: (s.y - this.trayOy) / this.trayK };
+  }
+
+  private trayScreen(t: Pt): Pt {
+    return { x: t.x * this.trayK, y: t.y * this.trayK + this.trayOy };
+  }
+
+  private inPanel(s: Pt): boolean {
+    return s.x < this.panelW;
+  }
+
+  private maxZoom(): number {
+    return Math.max(this.fitZoom * 2, 4 * this.dpr);
+  }
+
+  view(cw: number, ch: number): View {
+    this.canvasW = cw;
+    this.canvasH = ch;
+    this.place(cw, ch);
+    const k = this.dpr;
+    const areaW = Math.max(1, cw - this.panelW);
+    const fit = Math.max(1e-4, Math.min((areaW - 2 * MARGIN * k) / (this.cols * CELL), (ch - 2 * MARGIN * k) / (this.rows * CELL)));
+    if (!this.inited) {
+      this.fitZoom = fit;
+      this.cam = { zoom: fit, cx: (this.cols * CELL) / 2, cy: (this.rows * CELL) / 2 };
+      if (this.pendingCam) {                                         // the camera of a saved game: as far in as it was, looking where it was
+        this.cam = { zoom: fit * this.pendingCam.ratio, cx: this.pendingCam.cx, cy: this.pendingCam.cy };
+        this.pendingCam = null;
+      }
+      this.inited = true;
+    } else if (fit !== this.fitZoom) {                               // the canvas changed shape: as far in as before, relative to showing everything
+      this.cam.zoom *= fit / this.fitZoom;
+      this.fitZoom = fit;
+    }
+    this.cam.zoom = Math.min(this.maxZoom(), Math.max(this.fitZoom, this.cam.zoom));
+    this.clampCentre(areaW, ch);
+    this.cur = { scale: this.cam.zoom, ox: this.panelW + areaW / 2 - this.cam.cx * this.cam.zoom, oy: ch / 2 - this.cam.cy * this.cam.zoom };
+    return this.cur;
+  }
+
+  /** Keeps the board in view: the camera may go as far as a margin past the board's edge, and a board that is smaller than the view in one direction stays in the middle of it. */
+  private clampCentre(areaW: number, ch: number): void {
+    const z = this.cam.zoom;
+    const m = (MARGIN * this.dpr) / z;
+    const fit = (c: number, size: number, shown: number): number => {
+      const half = shown / (2 * z);
+      const lo = half - m;
+      const hi = size - half + m;
+      return lo > hi ? size / 2 : Math.min(hi, Math.max(lo, c));
+    };
+    this.cam.cx = fit(this.cam.cx, this.cols * CELL, areaW);
+    this.cam.cy = fit(this.cam.cy, this.rows * CELL, ch);
+  }
+
+  /** Zoom by a factor, keeping the board point `at` where it is on the screen. */
+  private zoomAt(at: Pt, factor: number): void {
+    const z = Math.min(this.maxZoom(), Math.max(this.fitZoom, this.cam.zoom * factor));
+    const k = this.cam.zoom / z;
+    this.cam.cx = at.x + (this.cam.cx - at.x) * k;
+    this.cam.cy = at.y + (this.cam.cy - at.y) * k;
+    this.cam.zoom = z;
+    this.clampCentre(Math.max(1, this.canvasW - this.panelW), this.canvasH);
+    this.init.requestDraw();
+  }
+
+  /** The wheel zooms the board about the pointer, and scrolls the panel of stacks when the pointer is over it. */
+  wheel(at: Pt, deltaY: number): void {
+    if (this.inPanel(this.screen(at))) {
+      this.scroll += deltaY * this.dpr;
+      this.place(this.canvasW, this.canvasH);
+      this.init.requestDraw();
+      return;
+    }
+    this.zoomAt(at, Math.exp(-deltaY * 0.0015));
+  }
+
+  /** Two fingers moved: what was under `from` (canvas pixels) now lies under `to`, and the board is `factor` times bigger. */
+  pinch(from: Pt, to: Pt, factor: number): void {
+    const areaW = Math.max(1, this.canvasW - this.panelW);
+    const mx = this.panelW + areaW / 2;
+    const my = this.canvasH / 2;
+    const z = Math.min(this.maxZoom(), Math.max(this.fitZoom, this.cam.zoom * factor));
+    const wx = this.cam.cx + (from.x - mx) / this.cam.zoom;
+    const wy = this.cam.cy + (from.y - my) / this.cam.zoom;
+    this.cam.zoom = z;
+    this.cam.cx = wx + (mx - to.x) / z;
+    this.cam.cy = wy + (my - to.y) / z;
+    this.clampCentre(areaW, this.canvasH);
+    this.init.requestDraw();
+  }
+
+  zoomBy(factor: number): void {
+    this.zoomAt({ x: this.cam.cx, y: this.cam.cy }, factor);
+  }
+
+  zoomFit(): void {
+    this.cam = { zoom: this.fitZoom, cx: (this.cols * CELL) / 2, cy: (this.rows * CELL) / 2 };
+    this.init.requestDraw();
+  }
+
+  zoomLabel(): string {
+    return `${Math.round((this.cam.zoom / this.fitZoom) * 100)}%`;
+  }
+
+  /** The width, in board units, of a line that is a pixel or two wide on the screen however far the board is zoomed in (and one unit when it is not). */
+  private line(scale: number): number {
+    return Math.min(1, 1.5 / scale);
   }
 
   // ---------------------------------------------------------------------------------------------------------------- drawing
@@ -173,9 +304,9 @@ export class OverlapSession implements PuzzleSession {
 
   /**
    * A piece with its centre cell's top-left corner at (ox, oy): each cell shows its own bit of the picture, turned with the piece. A window cell shows the empty board's
-   * pattern from the place the piece belongs. With the grid off a piece has no border at all.
+   * pattern from the place the piece belongs. With the grid off a piece has no border at all; with it on, each cell has a border `line` wide (in the units the piece is drawn in).
    */
-  private drawPiece(ctx: CanvasRenderingContext2D, id: number, ox: number, oy: number, alpha = 1, edge = 'rgba(255,255,255,0.9)', scale = 1): void {
+  private drawPiece(ctx: CanvasRenderingContext2D, id: number, ox: number, oy: number, alpha = 1, edge = 'rgba(255,255,255,0.9)', scale = 1, line = scale): void {
     const g = this.game;
     const now = g.cellsNow(id);
     const home = g.homeCells(id);
@@ -194,10 +325,11 @@ export class OverlapSession implements PuzzleSession {
       else this.cellImage(ctx, home[k].x, home[k].y, -CELL / 2, -CELL / 2, CELL);
       ctx.restore();
     });
-    if (this.init.flag('grid')) {                                  // with the grid off a piece has no border at all; with it on, a line as thin as the board's own grid lines
+    if (this.init.flag('grid')) {                                  // with the grid off a piece has no border at all
+      const w = line / scale;
       ctx.strokeStyle = edge;
-      ctx.lineWidth = 1;
-      for (const c of now) ctx.strokeRect(ox + c.x * CELL + 0.5, oy + c.y * CELL + 0.5, CELL - 1, CELL - 1);
+      ctx.lineWidth = w;
+      for (const c of now) ctx.strokeRect(ox + c.x * CELL + w / 2, oy + c.y * CELL + w / 2, CELL - w, CELL - w);
     }
     ctx.restore();
   }
@@ -209,9 +341,9 @@ export class OverlapSession implements PuzzleSession {
 
   /**
    * A piece as drawPiece draws it, on the graphics card: each cell turned with the piece, a window cell showing the empty board, the thin outline of each cell (grid on) and, for the piece
-   * in hand, its shadow (a few see-through rectangles that spread, in place of the blur of a 2D canvas).
+   * in hand, its shadow (a few see-through rectangles that spread, in place of the blur of a 2D canvas). `shadow` is how many board units a pixel is, or 0 for none.
    */
-  private drawPieceGl(L: VideoLayer, id: number, ox: number, oy: number, scale: number, edge: string, shadow = false): void {
+  private drawPieceGl(L: VideoLayer, id: number, ox: number, oy: number, scale: number, edge: string, line: number, shadow = 0): void {
     const g = this.game;
     const cells = g.cellsNow(id);
     const home = g.homeCells(id);
@@ -223,9 +355,10 @@ export class OverlapSession implements PuzzleSession {
     const h = sh / this.rows;
     const iw = this.init.width;
     const ih = this.init.height;
-    if (shadow) {
+    if (shadow > 0) {
       for (const [spread, alpha] of [[8, 0.08], [4, 0.1], [1, 0.12]]) {
-        for (const c of cells) L.fill(ox + c.x * size - spread, oy + c.y * size + 6 - spread, size + 2 * spread, size + 2 * spread, rgba(0, 0, 0, alpha));
+        const d = spread * shadow;
+        for (const c of cells) L.fill(ox + c.x * size - d, oy + c.y * size + 6 * shadow - d, size + 2 * d, size + 2 * d, rgba(0, 0, 0, alpha));
       }
     }
     cells.forEach((c, k) => {
@@ -238,15 +371,19 @@ export class OverlapSession implements PuzzleSession {
     });
     if (this.init.flag('grid')) {
       const colour = OverlapSession.colour(edge);
-      for (const c of cells) L.frame(ox + c.x * size + 0.5 * scale, oy + c.y * size + 0.5 * scale, size - scale, size - scale, scale, colour);
+      for (const c of cells) L.frame(ox + c.x * size + line / 2, oy + c.y * size + line / 2, size - line, size - line, line, colour);
     }
   }
 
-  /** What lies over the board's canvas for a video puzzle, in the order a 2D canvas would draw it: the cells that show, the grid, the board's edge, the red flash of a wrong move, the stacks' top pieces, the piece in hand. */
+  /**
+   * What lies over the board's canvas for a video puzzle, in the order a 2D canvas would draw it: the cells that show, the grid, the board's edge and the red flash of a wrong move (all
+   * of them only where the panel of stacks is not), then the stacks' top pieces and the piece in hand, whose places are in canvas pixels and so are turned into board units here.
+   */
   private drawGl(now: number): void {
     const L = this.layer!;
     const g = this.game;
-    if (!L.begin(this.canvasW, this.canvasH, this.lastView)) return;
+    const v = this.cur;
+    if (!L.begin(this.canvasW, this.canvasH, v)) return;
     const gw = this.cols * CELL;
     const gh = this.rows * CELL;
     const { sx, sy, sw, sh } = this.crop;
@@ -254,32 +391,48 @@ export class OverlapSession implements PuzzleSession {
     const h = sh / this.rows;
     const iw = this.init.width;
     const ih = this.init.height;
+    const line = this.line(v.scale);
     for (let cy = 0; cy < this.rows; cy++) {
       for (let cx = 0; cx < this.cols; cx++) {
-        if (g.revealed[cy * this.cols + cx] || g.solved) L.quad(this.gridX + cx * CELL, this.gridY + cy * CELL, CELL, CELL, (sx + cx * w) / iw, (sy + cy * h) / ih, (sx + (cx + 1) * w) / iw, (sy + (cy + 1) * h) / ih);
+        if (g.revealed[cy * this.cols + cx] || g.solved) L.quad(cx * CELL, cy * CELL, CELL, CELL, (sx + cx * w) / iw, (sy + cy * h) / ih, (sx + (cx + 1) * w) / iw, (sy + (cy + 1) * h) / ih);
       }
     }
     if (this.init.flag('grid')) {
       const faint = rgba(255, 255, 255, 0.22);
-      for (let cx = 0; cx <= this.cols; cx++) L.fill(this.gridX + cx * CELL, this.gridY, 1, gh, faint);
-      for (let cy = 0; cy <= this.rows; cy++) L.fill(this.gridX, this.gridY + cy * CELL, gw, 1, faint);
+      for (let cx = 0; cx <= this.cols; cx++) L.fill(cx * CELL, 0, line, gh, faint);
+      for (let cy = 0; cy <= this.rows; cy++) L.fill(0, cy * CELL, gw, line, faint);
     }
-    L.frame(this.gridX - 1.5, this.gridY - 1.5, gw + 3, gh + 3, 3, rgba(0x6b, 0x4a, 0x36));
+    const edge = Math.min(3, 4 / v.scale);
+    L.frame(-edge / 2, -edge / 2, gw + edge, gh + edge, edge, rgba(0x6b, 0x4a, 0x36));
     if (this.wrong) {
       const k = 1 - (now - this.wrong.at) / WRONG_MS;
-      if (k > 0) for (const c of this.wrong.cells) L.fill(this.gridX + c.x * CELL, this.gridY + c.y * CELL, CELL, CELL, rgba(230, 60, 40, 0.45 * k));
+      if (k > 0) for (const c of this.wrong.cells) L.fill(c.x * CELL, c.y * CELL, CELL, CELL, rgba(230, 60, 40, 0.45 * k));
     }
-    if (!g.solved) {
-      for (let s = 0; s < this.stackN; s++) {
-        const top = g.top(s);
-        if (top < 0 || (this.held && this.held.id === top)) continue;
-        const at = this.slotCentre(s);
-        this.drawPieceGl(L, top, at.x, at.y, SLOT_SCALE, 'rgba(255,255,255,0.9)');
-      }
-      const held = this.held;
-      if (held?.moved) {
-        const box = this.heldBox({ at: this.heldPoint(held, now) });
-        this.drawPieceGl(L, held.id, box.x, box.y, 1, '#ffd84a', this.init.flag('grid'));
+    L.clipBefore(this.panelW);
+    if (g.solved) {
+      L.end();
+      return;
+    }
+    const px = 1 / v.scale;
+    const stack = SLOT_SCALE * this.trayK;                           // canvas pixels a cell of a piece in a stack is, over CELL
+    for (let s = 0; s < this.stackN; s++) {
+      const top = g.top(s);
+      if (top < 0 || (this.held && this.held.id === top)) continue;
+      const at = this.trayScreen(this.slotCentre(s));
+      if (at.y + 2 * CELL * stack < 0 || at.y - CELL * stack > this.canvasH) continue;          // scrolled out of sight
+      const b = this.board(at);
+      this.drawPieceGl(L, top, b.x, b.y, stack * px, 'rgba(255,255,255,0.9)', stack * px);
+    }
+    const held = this.held;
+    if (held?.moved) {
+      const at = this.heldPoint(held, now);
+      const shadow = this.init.flag('grid') ? px : 0;
+      if (this.inPanel(at)) {                                        // over the stacks: the size it has in a stack
+        const b = this.board({ x: at.x - (CELL * stack) / 2, y: at.y - (CELL * stack) / 2 });
+        this.drawPieceGl(L, held.id, b.x, b.y, stack * px, '#ffd84a', stack * px, shadow);
+      } else {
+        const box = this.heldBox(at);
+        this.drawPieceGl(L, held.id, box.x, box.y, 1, '#ffd84a', line, shadow);
       }
     }
     L.end();
@@ -287,43 +440,44 @@ export class OverlapSession implements PuzzleSession {
 
   draw(ctx: CanvasRenderingContext2D, view: View, now: number): boolean {
     beginFrame(ctx, view);
-    this.lastView = view;
+    this.cur = view;
+    this.canvasW = ctx.canvas.width;
+    this.canvasH = ctx.canvas.height;
     const gpu = !!this.layer && !!this.frontLayer;
     let running = false;
     const g = this.game;
+    if (this.held?.moved && !g.solved && this.autoScroll(now)) running = true;
+    else this.scrollAt = 0;
     const gw = this.cols * CELL;
     const gh = this.rows * CELL;
     const grid = this.init.flag('grid');
+    const line = this.line(view.scale);
     // the board: the empty board's pattern where the picture does not show yet
-    ctx.drawImage(this.pattern, this.gridX, this.gridY, gw, gh);                // the empty board, in one piece (no seams), then the revealed cells over it
+    ctx.drawImage(this.pattern, 0, 0, gw, gh);                                   // the empty board, in one piece (no seams), then the revealed cells over it
     for (let cy = 0; cy < this.rows; cy++) {
       for (let cx = 0; cx < this.cols; cx++) {
-        const i = cy * this.cols + cx;
-        const x = this.gridX + cx * CELL;
-        const y = this.gridY + cy * CELL;
-        if ((g.revealed[i] || g.solved) && !gpu) {
-          this.cellImage(ctx, cx, cy, x, y, CELL);
-        }
+        if ((g.revealed[cy * this.cols + cx] || g.solved) && !gpu) this.cellImage(ctx, cx, cy, cx * CELL, cy * CELL, CELL);
       }
     }
     if (grid && !gpu) {
       ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-      ctx.lineWidth = 1;
+      ctx.lineWidth = line;
       ctx.beginPath();
       for (let cx = 0; cx <= this.cols; cx++) {
-        ctx.moveTo(this.gridX + cx * CELL + 0.5, this.gridY);
-        ctx.lineTo(this.gridX + cx * CELL + 0.5, this.gridY + gh);
+        ctx.moveTo(cx * CELL + line / 2, 0);
+        ctx.lineTo(cx * CELL + line / 2, gh);
       }
       for (let cy = 0; cy <= this.rows; cy++) {
-        ctx.moveTo(this.gridX, this.gridY + cy * CELL + 0.5);
-        ctx.lineTo(this.gridX + gw, this.gridY + cy * CELL + 0.5);
+        ctx.moveTo(0, cy * CELL + line / 2);
+        ctx.lineTo(gw, cy * CELL + line / 2);
       }
       ctx.stroke();
     }
     if (!gpu) {
+      const edge = Math.min(3, 4 / view.scale);
       ctx.strokeStyle = '#6b4a36';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(this.gridX - 1.5, this.gridY - 1.5, gw + 3, gh + 3);
+      ctx.lineWidth = edge;
+      ctx.strokeRect(-edge / 2, -edge / 2, gw + edge, gh + edge);
       if (this.ripples.draw(ctx, now)) running = true;
     }
     if (this.wrong) {
@@ -331,32 +485,66 @@ export class OverlapSession implements PuzzleSession {
       if (k > 0) {
         if (!gpu) {
           ctx.fillStyle = `rgba(230,60,40,${0.45 * k})`;
-          for (const c of this.wrong.cells) ctx.fillRect(this.gridX + c.x * CELL, this.gridY + c.y * CELL, CELL, CELL);
+          for (const c of this.wrong.cells) ctx.fillRect(c.x * CELL, c.y * CELL, CELL, CELL);
         }
         running = true;
       } else this.wrong = null;
     }
-    // the stacks
     if (!g.solved) {
-      for (let s = 0; s < this.stackN; s++) this.drawSlot(ctx, s);
+      this.drawPanel(ctx);                                                      // (over what the board has drawn under it)
       if (this.held) {
         if (!gpu) this.drawHeld(ctx, now);
         if (this.held.lift && !this.held.lift.done(now)) running = true;           // a piece a finger has picked up is still rising
       }
     }
     if (gpu) {                                                                    // the pieces, over what the canvas has drawn, and the ripples over them
-      this.canvasW = ctx.canvas.width;
-      this.canvasH = ctx.canvas.height;
       this.drawGl(now);
-      if (this.ripples.draw(this.frontLayer!.begin(this.canvasW, this.canvasH, view), now)) running = true;
+      if (this.ripples.draw(this.frontLayer!.begin(this.canvasW, this.canvasH, view, this.panelW), now)) running = true;
     }
     return running;
+  }
+
+  /** The panel of stacks down the left side, in canvas pixels: its background, the stacks, and a thin bar that says how far it is scrolled. */
+  private drawPanel(ctx: CanvasRenderingContext2D): void {
+    const k = this.dpr;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#211611';
+    ctx.fillRect(0, 0, this.panelW, this.canvasH);
+    ctx.fillStyle = '#6b4a36';
+    ctx.fillRect(this.panelW - k, 0, k, this.canvasH);
+    ctx.setTransform(this.trayK, 0, 0, this.trayK, 0, this.trayOy);
+    for (let s = 0; s < this.stackN; s++) this.drawSlot(ctx, s);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (this.listH > this.canvasH) {
+      const thumb = Math.max(24 * k, (this.canvasH * this.canvasH) / this.listH);
+      const y = (this.scroll / (this.listH - this.canvasH)) * (this.canvasH - thumb);
+      ctx.fillStyle = 'rgba(240,217,181,0.35)';
+      ctx.beginPath();
+      ctx.roundRect(this.panelW - 5 * k, y, 3 * k, thumb, 2 * k);
+      ctx.fill();
+    }
+  }
+
+  /** A piece held near the top or bottom of the panel scrolls it, faster the closer it is to the edge; true while it does. */
+  private autoScroll(now: number): boolean {
+    const h = this.held!;
+    const at = this.heldPoint(h, now);
+    if (!this.inPanel(at) || this.listH <= this.canvasH) return false;
+    const zone = EDGE * this.dpr;
+    const speed = at.y < zone ? -(zone - at.y) / zone : at.y > this.canvasH - zone ? (at.y - (this.canvasH - zone)) / zone : 0;
+    if (!speed) return false;
+    const dt = this.scrollAt ? Math.min(0.05, (now - this.scrollAt) / 1000) : 0;
+    this.scrollAt = now;
+    const before = this.scroll;
+    this.scroll += Math.min(1, speed) * SCROLL_SPEED * this.dpr * dt;
+    this.place(this.canvasW, this.canvasH);
+    return this.scroll !== before || dt === 0;
   }
 
   private drawSlot(ctx: CanvasRenderingContext2D, s: number): void {
     const slot = this.slots[s];
     const g = this.game;
-    const target = this.held?.moved && this.slotAt(this.held.at) === s;          // a held piece is over this drawer
+    const target = this.held?.moved && this.drawerOf(this.heldPoint(this.held, performance.now())) === s;          // a held piece is over this drawer
     ctx.fillStyle = target ? '#4a2c1a' : s === this.activeStack ? '#3a2519' : '#2a1b14';
     ctx.strokeStyle = target || s === this.activeStack ? '#ffd84a' : '#6b4a36';
     ctx.lineWidth = 2;
@@ -405,24 +593,28 @@ export class OverlapSession implements PuzzleSession {
     ctx.restore();
   }
 
-  /** The top-left corner of the centre cell of a stack's top piece (it reaches a cell out from there in every direction). */
+  /** The top-left corner of the centre cell of a stack's top piece, in the panel's units (it reaches a cell out from there in every direction). */
   private slotCentre(s: number): Pt {
     const slot = this.slots[s];
     return { x: slot.x + SLOT_PAD + CELL * SLOT_SCALE, y: slot.y + PIECE_Y + CELL * SLOT_SCALE };
   }
 
-  /** Where the held piece's centre cell goes: snapped to the cell under the pointer when that is on the grid, else centred on the pointer. */
-  private heldBox(h: { at: Pt }): { x: number; y: number; cell: Pt | null } {
-    const over = h.at.x >= this.gridX && h.at.y >= this.gridY && h.at.x < this.gridX + this.cols * CELL && h.at.y < this.gridY + this.rows * CELL;
+  /**
+   * Where the held piece's centre cell goes on the board, from where the piece is on the canvas: snapped to the cell under it when that is on the grid (and not under the panel), else
+   * centred on it.
+   */
+  private heldBox(at: Pt): { x: number; y: number; cell: Pt | null } {
+    const b = this.board(at);
+    const over = !this.inPanel(at) && b.x >= 0 && b.y >= 0 && b.x < this.cols * CELL && b.y < this.rows * CELL;
     if (over) {
-      const x = Math.floor((h.at.x - this.gridX) / CELL);
-      const y = Math.floor((h.at.y - this.gridY) / CELL);
-      return { x: this.gridX + x * CELL, y: this.gridY + y * CELL, cell: { x, y } };
+      const x = Math.floor(b.x / CELL);
+      const y = Math.floor(b.y / CELL);
+      return { x: x * CELL, y: y * CELL, cell: { x, y } };
     }
-    return { x: h.at.x - CELL / 2, y: h.at.y - CELL / 2, cell: null };
+    return { x: b.x - CELL / 2, y: b.y - CELL / 2, cell: null };
   }
 
-  /** Where the held piece is: at the pointer, or - held by a finger - a little above it. */
+  /** Where the held piece is on the canvas: at the pointer, or - held by a finger - a little above it. */
   private heldPoint(h: Held, now: number): Pt {
     return h.lift ? h.lift.held(h.at, now) : h.at;
   }
@@ -430,81 +622,129 @@ export class OverlapSession implements PuzzleSession {
   private drawHeld(ctx: CanvasRenderingContext2D, now: number): void {
     const h = this.held;
     if (!h || !h.moved) return;
-    const box = this.heldBox({ at: this.heldPoint(h, now) });
+    const at = this.heldPoint(h, now);
     ctx.save();
     if (this.init.flag('grid')) {                                  // (with the grid off the held piece has no shadow either)
       ctx.shadowColor = 'rgba(0,0,0,0.6)';
       ctx.shadowBlur = 14;
       ctx.shadowOffsetY = 6;
     }
-    this.drawPiece(ctx, h.id, box.x, box.y, 1, '#ffd84a');          // (full colour: a window tile looks the same held, in its stack and on the board)
+    if (this.inPanel(at)) {                                        // over the stacks: the size it has in a stack
+      const s = SLOT_SCALE * this.trayK;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      this.drawPiece(ctx, h.id, at.x - (CELL * s) / 2, at.y - (CELL * s) / 2, 1, '#ffd84a', s);          // (full colour: a window tile looks the same held, in its stack and on the board)
+    } else {
+      const box = this.heldBox(at);
+      const v = this.cur;
+      ctx.setTransform(v.scale, 0, 0, v.scale, v.ox, v.oy);
+      this.drawPiece(ctx, h.id, box.x, box.y, 1, '#ffd84a', 1, this.line(v.scale));
+    }
     ctx.restore();
   }
 
   // ---------------------------------------------------------------------------------------------------------------- input
 
-  private slotAt(p: Pt): number {
-    return this.slots.findIndex((s) => p.x >= s.x && p.y >= s.y && p.x < s.x + SLOT_W && p.y < s.y + SLOT_H);
+  private slotAt(t: Pt): number {
+    return this.slots.findIndex((s) => t.x >= s.x && t.y >= s.y && t.x < s.x + SLOT_W && t.y < s.y + SLOT_H);
+  }
+
+  /** The stack under a point of the canvas (-1: none, also for a point that is not over the panel). */
+  private drawerOf(s: Pt): number {
+    return this.inPanel(s) ? this.slotAt(this.tray(s)) : -1;
   }
 
   pointerDown(p: Pt, touch = false): void {
     const g = this.game;
-    if (g.solved) return;
-    const s = this.slotAt(p);
-    if (s < 0) return;
-    this.activeStack = s;
-    for (const up of [true, false]) {
-      const r = this.arrowRect(s, up);
-      if (g.stacks[s].length > 1 && p.x >= r.x && p.y >= r.y && p.x < r.x + r.w && p.y < r.y + r.h) {
-        g.cycle(s, up ? -1 : 1);
-        buzz(this.init, 'turn');
+    const s = this.screen(p);
+    if (g.solved || !this.inPanel(s)) {                            // bare board: a drag moves the camera
+      this.pan = { anchor: p, moved: false };
+      return;
+    }
+    const t = this.tray(s);
+    const i = this.slotAt(t);
+    if (i >= 0) {
+      this.activeStack = i;
+      for (const up of [true, false]) {
+        const r = this.arrowRect(i, up);
+        if (g.stacks[i].length > 1 && t.x >= r.x && t.y >= r.y && t.x < r.x + r.w && t.y < r.y + r.h) {
+          g.cycle(i, up ? -1 : 1);
+          buzz(this.init, 'turn');
+          this.init.requestDraw();
+          return;
+        }
+      }
+      const top = g.top(i);
+      const slot = this.slots[i];
+      const reach = 3 * CELL * SLOT_SCALE;
+      if (top >= 0 && t.x >= slot.x + SLOT_PAD && t.x < slot.x + SLOT_PAD + reach && t.y >= slot.y + PIECE_Y && t.y < slot.y + PIECE_Y + reach) {
+        this.held = { id: top, stack: i, at: s, moved: false, start: s, touch, lift: null };
+        buzz(this.init, 'grab');
+        playEffect('pickup');
         this.init.requestDraw();
         return;
       }
     }
-    const top = g.top(s);
-    const slot = this.slots[s];
-    const reach = 3 * CELL * SLOT_SCALE;
-    if (top >= 0 && p.x >= slot.x + SLOT_PAD && p.x < slot.x + SLOT_PAD + reach && p.y >= slot.y + PIECE_Y && p.y < slot.y + PIECE_Y + reach) {
-      this.held = { id: top, stack: s, at: p, moved: false, start: p, touch, lift: null };
-      buzz(this.init, 'grab');
-      playEffect('pickup');
-    }
+    this.scrolling = { y: s.y, from: this.scroll };                // anywhere else in the panel: a drag scrolls it
     this.init.requestDraw();
   }
 
   pointerMove(p: Pt): void {
-    const s = this.slotAt(p);
-    if (s !== this.hoverStack) this.hoverStack = s;
+    const s = this.screen(p);
+    this.hoverStack = this.drawerOf(s);
+    if (this.scrolling) {
+      this.scroll = this.scrolling.from - (s.y - this.scrolling.y);
+      this.place(this.canvasW, this.canvasH);
+      this.init.requestDraw();
+      return;
+    }
+    if (this.pan) {
+      this.panTo(p);
+      return;
+    }
     const h = this.held;
     if (!h) return;
-    h.at = p;
-    if (!h.moved && Math.hypot(p.x - h.start.x, p.y - h.start.y) > TAP) {
+    h.at = s;
+    if (!h.moved && Math.hypot(s.x - h.start.x, s.y - h.start.y) > TAP * this.dpr) {
       h.moved = true;
-      h.lift = startLift(this.init, h.touch, this.lastView, performance.now());          // a finger lifts the piece above itself from here on (a tap does not)
+      h.lift = startLift(this.init, h.touch, UNIT, performance.now());          // a finger lifts the piece above itself from here on (a tap does not); canvas pixels, as the piece is held in
     }
     this.init.requestDraw();
   }
 
+  private panTo(p: Pt): void {
+    const pan = this.pan!;
+    if (!pan.moved && Math.hypot(p.x - pan.anchor.x, p.y - pan.anchor.y) * this.cam.zoom < TAP * this.dpr) return;
+    pan.moved = true;
+    this.cam.cx += pan.anchor.x - p.x;                             // the board point that was under the pointer stays under it
+    this.cam.cy += pan.anchor.y - p.y;
+    this.clampCentre(Math.max(1, this.canvasW - this.panelW), this.canvasH);
+    this.init.requestDraw();
+  }
+
   pointerUp(p: Pt): void {
+    this.scrolling = null;
+    this.pan = null;
     const h = this.held;
-    if (!h) return;
+    if (!h) {
+      this.init.requestDraw();
+      return;
+    }
     this.held = null;
-    h.at = p;
+    h.at = this.screen(p);
     const g = this.game;
     if (!h.moved) {                                           // a tap turns the piece (the press has buzzed already: a second buzz would only cancel it)
       g.rotate(h.id);
     } else {
       const at = this.heldPoint(h, performance.now());       // where the piece is, which is not where a finger is
-      const box = this.heldBox({ at });
-      const drawer = this.slotAt(at);
+      const box = this.heldBox(at);
+      const drawer = this.drawerOf(at);
       if (drawer >= 0) {                                      // put down on a drawer (its own or another): the piece goes on top of it
         g.moveToStack(h.id, drawer);
         this.activeStack = drawer;
         buzz(this.init, 'drop');
       } else if (box.cell) {
         if (g.drop(h.id, box.cell.x, box.cell.y) === 'placed') {
-          this.ripples.add(g.cellsNow(h.id).map((c) => ({ x: this.gridX + (box.cell!.x + c.x) * CELL, y: this.gridY + (box.cell!.y + c.y) * CELL, w: CELL, h: CELL })), performance.now());
+          this.ripples.add(g.cellsNow(h.id).map((c) => ({ x: (box.cell!.x + c.x) * CELL, y: (box.cell!.y + c.y) * CELL, w: CELL, h: CELL })), performance.now());
           buzz(this.init, g.solved ? 'solved' : 'placed');
           if (!g.solved) playEffect('placed');                    // (the end of the puzzle has its own sound)
         } else {
@@ -520,7 +760,31 @@ export class OverlapSession implements PuzzleSession {
 
   pointerCancel(): void {
     this.held = null;
+    this.scrolling = null;
+    this.pan = null;
+    this.rightClick = false;
     this.init.requestDraw();
+  }
+
+  /** A piece is in hand: a second finger then turns it instead of starting a pinch. */
+  holding(): boolean {
+    return !!this.held;
+  }
+
+  /** The right button: a drag on the board moves the camera, a click turns a piece. */
+  rightDown(p: Pt): void {
+    this.rightClick = true;
+    if (!this.inPanel(this.screen(p))) this.pan = { anchor: p, moved: false };
+  }
+
+  rightMove(p: Pt): void {
+    if (this.pan) this.panTo(p);
+  }
+
+  rightUp(): void {
+    if (this.rightClick && !this.pan?.moved) this.secondary();
+    this.rightClick = false;
+    this.pan = null;
   }
 
   secondary(): void {
