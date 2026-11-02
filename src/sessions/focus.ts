@@ -6,7 +6,7 @@ import type { Rect } from '../core/layout';
 import { beginFrame, draw, rectNow, SWAP_MS, type Anim, type View } from '../render';
 import { Ripples } from './ripple';
 import { playEffect } from '../sounds';
-import { buzz } from './feedback';
+import { buzz, cascadeStep, nearestFirst, rippleColor } from './feedback';
 import { Camera } from './camera';
 import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
@@ -126,8 +126,7 @@ export class FocusSession implements PuzzleSession {
     const result = game.click(piece);
     if (result === 'swap') {
       buzz(this.init, game.solved ? 'solved' : 'join');
-      const found = this.showSwap(before, wasPlaced);
-      if (!game.solved) playEffect(found ? 'placed' : 'pickup');                         // (the end of the puzzle has its own sound)
+      this.showSwap(before, wasPlaced, { sound: true });
       this.init.online?.send({ t: 'swap', a: chosen, b: piece });
     } else if (result === 'select') {
       buzz(this.init, 'grab');
@@ -137,24 +136,40 @@ export class FocusSession implements PuzzleSession {
     this.init.requestDraw();
   }
 
-  /** Shows a swap that has just been made: the pieces glide to their places (animations on), and one that has found its place gets a ripple once it arrives. True if one did. */
-  private showSwap(before: Rect[], wasPlaced: boolean[]): boolean {
+  /**
+   * Shows a swap (or a hint, or a bomb) that has just been made: the pieces glide to their places (animations on), and one that has found its place gets a ripple, in the colour of the
+   * player `by` who put it there, once it arrives. The swap makes its sound as it begins and the bell rings as the ripple does (`sound`: only for this player's own moves).
+   * A bomb at `bomb` places its pieces one after the other, the nearest first: each glides, ripples and sounds a little after the one before.
+   */
+  private showSwap(before: Rect[], wasPlaced: boolean[], opts: { by?: string; bomb?: Pt; sound?: boolean } = {}): void {
     const game = this.game;
     const now = performance.now();
-    let found = false;
-    game.homes.forEach((home, i) => {
-      if (game.placed(i) && !wasPlaced[i]) {
-        this.ripples.add([home], now, this.init.flag('animate') ? SWAP_MS : 0);
-        found = true;
-      }
-    });
-    if (this.init.flag('animate')) {
+    const glide = this.init.flag('animate') ? SWAP_MS : 0;
+    let fresh = game.homes.flatMap((_, i) => (game.placed(i) && !wasPlaced[i] ? [i] : []));
+    const { bomb } = opts;
+    if (bomb) fresh = nearestFirst(fresh, bomb.x, bomb.y, (i) => ({ x: game.homes[i].x + game.homes[i].w / 2, y: game.homes[i].y + game.homes[i].h / 2 }));
+    const step = bomb ? cascadeStep(fresh.length) : 0;
+    const wait = new Map(fresh.map((piece, k) => [piece, k * step]));
+    const color = rippleColor(this.init, opts.by);
+    for (const piece of fresh) this.ripples.add([game.homes[piece]], now, wait.get(piece)! + glide, color);
+    if (glide) {
       for (let i = 0; i < game.count; i++) {
         const to: Rect = game.slotRect(i);
-        if (to !== before[i]) this.anims.set(i, { from: before[i], to, start: now });
+        if (to === before[i]) continue;
+        const sender = wait.has(i) ? i : fresh.find((p) => game.homes[p] === before[i]);        // (a piece that was pushed aside goes with the one that took its place)
+        this.anims.set(i, { from: before[i], to, start: now + (sender === undefined ? 0 : wait.get(sender)!) });
       }
     }
-    return found;
+    if (!opts.sound || game.solved) return;                                                      // (the end of the puzzle has its own sound)
+    if (bomb) {
+      for (const piece of fresh) {
+        playEffect('pickup', wait.get(piece)!);
+        playEffect('placed', wait.get(piece)! + glide);
+      }
+    } else {
+      playEffect('pickup');
+      if (fresh.length) playEffect('placed', glide);
+    }
   }
 
   /** Applies a hint or a bomb to the board, shown as a swap is (the pieces glide to their places, and those that found them get a ripple). */
@@ -164,7 +179,7 @@ export class FocusSession implements PuzzleSession {
     const wasPlaced = game.slotOf.map((_, i) => game.placed(i));
     if (!applyBoardOp(this.board, op).ok) return false;
     buzz(this.init, game.solved ? 'solved' : 'join');
-    if (this.showSwap(before, wasPlaced) && !game.solved) playEffect('placed');
+    this.showSwap(before, wasPlaced, { bomb: op.t === 'bomb' ? op : undefined, sound: true });
     this.init.requestDraw();
     this.init.progress?.();
     return true;
@@ -277,7 +292,7 @@ export class FocusSession implements PuzzleSession {
     const wasPlaced = game.slotOf.map((_, i) => game.placed(i));
     if (!applyBoardOp(this.board, op).ok) return;
     if (game.selected >= 0 && game.placed(game.selected)) game.selected = -1;          // the piece this player had chosen found its place
-    this.showSwap(before, wasPlaced);
+    this.showSwap(before, wasPlaced, { by: ev.by, bomb: op.t === 'bomb' ? op : undefined });
     this.init.requestDraw();
     this.init.progress?.();
   }

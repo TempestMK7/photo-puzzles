@@ -4,7 +4,7 @@ import type { RoomEvent, RoomState } from '../core/jigsawRoom';
 import { boxOf, makeStrips, MARGIN, type StripsGame, type StripsState } from '../core/strips';
 import { beginFrame, drawSlice, type View } from '../render';
 import { playEffect } from '../sounds';
-import { buzz, startLift, type Lift } from './feedback';
+import { buzz, cascadeStep, nearestFirst, rippleColor, startLift, type Lift } from './feedback';
 import { Camera } from './camera';
 import { Ripples } from './ripple';
 import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
@@ -443,28 +443,40 @@ export class StripsSession implements PuzzleSession {
     this.init.online?.send({ t: 'place', strip: id, x: s.x, y: s.y, angle: s.angle, tab: s.tab });
   }
 
-  /** A strip has found its hole: the ripple, and (for this player's own strip, not one that somebody else put there) the buzz and the sound. */
-  private locked(id: number, mine = true): void {
+  /**
+   * A strip has found its hole: the ripple (in the colour of the player `by` who put it there, this player if nobody is named), `delay` milliseconds from now, and (for this player's
+   * own strip, not one that somebody else put there) the buzz and the sound. A bomb's strips ring `chime` without the buzz, which the bomb gave once.
+   */
+  private locked(id: number, mine = true, delay = 0, by?: string, chime = mine): void {
     const d = this.game.defs[id];
     const b = boxOf(d, 0);
-    this.ripples.add([{ x: d.hx * S, y: d.hy * S, w: b.w * S, h: b.h * S }], performance.now());
+    this.ripples.add([{ x: d.hx * S, y: d.hy * S, w: b.w * S, h: b.h * S }], performance.now(), delay, rippleColor(this.init, by));
     if (this.selected === id) this.selected = -1;
     this.game.moves++;
-    if (mine) {
-      buzz(this.init, this.game.solved ? 'solved' : 'placed');
-      if (!this.game.solved) playEffect('placed');                    // (the end of the puzzle has its own sound)
-    }
+    if (mine) buzz(this.init, this.game.solved ? 'solved' : 'placed');
+    if (chime && !this.game.solved) playEffect('placed', delay);       // (the end of the puzzle has its own sound)
     this.nextTab();
   }
 
-  /** Applies a hint or a bomb to the board: the strips it put home get their ripple (and a strip that was in hand is not any more). */
-  private run(op: BoardOp): boolean {
+  /**
+   * Applies a hint or a bomb to the board: the strips it put home get their ripple (and a strip that was in hand is not any more). A bomb puts them home one after the other, the nearest
+   * first. Only this player's own hint or bomb rings the bell; `by` is the player who used it, if it is another's.
+   */
+  private run(op: BoardOp, by?: string): boolean {
     const g = this.game;
     const was = g.state.map((s) => s.locked);
     if (!applyBoardOp(this.rules, op).ok) return false;
-    g.state.forEach((s, id) => {
-      if (!s.locked || was[id]) return;
-      this.locked(id, false);
+    let fresh = g.state.flatMap((s, id) => (s.locked && !was[id] ? [id] : []));
+    if (op.t === 'bomb') {
+      fresh = nearestFirst(fresh, op.x + 0.5, op.y + 0.5, (id) => {
+        const d = g.defs[id];
+        const b = boxOf(d, 0);
+        return { x: d.hx + b.w / 2, y: d.hy + b.h / 2 };
+      });
+    }
+    const step = op.t === 'bomb' ? cascadeStep(fresh.length) : 0;
+    fresh.forEach((id, k) => {
+      this.locked(id, false, k * step, by, by === undefined);
       if (this.drag?.id === id) this.dragEnds();
     });
     this.afterOthers();
@@ -488,7 +500,6 @@ export class StripsSession implements PuzzleSession {
     if (!this.run(op)) return;
     this.init.online?.send(op);
     buzz(this.init, this.game.solved ? 'solved' : 'placed');
-    if (!this.game.solved) playEffect('placed');
   }
 
   /** The tab that is showing has no loose strips left: on to the next one that still has. */
@@ -550,14 +561,14 @@ export class StripsSession implements PuzzleSession {
   applyEvent(ev: RoomEvent): void {
     const op = ev.op as BoardOp | undefined;
     if (op?.t === 'hint' || op?.t === 'bomb') {
-      this.run(op);
+      this.run(op, ev.by);
       return;
     }
     if (!op || op.t !== 'place') return;
     const res = applyBoardOp(this.rules, op);
     if (!res.ok) return;
     if (res.placed) {
-      this.locked(op.strip, false);
+      this.locked(op.strip, false, 0, ev.by);
       if (this.drag?.id === op.strip) this.dragEnds();             // this player was dragging it: it is in its hole now
     }
     this.afterOthers();

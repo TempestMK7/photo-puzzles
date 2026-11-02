@@ -159,13 +159,14 @@ uniform sampler2D u_cover;
 uniform vec2 u_atlas;
 uniform float u_pitch;
 uniform float u_k;
+uniform vec3 u_tint;
 in vec2 v_tile;
 in vec2 v_cell;
 in float v_plain;
 out vec4 o;
 void main() {
   float cov = texture(u_cover, (v_cell * u_pitch + vec2(1.0) + v_tile) / u_atlas).a * u_k * v_plain;
-  o = vec4(vec3(cov), cov);
+  o = vec4(u_tint * cov, cov);
 }`;
 
 const FLOATS = 8;                       // per instance: centre x, y, cos, sin, cell c, r, plain, joined sides
@@ -259,7 +260,7 @@ export class PieceRenderer {
     const shared = ['u_res', 'u_xf', 'u_tile', 'u_o', 'u_cover', 'u_atlas', 'u_pitch'];
     this.piece = this.compile(FRAG_PIECE, [...shared, 'u_video', 'u_overlay', 'u_src', 'u_size', 'u_vid', 'u_outline', 'u_blur']);
     this.glow = this.compile(FRAG_GLOW, [...shared, 'u_r', 'u_glow']);
-    this.flashProg = this.compile(FRAG_FLASH, [...shared, 'u_k']);
+    this.flashProg = this.compile(FRAG_FLASH, [...shared, 'u_k', 'u_tint']);
     this.vao = gl.createVertexArray()!;
     gl.bindVertexArray(this.vao);
     this.cornerBuf = gl.createBuffer()!;
@@ -315,7 +316,7 @@ export class PieceRenderer {
    * Draws the pieces into the renderer's canvas (the same size as the board's) and returns it, or null if there is nothing to show yet. `loose` is back to front; the
    * `selected` group is drawn last, with a glow. `glows` are the groups that other players have in hand or have chosen: each is drawn again over the others, with a glow of its colour.
    */
-  render(view: GlView, anchored: Iterable<GlGroup>, loose: Iterable<GlGroup>, selected: GlGroup | null, flash: { group: GlGroup; ks: ArrayLike<number> } | null, glows: { group: GlGroup; rgb: [number, number, number] }[] = [], tray: GlTray | null = null): HTMLCanvasElement | null {
+  render(view: GlView, anchored: Iterable<GlGroup>, loose: Iterable<GlGroup>, selected: GlGroup | null, flash: { group: GlGroup; ks: ArrayLike<number>; rgb?: [number, number, number] } | null, glows: { group: GlGroup; rgb: [number, number, number] }[] = [], tray: GlTray | null = null): HTMLCanvasElement | null {
     if (this.lost) return null;
     const gl = this.gl;
     const { canvas, l, masks } = this;
@@ -479,6 +480,7 @@ export class PieceRenderer {
       const f = this.flashProg;
       shared(f);
       gl.uniform1f(f.u.u_k, 0.4);
+      gl.uniform3f(f.u.u_tint, ...(flash.rgb ?? [1, 1, 1]));
       draw(flashStart, nFlash);
     }
     if (tray) {

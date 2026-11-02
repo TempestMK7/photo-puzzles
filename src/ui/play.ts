@@ -14,7 +14,7 @@ import { needsStill, startSession, type PuzzleSession } from '../sessions';
 import type { OnlineHooks } from '../sessions/types';
 import { openVideo, type PhotoEntry, type PhotoLibrary, type PlaySource } from '../store/photos';
 import type { SaveRecord, SaveStore } from '../store/saves';
-import { playEffect } from '../sounds';
+import { cancelEffects, playEffect } from '../sounds';
 import { launchConfetti } from './confetti';
 import { creditText } from './credits';
 import { h, svg } from './dom';
@@ -453,6 +453,7 @@ export class PlayScreen {
         progress: () => this.after(),
       });
     this.session?.dispose?.();
+    cancelEffects();
     this.overlay?.remove();
     this.front?.remove();
     try {
@@ -719,8 +720,10 @@ export class PlayScreen {
       holding: (piece) => room.holding(piece),
       notify: (text) => bar.say(text),
       colorOf: (id) => PLAYER_COLORS[(room.member(id)?.color ?? 0) % PLAYER_COLORS.length],
+      self: room.me,
     };
     this.session?.dispose?.();
+    cancelEffects();
     this.overlay?.remove();
     this.front?.remove();
     this.session = startSession(this.kind.id, {
@@ -1053,6 +1056,7 @@ export class PlayScreen {
     this.stopClock();
     this.closeSource();
     this.session?.dispose?.();
+    cancelEffects();
     this.overlay?.remove();
     this.front?.remove();
     this.overlay = null;
