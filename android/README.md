@@ -23,9 +23,12 @@ A thin shell around the game: one `WebView` that shows the web build packed in `
    ```
    cd android
    ./gradlew assembleDebug        # app/build/outputs/apk/debug/app-debug.apk
+   ./gradlew assembleRelease      # app/build/outputs/apk/release/app-release.apk (bundleRelease: the .aab for the Play Console)
    adb install -r app/build/outputs/apk/debug/app-debug.apk
    ```
    On a machine whose HTTPS is intercepted by a root certificate that only the operating system knows (so that Gradle cannot download), run Gradle with `JAVA_TOOL_OPTIONS=-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT` (Windows) in its environment, or put the same flag in `org.gradle.jvmargs` in `~/.gradle/gradle.properties`. It is not in the project's `gradle.properties` because the JVM refuses it on other systems.
+
+**Dev and real app side by side.** The app is built for the stage whose web build is in it (`web-stage.txt`, see *Ads*): a **dev** build is **`com.tempest.photopuzzles.dev`**, named **Dev PuzzleVidio**, and any other build is **`com.tempest.photopuzzles`**, **PuzzleVidio**. Different package ids are different apps, so both can be installed at once, each with its own storage (library, saved puzzles, sign-in), and a release build never replaces a dev one. The sign-in return address follows the package id (`<package id>://signed-in`: the page asks the shell for it with `PhotoPuzzlesNative.signInRedirect()`), so the two do not both answer to one address; the dev stage's user pool lists the dev app's (`DEV_APP_SIGN_IN_REDIRECTS` in `infra/lib/config.ts`) and the prod stage's the real one's. (A debug build is signed with the debug key and a release with the upload key, so those two could never be installed over each other anyway.)
 
 ## Ads
 
@@ -50,7 +53,7 @@ Without a key of its own the release build is signed with the debug key (private
 
 E-mail and password work inside the app. **Google does not let its sign-in page open in an app's web view**, so "Sign in with Google" goes through the phone's browser instead:
 1. the page asks the app to open the sign-in service's address (`PhotoPuzzlesNative.openSignIn(url)`): a **Chrome Custom Tab** (only `https://*.amazoncognito.com` addresses are opened);
-2. the player chooses their Google account there; Google sends them to the sign-in service, which sends them back to **`com.tempest.photopuzzles://signed-in?code=...&state=...`**: the app's own made-up address (an intent filter in the manifest, and one of the addresses the user pool's app client lists, `infra/lib/auth-stack.ts`);
+2. the player chooses their Google account there; Google sends them to the sign-in service, which sends them back to **`com.tempest.photopuzzles://signed-in?code=...&state=...`** (the dev app: `com.tempest.photopuzzles.dev://`): the app's own made-up address (an intent filter in the manifest, and one of the addresses the user pool's app client lists, `infra/lib/auth-stack.ts`);
 3. the app keeps that address until the page takes it (`takeSignIn()`; the window event `photopuzzles-signin` says there is one, and a page that starts afterwards, because the system closed the app meanwhile, asks at start), and the page finishes the sign-in with the same code exchange as in a browser (`CognitoAccount.completeSignIn`). What the exchange needs (a random secret and a state, PKCE) is kept on the device while the player is away: an address sent to the app by another app is useless without it.
 Signing out of a Google account also ends the browser's session through the same trip (the app's page is not taken away). The build has the Google button when the stage has Google (`scripts/android-web.mjs` reads the repository's variables, as the Deploy workflow does).
 

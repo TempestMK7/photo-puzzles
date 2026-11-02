@@ -18,6 +18,7 @@ interface Native {
   platform?: () => string;
   openSignIn?: (url: string) => void;
   takeSignIn?: () => string;
+  signInRedirect?: () => string;
   prepareAds?: () => void;
   showRewardedAd?: (kind: string, nonce: string) => void;
   privacyOptionsRequired?: () => boolean;
@@ -43,6 +44,17 @@ export function platform(host: Native | undefined = nativeHost(), built: string 
  * receives and keeps until the page asks for it with `takeSignIn()` (the whole address, or an empty string): the window event `photopuzzles-signin` says that there is one.
  */
 export const APP_SIGN_IN_REDIRECT = 'com.tempest.photopuzzles://signed-in';
+
+/** The address the app wants to be sent back to: the shell says (the dev app is an app of its own, with its own address, so that both can be on one phone); the real app's when it does not (an older shell). */
+export function appSignInRedirect(host: Native | undefined = nativeHost()): string {
+  try {
+    const own = host?.signInRedirect?.();
+    if (typeof own === 'string' && /^[a-z][a-z0-9.]*:\/\/signed-in$/.test(own)) return own;
+  } catch {
+    /* the usual one */
+  }
+  return APP_SIGN_IN_REDIRECT;
+}
 
 /** Whether sign-in pages are opened outside the page (in the phone's browser) and come back through the app. */
 export function browserSignIn(host: Native | undefined = nativeHost()): boolean {

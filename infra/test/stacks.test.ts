@@ -162,7 +162,7 @@ describe('auth', () => {
     sender({ cognitoEmail: '' }).hasResourceProperties('AWS::Cognito::UserPool', { EmailConfiguration: Match.objectLike({ EmailSendingAccount: 'DEVELOPER' }) });
   });
   it('lets a local game sign in to the test stage only', () => {
-    stack(app(), 'PuzzleVidio-dev-Auth').hasResourceProperties('AWS::Cognito::UserPoolClient', { CallbackURLs: ['https://dev.puzzlevid.io/', 'http://localhost:5173/', 'com.tempest.photopuzzles://signed-in'] });
+    stack(app(), 'PuzzleVidio-dev-Auth').hasResourceProperties('AWS::Cognito::UserPoolClient', { CallbackURLs: ['https://dev.puzzlevid.io/', 'http://localhost:5173/', 'com.tempest.photopuzzles.dev://signed-in'] });          // (the dev app is an app of its own: its own return address)
   });
   it('allows the credentialed "admin" sign-in (for test tokens) on the test stage only', () => {
     stack(app(), 'PuzzleVidio-dev-Auth').hasResourceProperties('AWS::Cognito::UserPoolClient', { ExplicitAuthFlows: Match.arrayWith(['ALLOW_ADMIN_USER_PASSWORD_AUTH']) });

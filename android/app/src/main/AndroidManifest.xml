@@ -15,7 +15,7 @@
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
-        android:label="PuzzleVidio"
+        android:label="${appLabel}"
         android:theme="@style/AppTheme">
         <!-- AdMob's id for this app (android/README.md says where it comes from; Google's test id is used until there is one) -->
         <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="${admobAppId}" />
@@ -31,12 +31,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- where the sign-in service sends the player back, after signing in with Google in the phone's browser (src/platform.ts, android/README.md) -->
+            <!-- where the sign-in service sends the player back, after signing in with Google in the phone's browser (src/platform.ts, android/README.md); the scheme is the app's package id, so the dev app and the real one do not share it -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="com.tempest.photopuzzles" android:host="signed-in" />
+                <data android:scheme="${applicationId}" android:host="signed-in" />
             </intent-filter>
 
             <!-- in the system's share list for pictures and videos: "Share > PuzzleVidio" in the gallery, a file manager, a chat... adds them to the game's library -->
