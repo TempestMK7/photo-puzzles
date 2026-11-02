@@ -117,7 +117,7 @@ describe.each(stores)('guests and names on %s', (_name, makeStore) => {
     it('is nothing until it is chosen, then is what was chosen (cleaned), for a guest and for an account', async () => {
       const { call } = setup();
       const g = (await call('POST', '/guest')).body;
-      expect((await call('GET', '/me', g.token)).body).toEqual({ ok: true, id: g.id, name: null, guest: true, account: GUEST_ACCOUNT });
+      expect((await call('GET', '/me', g.token)).body).toEqual({ ok: true, id: g.id, name: null, guest: true, account: { ...GUEST_ACCOUNT, hints: 5, bombs: 1, helpAdReady: false, helpAdIn: 15 * 60_000, helpAdHints: 5, helpAdBombs: 1 } });
       expect((await call('PUT', '/me', g.token, { name: '  Zed   Zee ' })).body).toMatchObject({ ok: true, name: 'Zed Zee', guest: true });
       expect((await call('GET', '/me', g.token)).body.name).toBe('Zed Zee');
       expect((await call('GET', '/me', ann)).body).toMatchObject({ ok: true, id: 'ann1', name: null, guest: false, account: { type: 'free' } });
@@ -220,6 +220,21 @@ describe.each(stores)('guests and names on %s', (_name, makeStore) => {
       const r = await call('POST', '/rooms', ann, request());
       expect(r.status).toBe(200);
       expect(r.body.ok).toBe(true);
+    });
+  });
+
+  describe('what a guest has left of hints and bombs goes to the account they make', () => {
+    it('is asked for with the guest\'s token, by the account, and by nobody else', async () => {
+      const { w, call } = setup();
+      const g = (await call('POST', '/guest')).body;
+      await call('GET', '/me', g.token);                                                          // (the guest is known to the server)
+      await call('GET', '/me', ann);                                                              // (the account is made)
+      expect((await call('POST', '/me/carry', ann, { guest: 'g1.forged.token' })).status).toBe(400);
+      expect((await call('POST', '/me/carry', ann, {})).status).toBe(400);
+      expect((await call('POST', '/me/carry', g.token, { guest: g.token })).body).toEqual({ ok: false, error: 'account-required' });
+      expect((await call('POST', '/me/carry', ann, { guest: g.token })).body).toMatchObject({ ok: true, account: { hints: 15, bombs: 3 } });
+      expect((await call('GET', '/me', g.token)).body.account).toMatchObject({ hints: 0, bombs: 0 });
+      expect(await w.store.getAccount(g.id)).toMatchObject({ carried: true });
     });
   });
 

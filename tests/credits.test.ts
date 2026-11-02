@@ -7,7 +7,7 @@ import { costNote, sayError } from '../src/ui/online';
 
 afterEach(() => vi.useRealTimers());
 
-const summary = (more: Partial<AccountSummary> = {}): AccountSummary => ({ type: 'free', photo: 5, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 5, videoAdsLeft: 0, adPhoto: 5, adVideo: 1, hints: 10, bombs: 2, hintsInfinite: false, bombsInfinite: false, earnPerDay: 10, earnLeft: 10, earnInfinite: false, helpAdReady: true, helpAdIn: 0, helpAdHints: 5, helpAdBombs: 1, helpAdNoAd: false, ...more });
+const summary = (more: Partial<AccountSummary> = {}): AccountSummary => ({ type: 'free', photo: 5, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 5, videoAdsLeft: 0, adPhoto: 5, adVideo: 1, hints: 10, bombs: 2, earnPerDay: 10, earnLeft: 10, earnInfinite: false, helpAdReady: true, helpAdIn: 0, helpAdHints: 5, helpAdBombs: 1, helpAdNoAd: false, ...more });
 const paid = (more: Partial<AccountSummary> = {}) => summary({ type: 'paid', photoInfinite: true, canVideo: true, photoAdsLeft: 0, videoAdsLeft: 5, video: 20, ...more });
 const text = (e: ReturnType<typeof explainCredits>) => e.paragraphs.join(' ');
 
@@ -228,7 +228,7 @@ describe('the credits the session shows', () => {
     expect(fake(false).session.summary()).toEqual(GUEST_ACCOUNT);
     const { session } = fake(true);
     expect(session.summary()).toEqual(GUEST_ACCOUNT);
-    session.attach({ me: async () => ({ ok: true, id: 'acc1', name: 'Ann', guest: false, account: summary({ photo: 4 }) }), setName: async () => { throw new Error('no'); } });
+    session.attach({ me: async () => ({ ok: true, id: 'acc1', name: 'Ann', guest: false, account: summary({ photo: 4 }) }), setName: async () => { throw new Error('no'); }, carryGuest: async () => { throw new Error('no'); } });
     await session.refreshProfile();
     expect(session.summary()).toMatchObject({ type: 'free', photo: 4 });
   });

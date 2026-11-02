@@ -35,7 +35,7 @@ export function privacy(): LegalPage {
       { h: 'The short version' },
       {
         ul: [
-          '**Playing alone sends nothing anywhere** (the Android app does not talk to the ad service either until you open the credits). Your pictures and videos, your puzzles in progress and your best times stay on your device.',
+          '**Playing alone sends none of your pictures, videos or puzzles anywhere.** They and your best times stay on your device. When the game opens without an account it asks our server for a guest id (see the table below), which is what holds your hints and bombs; the Android app does not talk to the ad service until you open the inventory.',
           '**Playing with friends** sends the picture of the puzzle to our server so that the others can see it, and keeps a name and an id for you for as long as the puzzle lasts. A puzzle and its picture are deleted when it is solved, when nobody has touched it for a day, or after 30 days at the latest. A **copy of the picture is kept for a week** after you last make a puzzle from it, so that you, and the players who joined a puzzle made from it, can make another puzzle from it without sending it again.',
           '**Making a puzzle needs an account** (Google, or an e-mail address and a password). **Joining one does not**: you are a guest with a name you choose.',
           'You can delete your account in the game, or at {delete}.',
@@ -52,7 +52,8 @@ export function privacy(): LegalPage {
             ['The **state of the puzzle** (where the pieces are, who holds one)', 'while you play', 'so that everyone sees the same board', 'until the puzzle ends (as above)'],
             ['Your **display name** and a colour', 'when you join or make a puzzle', 'so that the others know who is who', "an account's name: until you delete the account. A guest's name: 100 days after you last set it"],
             ['Your **account**: e-mail address, and the name and the profile picture (its web address, not the image) that Google gives us if you sign in with Google', 'when you create an account', 'to sign you in and to count the puzzles you may make', 'until you delete the account. Held by our sign-in service (Amazon Cognito)'],
-            ['A **guest id** (a random id, signed by us; kept on your device)', 'the first time you join a puzzle without an account', 'so that the server knows you are the same guest when you come back', 'the token lasts 90 days and is renewed when you come back'],
+            ['A **guest id** (a random id, signed by us; kept on your device)', 'when the game opens and you are not signed in, and when you join a puzzle without an account', 'so that the server knows you are the same guest when you come back, and can keep your hints and bombs for you', 'the token lasts 90 days and is renewed when you come back'],
+            ['A guest’s **hints and bombs**: how many are left, and when the next ad for more can be watched (an account has the same in its record)', 'when the game first asks for your guest id, and as you use them or watch an ad for more', 'to give you your hints and bombs, and to hand them to the account you make', "a guest's: 100 days after you last used them, or when they are moved to the account you make"],
             ['**Which puzzles you are in**', 'while you play', 'to show your list', 'until the puzzle ends or you leave'],
             ['Your **account type and credits**: whether the account is free, paid, a family account or an administrator\u2019s, the photo and video credits it holds, and how many ads it watched today for credits', 'when you make an account, and as you use credits', 'to count what starting a puzzle costs, and to give the credits that an ad or a payment is worth', 'until you delete your account'],
             ['**An ad in the Android app** (only if you open the credits and press the button to watch one): the ad is shown by Google AdMob, which gets what an ad network gets from an app: your device and its advertising ID, an approximate place from your network address, and what you do with the ad. Where the law asks for it, you are asked to agree first (and can change your mind in the credits). Our server is told by Google that an ad was watched, with a one-time number that we made for it, and never your name, e-mail address or account id', 'only when you open the credits in the Android app and when you watch an ad', 'to give you the credits that an ad is worth, and to pay for the game', 'by Google, as its privacy policy says; our server keeps the one-time number for a short time and Google\u2019s transaction numbers for a week'],
@@ -78,7 +79,7 @@ export function privacy(): LegalPage {
       { h: 'Where it is kept' },
       { p: 'At Amazon Web Services in the United States (the us-east-1 region). If you use the game from somewhere else, your data goes there.' },
       { h: 'On your device' },
-      { p: "The game keeps on your device your pictures and puzzles (in the browser's storage), your settings, a sign-in (tokens from the sign-in service) if you have an account, and a guest token if you joined as a guest. There is no analytics, no advertising and no tracking by us." },
+      { p: "The game keeps on your device your pictures and puzzles (in the browser's storage), your settings, a sign-in (tokens from the sign-in service) if you have an account, and a guest token (a guest id) if you are not signed in. There is no analytics, no advertising and no tracking by us." },
       { h: 'Your choices' },
       {
         ul: [

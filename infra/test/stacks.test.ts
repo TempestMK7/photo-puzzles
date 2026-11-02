@@ -303,11 +303,7 @@ describe('api', () => {
     expect(routes.map((r) => [r.RouteKey, r.AuthorizationType ?? 'NONE']).sort()).toEqual(
       [
         ['POST /rooms', 'JWT'],                  // making a puzzle: only with an account
-        ['POST /credits/ad', 'JWT'],             // credits for an ad (only where the game's word is taken): an account's too
-        ['POST /credits/ad/start', 'JWT'],
-        ['POST /items/use', 'JWT'],              // hints and bombs: an account's (a guest has none)
-        ['POST /items/award', 'JWT'],
-        ['POST /items/reward', 'JWT'],           // the same for an account that is not shown ads
+        ['POST /items/award', 'JWT'],            // the hints of a solved puzzle: an account's (a guest earns none)
         ['GET /credits/ad/callback', 'NONE'],    // the ad network's own call: signed, checked in the function
         ['GET /rooms', 'NONE'],                  // from here the function checks the token itself, a Cognito one or a guest's
         ['GET /rooms/{proxy+}', 'NONE'],
@@ -316,6 +312,11 @@ describe('api', () => {
         ['GET /me', 'NONE'],
         ['PUT /me', 'NONE'],
         ['POST /me/delete', 'NONE'],
+        ['POST /me/carry', 'NONE'],              // a new account takes a guest's hints and bombs (the function wants an account's token)
+        ['POST /credits/ad', 'NONE'],            // ads and hints and bombs are a guest's too: the function checks the token, and turns a guest away from the ads for credits
+        ['POST /credits/ad/start', 'NONE'],
+        ['POST /items/use', 'NONE'],
+        ['POST /items/reward', 'NONE'],
         ['POST /guest', 'NONE'],
         ['PUT /media/{id}', 'NONE'],             // the address is signed
         ['GET /stock/search', 'NONE'],           // the stock library: open to everyone, limited by the function (per address, and the provider's own limit for all)

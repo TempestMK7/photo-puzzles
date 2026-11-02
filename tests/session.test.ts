@@ -50,6 +50,11 @@ function setup(opts: { account?: boolean; storage?: Storage } = {}) {
       server.names.set(id, name);
       return { ok: true, id, name, guest: session.kind() === 'guest', account: GUEST_ACCOUNT };
     },
+    async carryGuest(guest: string): Promise<MeResponse | ApiFailure | Offline> {
+      server.calls.push(`carry ${guest}`);
+      if (server.down) return { ok: false, error: 'offline' };
+      return { ok: true, id: session.who()?.id ?? '', name: null, guest: false, account: GUEST_ACCOUNT };
+    },
   };
   session.attach(api);
   return { session, account, guest, server, store, api };
@@ -282,5 +287,53 @@ describe('the profile picture', () => {
     (t.account as FakeAccount).user = { id: 'acc1', name: 'Ann' };
     expect(t.session.picture()).toBeNull();
     expect(setup({ account: false }).session.picture()).toBeNull();
+  });
+});
+
+describe('a guest\'s hints and bombs', () => {
+  const stock = { ...GUEST_ACCOUNT, hints: 5, bombs: 1, helpAdReady: false, helpAdIn: 900_000 };
+
+  it('are asked for when nobody is signed in: a guest is made for it, and the player shows what the server said of them', async () => {
+    const t = setup();
+    t.api.me = async () => ({ ok: true, id: t.session.who()!.id, name: null, guest: true, account: stock });
+    expect(t.session.summary()).toEqual(GUEST_ACCOUNT);
+    await t.session.refreshProfile();
+    expect(t.session.kind()).toBe('guest');
+    expect(t.session.summary()).toMatchObject({ type: 'guest', hints: 5, bombs: 1 });
+    t.session.setSummary({ ...stock, hints: 4 });                                  // (a hint was used)
+    expect(t.session.summary().hints).toBe(4);
+  });
+
+  it('are nothing while the server cannot be reached, and no guest is made', async () => {
+    const t = setup();
+    t.server.down = true;
+    await t.session.refreshProfile();
+    expect(t.session.kind()).toBe('none');
+    expect(t.session.summary()).toEqual(GUEST_ACCOUNT);
+  });
+
+  it('go to the account that the guest signs in to, before the account is asked where it stands', async () => {
+    const t = setup();
+    await t.session.ensureGuest();
+    await t.session.signIn();
+    await t.session.refreshProfile();
+    expect(t.server.calls.filter((c) => c !== 'setName ann.lee')).toEqual(['carry guest-token-g1', 'me']);
+    await t.session.refreshProfile();
+    expect(t.server.calls.filter((c) => c !== 'setName ann.lee')).toEqual(['carry guest-token-g1', 'me', 'me']);          // (offered once)
+  });
+
+  it('are offered again when the server could not be reached the first time, and not for an account when there was no guest', async () => {
+    const t = setup();
+    await t.session.ensureGuest();
+    await t.session.signIn();
+    t.server.down = true;
+    await t.session.refreshProfile();
+    t.server.down = false;
+    await t.session.refreshProfile();
+    expect(t.server.calls.filter((c) => c.startsWith('carry'))).toHaveLength(2);
+    const none = setup();
+    await none.session.signIn();
+    await none.session.refreshProfile();
+    expect(none.server.calls.filter((c) => c !== 'setName ann.lee')).toEqual(['me']);
   });
 });

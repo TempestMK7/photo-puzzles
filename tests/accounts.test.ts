@@ -23,16 +23,16 @@ describe.each(stores)('accounts and credits on %s', (_name, store) => {
     it('is made free, with the starting photo credits and no video credits, the first time it is asked about', async () => {
       const w = world();
       expect(await w.store.getAccount('ann')).toBeUndefined();
-      expect(await w.service.summary(ann)).toEqual({ type: 'free', photo: 5, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 5, videoAdsLeft: 0, adPhoto: 5, adVideo: 1, hints: 10, bombs: 2, hintsInfinite: false, bombsInfinite: false, earnPerDay: 10, earnLeft: 10, earnInfinite: false, helpAdReady: false, helpAdIn: 900_000, helpAdHints: 5, helpAdBombs: 1, helpAdNoAd: false });
+      expect(await w.service.summary(ann)).toEqual({ type: 'free', photo: 5, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 5, videoAdsLeft: 0, adPhoto: 5, adVideo: 1, hints: 10, bombs: 2, earnPerDay: 10, earnLeft: 10, earnInfinite: false, helpAdReady: false, helpAdIn: 900_000, helpAdHints: 5, helpAdBombs: 1, helpAdNoAd: false });
       expect(await w.store.getAccount('ann')).toMatchObject({ type: 'free', photo: 5, video: 0 });
       expect(await w.service.profile(ann)).toMatchObject({ ok: true, id: 'ann', account: { type: 'free', photo: 5 } });
     });
 
-    it('is nothing for a guest, who sees zeros and has no record', async () => {
+    it('is hints and bombs only for a guest, who has no credits and cannot start a puzzle', async () => {
       const w = world();
-      const guest = { id: 'gx1', name: 'G', guest: true as const };
-      expect(await w.service.summary(guest)).toEqual(GUEST_ACCOUNT);
-      expect(await w.store.getAccount('gx1')).toBeUndefined();
+      const guest = { id: 'gAAAAAAAAAAAAAAAAAAAAAA', name: 'G', guest: true as const };
+      expect(await w.service.summary(guest)).toEqual({ ...GUEST_ACCOUNT, hints: 5, bombs: 1, helpAdReady: false, helpAdIn: 15 * 60_000, helpAdHints: 5, helpAdBombs: 1 });
+      expect(await w.store.getAccount(guest.id)).toMatchObject({ photo: 0, hints: 5, bombs: 1 });
       expect(await w.service.createRoom(guest, request())).toEqual({ ok: false, error: 'account-required' });
     });
 

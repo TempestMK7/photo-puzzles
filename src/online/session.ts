@@ -9,13 +9,16 @@ const NAME_KEY = 'photo-puzzles/online/player-name';
 export interface ProfileApi {
   me(): Promise<MeResponse | ApiFailure | Offline>;
   setName(name: string): Promise<MeResponse | ApiFailure | Offline>;
+  /** A new account takes the hints and bombs of the guest it was (`guest` is the guest's token). */
+  carryGuest(guest: string): Promise<MeResponse | ApiFailure | Offline>;
 }
 
 export type Kind = 'account' | 'guest' | 'none';
 
 /**
  * Who is playing, to the rest of the game: the account the player signed in with, or else a guest, or nobody yet. An account can make puzzles and join them; a guest can only join. Either
- * can choose the name the others see. A guest is made when they first need to be (joining a puzzle), not before.
+ * can choose the name the others see. A guest is made when the game opens (or the player signs out) and nobody is signed in: a guest has hints and bombs, and an ad to watch for more, so
+ * the server has to know them.
  *
  * The name is kept on this device and on the server. For a guest it is whatever they chose (or "Guest 1234" until they do). For an account the server's copy decides; one that has none
  * yet gets the name its sign-in knows (see `refreshProfile`).
@@ -27,6 +30,8 @@ export class OnlineSession implements Account {
   /** What the server said the signed-in account has (its type and credits), as of the last time it was asked or told. */
   private standing: { id: string; summary: AccountSummary } | null = null;
   private listeners = new Set<() => void>();
+  /** The guests whose hints and bombs have been offered to the account that they became (guest id > account id), so that it is done once a page. */
+  private carried = new Set<string>();
   private saved: { name: string; chosen: boolean };
   /** The guest whose name the server has been given. */
   private pushedFor = '';
@@ -117,16 +122,16 @@ export class OnlineSession implements Account {
   }
 
   /**
-   * The type and credits of the player: a guest, or somebody who has not signed in, has none (all zeros), and an account shows zeros until the server has been asked (`refreshProfile`).
+   * The type and credits of the player: a guest has hints and bombs and nothing else, and both show zeros until the server has been asked (`refreshProfile`).
    */
   summary(): AccountSummary {
-    const who = this.account?.who();
+    const who = this.account?.who() ?? this.guest.who();
     return who && this.standing?.id === who.id ? this.standing.summary : GUEST_ACCOUNT;
   }
 
-  /** The server has said where the account stands (after a puzzle was started, or an ad watched): the displays follow. */
+  /** The server has said where the player stands (after a puzzle was started, or an ad watched): the displays follow. */
   setSummary(summary: AccountSummary): void {
-    const who = this.account?.who();
+    const who = this.account?.who() ?? this.guest.who();
     if (!who) return;
     this.standing = { id: who.id, summary };
     this.changed();
@@ -173,8 +178,20 @@ export class OnlineSession implements Account {
    * change it in its profile; it is only asked for one if the server cannot be told (`needsName`).
    */
   async refreshProfile(): Promise<void> {
+    if (!this.api) return;
     const who = this.account?.who();
-    if (!who || !this.api) return;
+    if (!who) {
+      // nobody is signed in: the guest (made now if there is none) is asked where they stand, which is hints, bombs and the wait for an ad
+      if (!(await this.ensureGuest())) return;
+      const id = this.guest.who()?.id;
+      const seen = await this.api.me();
+      if (seen.ok && id) {
+        this.standing = { id, summary: seen.account };
+        this.changed();
+      }
+      return;
+    }
+    await this.carryGuest(who.id);
     const res = await this.api.me();
     if (!res.ok) return;
     this.profile = { id: who.id, name: res.name };
@@ -184,6 +201,16 @@ export class OnlineSession implements Account {
     // only the server is told: on this device the name stays what it was, so that it is not taken for a name that the player chose (a guest on the same device would be called by it)
     const given = await this.api.setName(this.name());
     if (given.ok) this.profile = { id: who.id, name: given.name };
+  }
+
+  /** An account that has just signed in takes the hints and bombs that the guest it was on this device has left (the server decides whether it may: once, and only for a new account). */
+  private async carryGuest(account: string): Promise<void> {
+    const guest = this.guest.who()?.id;
+    if (!guest || !this.api || this.carried.has(`${guest}>${account}`)) return;
+    const token = await this.guest.token();
+    if (!token) return;
+    const res = await this.api.carryGuest(token);
+    if (res.ok || res.error !== 'offline') this.carried.add(`${guest}>${account}`);
   }
 
   /** Whether the server has been asked about the account that is signed in (so that what the pages show for its name will not change when it answers). */

@@ -29,13 +29,13 @@ describe.each(stores)('hints and bombs on %s', (_name, store) => {
   const world = () => makeWorld({}, store);
 
   describe('the account holds them', () => {
-    it('starts with 10 hints and 2 bombs, whatever the type, and the operator with as many as it likes', async () => {
+    it('starts with 10 hints and 2 bombs, whatever the type (the operator and the family are counted too), and a guest with 5 and 1', async () => {
       const w = world();
       for (const type of ['free', 'paid', 'family', 'admin'] as const) {
         await w.service.adminSetAccount('ann', { type });
-        expect(await w.service.summary(ann)).toMatchObject({ hints: 10, bombs: 2, hintsInfinite: type === 'admin', bombsInfinite: type === 'admin' });
+        expect(await w.service.summary(ann)).toMatchObject({ hints: 10, bombs: 2 });
       }
-      expect(await w.service.summary(guest)).toMatchObject({ hints: 0, bombs: 0, hintsInfinite: false });
+      expect(await w.service.summary(guest)).toMatchObject({ type: 'guest', hints: 5, bombs: 1 });
     });
 
     it('is given the starting number by an account that was made before they existed', async () => {
@@ -67,18 +67,27 @@ describe.each(stores)('hints and bombs on %s', (_name, store) => {
       expect(await w.store.getAccount('ann')).toMatchObject({ hints: 0, bombs: 0 });
     });
 
-    it('takes nothing from the operator', async () => {
+    it('takes them from the operator and the family too: nobody has an endless stock', async () => {
       const w = world();
-      await w.service.adminSetAccount('ann', { type: 'admin', hints: 0, bombs: 0 });
-      for (let i = 0; i < 3; i++) expect(await w.service.useItem(ann, { item: 'hint' })).toMatchObject({ ok: true, account: { hintsInfinite: true } });
-      expect(await w.service.useItem(ann, { item: 'bomb' })).toMatchObject({ ok: true });
-      expect(await w.store.getAccount('ann')).toMatchObject({ hints: 0, bombs: 0 });
-      expect(await w.service.useItem({ ...ann, admin: true }, { item: 'bomb' })).toMatchObject({ ok: true });         // (the administrators' group counts too)
+      for (const type of ['admin', 'family'] as const) {
+        await w.service.adminSetAccount('ann', { type, hints: 1, bombs: 0 });
+        expect(await w.service.useItem(ann, { item: 'hint' })).toMatchObject({ ok: true, account: { hints: 0 } });
+        expect(await w.service.useItem(ann, { item: 'hint' })).toMatchObject({ ok: false, error: 'no-credits', item: 'hint' });
+        expect(await w.service.useItem(ann, { item: 'bomb' })).toMatchObject({ ok: false, error: 'no-credits', item: 'bomb' });
+      }
+      expect(await w.service.useItem({ ...ann, admin: true }, { item: 'bomb' })).toMatchObject({ ok: false, error: 'no-credits' });         // (the administrators' group counts as the operator)
     });
 
-    it('is for accounts, and for the two things only', async () => {
+    it('is taken from a guest\'s own stock, who has 5 hints and 1 bomb', async () => {
       const w = world();
-      expect(await w.service.useItem(guest, { item: 'hint' })).toEqual({ ok: false, error: 'account-required' });
+      for (let i = 4; i >= 0; i--) expect(await w.service.useItem(guest, { item: 'hint' })).toMatchObject({ ok: true, account: { type: 'guest', hints: i } });
+      expect(await w.service.useItem(guest, { item: 'hint' })).toMatchObject({ ok: false, error: 'no-credits', item: 'hint' });
+      expect(await w.service.useItem(guest, { item: 'bomb' })).toMatchObject({ ok: true, account: { bombs: 0 } });
+      expect(await w.service.useItem(guest, { item: 'bomb' })).toMatchObject({ ok: false, error: 'no-credits' });
+    });
+
+    it('is for the two things only', async () => {
+      const w = world();
       for (const bad of [{}, { item: 'rocket' }, { item: 7 }, undefined]) expect(await w.service.useItem(ann, bad as never)).toEqual({ ok: false, error: 'bad-request' });
     });
 
@@ -220,22 +229,22 @@ describe.each(stores)('hints and bombs on %s', (_name, store) => {
       expect((await w.service.summary(bob)).bombs).toBe(2);
     });
 
-    it('refuses when the player has none, and takes nothing from the operator', async () => {
+    it('refuses when the player has none, the operator too', async () => {
       const w = world();
       const made = await open(w, ann, swapRequest({ helpers: true }));
       await joined(w, made, bob);
       await w.service.adminSetAccount('bob', { hints: 0 });
       expect(await swapHint(w, bob, made.roomId)).toMatchObject({ ok: false, error: 'no-credits', item: 'hint' });
       await w.service.adminSetAccount('ann', { type: 'admin', hints: 0 });
-      expect((await swapHint(w, ann, made.roomId)).ok).toBe(true);
-      expect(await w.store.getAccount('ann')).toMatchObject({ hints: 0 });
+      expect(await swapHint(w, ann, made.roomId)).toMatchObject({ ok: false, error: 'no-credits', item: 'hint' });
     });
 
-    it('is not for a guest, who has nothing to use', async () => {
+    it('is taken from a guest\'s own stock, when they are in the puzzle', async () => {
       const w = world();
       const made = await open(w, ann, swapRequest({ helpers: true }));
       await joined(w, made, guest);
-      expect(await swapHint(w, guest, made.roomId)).toEqual({ ok: false, error: 'account-required' });
+      expect((await swapHint(w, guest, made.roomId)).ok).toBe(true);
+      expect((await w.service.summary(guest)).hints).toBe(4);
     });
 
     it('gives every member with an account the hints of the puzzle when it is solved, and nobody else', async () => {

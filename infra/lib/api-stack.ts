@@ -162,16 +162,13 @@ export class ApiStack extends Stack {
     // other routes are not checked by the gateway: the function checks the token it is shown, a Cognito one or a guest's (server/src/aws/api.ts). `/guest` gives a guest their token, to
     // whoever asks. The upload of a picture has no sign-in: its address is signed.
     this.api.addRoutes({ path: '/rooms', methods: [POST], integration, authorizer: jwt });
-    for (const [path, methods] of [['/guest', [POST]], ['/me', [GET, PUT]], ['/me/delete', [POST]], ['/join', [POST]], ['/rooms', [GET]], ['/rooms/{proxy+}', [GET, POST]]] as const) {
+    for (const [path, methods] of [['/guest', [POST]], ['/me', [GET, PUT]], ['/me/delete', [POST]], ['/me/carry', [POST]], ['/join', [POST]], ['/rooms', [GET]], ['/rooms/{proxy+}', [GET, POST]]] as const) {
       this.api.addRoutes({ path, methods: [...methods], integration });
     }
-    // credits for a rewarded ad: an account's, like making a puzzle (the gateway turns a guest's token away)
-    this.api.addRoutes({ path: '/credits/ad', methods: [POST], integration, authorizer: jwt });
-    this.api.addRoutes({ path: '/credits/ad/start', methods: [POST], integration, authorizer: jwt });
-    // hints and bombs: an account's too
-    this.api.addRoutes({ path: '/items/use', methods: [POST], integration, authorizer: jwt });
+    // an ad for hints or a bomb, and the hints and bombs themselves, are a guest's too, so the function checks the token (a guest's is turned away there from the ads for credits). The hints that a
+    // solved puzzle gives are an account's: a guest earns none.
+    for (const path of ['/credits/ad', '/credits/ad/start', '/items/use', '/items/reward']) this.api.addRoutes({ path, methods: [POST], integration });
     this.api.addRoutes({ path: '/items/award', methods: [POST], integration, authorizer: jwt });
-    this.api.addRoutes({ path: '/items/reward', methods: [POST], integration, authorizer: jwt });
     // the ad network's own call, when a rewarded ad was watched: no sign-in, it is signed (and only a signature from AdMob, for one of our ad units, is believed)
     this.api.addRoutes({ path: '/credits/ad/callback', methods: [GET], integration });
     this.api.addRoutes({ path: '/media/{id}', methods: [PUT], integration });

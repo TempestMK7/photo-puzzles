@@ -1,4 +1,4 @@
-import type { AdRequest, AdStartRequest, AwardRequest, RewardRequest, CommandRequest, CreateRoomRequest, ItemRequest, JoinRequest, ApiError, PlaybackRequest, ReportRequest } from '../../src/online/protocol';
+import type { AdRequest, AdStartRequest, AwardRequest, RewardRequest, CommandRequest, CreateRoomRequest, CarryRequest, ItemRequest, JoinRequest, ApiError, PlaybackRequest, ReportRequest } from '../../src/online/protocol';
 import type { RoomService } from './service';
 import { clientKey, type RateLimiter } from './ratelimit';
 import { stockSitesOf, type StockProviders } from './stock';
@@ -165,6 +165,12 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
     }
     // a player whom the operator has stopped can still see and delete what is theirs (above), and nothing else
     if (await service.isBanned(player.id)) return { status: 403, body: { ok: false, error: 'banned' } };
+    // a new account takes what the guest it was has left of hints and bombs
+    if (parts[0] === 'me' && parts[1] === 'carry' && parts.length === 2 && req.method === 'POST') {
+      const given = json<CarryRequest>(req)?.guest;
+      const id = typeof given === 'string' && guests ? await guests.verify(given) : null;
+      return id ? reply(await service.carryGuest(player, id)) : bad;
+    }
     // a rewarded ad that was watched in a mobile app: credits for it, if the account is owed them (the account decides: see `claimAd`)
     if (parts[0] === 'credits' && parts[1] === 'ad' && parts[2] === 'start' && parts.length === 3 && req.method === 'POST') {
       const body = json<AdStartRequest>(req);

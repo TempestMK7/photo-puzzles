@@ -31,13 +31,10 @@ export function explainHelp(item: HelpItem, a: AccountSummary, where: Platform, 
     : 'A bomb places all the pieces around a point you choose. Choose Bomb at the top of the puzzle, then tap the board.';
   const only = 'They do not work in Sliding Tiles or Rotascope, and in a puzzle with friends only when the host allows them. They do not change best times.';
 
-  if (a.type === 'guest') {
-    return { title, paragraphs: [does, only, `Guests have none. Sign in to start with ${DEFAULT_LIMITS.startHints} hints and ${DEFAULT_LIMITS.startBombs} bombs, and to earn more.`], signIn: true };
-  }
-  if (hint ? a.hintsInfinite : a.bombsInfinite) return { title, paragraphs: [does, only, 'Your account has as many as it needs: they are never used up.'] };
-
   const paragraphs = [does, only];
-  if (hint) {
+  if (a.type === 'guest') {
+    paragraphs.push(`Sign in or make an account to be given ${plural(DEFAULT_LIMITS.startHints, 'more hint', 'more hints')} and ${plural(DEFAULT_LIMITS.startBombs, 'more bomb', 'more bombs')}, which come on top of what you have now${hint ? ', and to earn hints by solving puzzles' : ''}.`);
+  } else if (hint) {
     paragraphs.push(
       `Solving a puzzle earns 1 hint (2 for the larger sizes). ${a.earnInfinite ? 'Your account can earn as many as it solves.' : `A free account can earn up to ${a.earnPerDay} a day: you can earn ${a.earnLeft} more today.`}`,
     );
@@ -46,7 +43,9 @@ export function explainHelp(item: HelpItem, a: AccountSummary, where: Platform, 
   const give = plural(hint ? a.helpAdHints : a.helpAdBombs, item, `${item}s`);
   const every = `Every 20 to 30 minutes you can ${a.helpAdNoAd ? 'take' : 'watch an ad for'} ${plural(a.helpAdHints, 'hint', 'hints')} or ${plural(a.helpAdBombs, 'bomb', 'bombs')}, whichever you choose.`;
   if (!a.helpAdNoAd && where !== 'android' && where !== 'ios') {
-    paragraphs.push('The ads for them can only be watched in the Android and iOS apps (there are none on Steam, itch or the web page), and what you get there is yours here too.');
+    paragraphs.push(
+      `You can watch an ad for ${plural(a.helpAdHints, 'hint', 'hints')} or ${plural(a.helpAdBombs, 'bomb', 'bombs')} every 20 to 30 minutes in the Android and iOS apps (there are no ads on Steam, itch or the web page): install the app and log in on a mobile device, and what you get there is yours here too. Or upgrade to a paid account to get them here without watching ads.`,
+    );
     return { title, paragraphs };
   }
   paragraphs.push(every);
@@ -121,7 +120,7 @@ export class InventoryUi {
   /** There is an ad for hints or bombs that this player can watch (or, for a paid account, take) when it is ready: an account in an app that shows ads, or one that is given them without an ad. */
   private available(): boolean {
     const a = this.deps.identity.summary();
-    return a.type !== 'guest' && (a.helpAdNoAd || !!adPlatform());
+    return a.helpAdNoAd || !!adPlatform();
   }
 
   /** How many ms are left of the wait, by the time it was told and the clock of this device (which only has to run, not to agree with the server's). */
@@ -178,8 +177,8 @@ export class InventoryUi {
     const held: Record<InventoryItem, string> = {
       photo: creditText(a.photo, a.photoInfinite),
       video: creditText(a.video, a.videoInfinite),
-      hint: creditText(a.hints, a.hintsInfinite),
-      bomb: creditText(a.bombs, a.bombsInfinite),
+      hint: creditText(a.hints, false),
+      bomb: creditText(a.bombs, false),
     };
     const items = itemsOf(a);
     const sections = items.map((item) => {
