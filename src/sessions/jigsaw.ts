@@ -10,7 +10,9 @@ import { buildAtlas, buildMasks, buildSprite, snapshot, type Atlas, type Sprite 
 import { glAvailable, PieceRenderer, type GlGroup } from './jigsawGl';
 import { GroupRipple } from './ripple';
 import { playEffect } from '../sounds';
-import { Cascade, cascadeStep, LIFT_CSS, LIFT_MS, nearestFirst, rippleColor } from './feedback';
+import { BombFx } from './bomb';
+import { bombCut, Cascade, dropBomb, LIFT_CSS, LIFT_MS, nearestFirst, rippleColor } from './feedback';
+import { FrontLayer } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const PAN_TAP = 3;
@@ -57,6 +59,11 @@ const SNAP_HOVER = 1;
  */
 export class JigsawSession implements PuzzleSession {
   readonly rotatable: boolean;
+  /** A transparent canvas over the pieces: the bomb and its fire. */
+  get front(): HTMLCanvasElement | undefined {
+    return this.frontLayer.canvas;
+  }
+
   /** The canvas the pieces are drawn on when they are drawn on the graphics card: it lies over the board's. */
   get overlay(): HTMLCanvasElement | undefined {
     return this.gl?.canvas;
@@ -100,7 +107,11 @@ export class JigsawSession implements PuzzleSession {
   private sprites = new Map<number, { count: number; first: number; sprite: Sprite | null }>();
   private wave = new GroupRipple();
   /** The pieces of a bomb, put in the picture one after the other. */
-  private cascade = new Cascade();
+  /** The bomb that falls and explodes over the board, and the canvas it is drawn on (over the pieces, which have a canvas of their own when they are drawn on the graphics card). */
+  private fx = new BombFx(() => this.init.flag('animate'));
+  private frontLayer = new FrontLayer();
+  private fxShown = false;
+  private cascade = new Cascade(bombCut(this.fx));
   private waveGroup: GlGroup = { members: [], rot: 0, dx: 0, dy: 0 };
   private waveOut: { group: GlGroup; ks: number[]; rgb?: [number, number, number] } = { group: this.waveGroup, ks: [] };
   /** The pieces other players hold: where each really is on the board (`truth`), where its holder's hand put it last (`target`), and where it is drawn (`cur`, which follows the target). */
@@ -282,6 +293,13 @@ export class JigsawSession implements PuzzleSession {
       this.draw2d(ctx, view);
       if (waving) this.drawWave2d(ctx);
     }
+    // the bomb, on the canvas over the pieces (which is cleared once it has nothing left to show)
+    const bombing = this.fx.active;
+    if (bombing || this.fxShown) {
+      const fctx = this.frontLayer.begin(this.canvasW, this.canvasH, view);
+      if (this.fx.draw(fctx, now)) running = true;
+    }
+    this.fxShown = bombing;
     this.lastDraw = now;
     return running;
   }
@@ -899,7 +917,16 @@ export class JigsawSession implements PuzzleSession {
     const { cols, size } = this.layout_;
     const hits = nearestFirst(this.game.bombHits(op.x, op.y), op.x, op.y, (i) => ({ x: ((i % cols) + 0.5) * size, y: (Math.floor(i / cols) + 0.5) * size }));
     if (!hits.length) return false;
-    this.cascade.start(hits, cascadeStep(hits.length), (piece, k, late) => void this.placeOne(piece, mine, by, late, k === 0));
+    const plan = {
+      x: this.frameX + op.x,
+      y: this.frameY + op.y,
+      unit: size,
+      area: hits.map((i) => ({ x: this.frameX + (i % cols) * size, y: this.frameY + Math.floor(i / cols) * size, w: size, h: size })),
+      lo: 0.75,
+      hi: 1.5,
+    };
+    dropBomb(this.cascade, this.fx, this.init, plan, mine, hits, (piece, late, k) => void this.placeOne(piece, mine, by, late, k === 0));
+    this.init.requestDraw();
     return true;
   }
 

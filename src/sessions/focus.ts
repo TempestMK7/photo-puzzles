@@ -6,7 +6,7 @@ import type { Rect } from '../core/layout';
 import { beginFrame, draw, rectNow, SWAP_MS, type Anim, type View } from '../render';
 import { Ripples } from './ripple';
 import { playEffect } from '../sounds';
-import { buzz, CASCADE_MS, cascadeStep, nearestFirst, rippleColor } from './feedback';
+import { bombCut, buzz, Cascade, CASCADE_MS, dropBomb, nearestFirst, rippleColor } from './feedback';
 import { Camera } from './camera';
 import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
@@ -19,6 +19,8 @@ export class FocusSession implements PuzzleSession {
   private anims = new Map<number, Anim>();
   private hover = -1;
   private ripples = new Ripples(() => this.init.flag('animate'));
+  /** The pieces of a bomb, put in their homes one after the other once it has landed. */
+  private cascade = new Cascade(bombCut(this.ripples.bombs));
   /** A puzzle made from a video draws its pieces on the graphics card (see videoGl.ts), with the ripples on a canvas over them; both lie over the board's canvas. */
   private layer: VideoLayer | null = null;
   private frontLayer: FrontLayer | null = null;
@@ -56,10 +58,12 @@ export class FocusSession implements PuzzleSession {
   }
 
   dispose(): void {
+    this.cascade.cancel();
     this.layer?.dispose();
   }
 
   serialize(): unknown {
+    this.cascade.flush();                                            // (what a bomb has still to place is placed before the board is kept)
     return this.game.snapshot();
   }
 
@@ -111,6 +115,7 @@ export class FocusSession implements PuzzleSession {
   }
 
   pointerDown(p: Pt): void {
+    this.cascade.flush();
     this.press = p;
     this.cam.startPan(p);
   }
@@ -137,51 +142,57 @@ export class FocusSession implements PuzzleSession {
   }
 
   /**
-   * Shows a swap (or a hint, or a bomb) that has just been made: the pieces glide to their places (animations on), and one that has found its place gets a ripple, in the colour of the
-   * player `by` who put it there, once it arrives. The swap makes its sound as it begins and the bell rings as the ripple does (`sound`: only for this player's own moves).
-   * A bomb at `bomb` places its pieces one after the other, the nearest first: each glides, ripples and sounds a little after the one before.
+   * Shows a swap (or a hint) that has just been made: the pieces glide to their places (animations on), and one that has found its place gets a ripple, in the colour of the player `by`
+   * who put it there, once it arrives; when both do, the two ripples are 0.2 s apart. The swap makes its sound as it begins and the bell rings as each ripple does (`sound`: only for this
+   * player's own moves). `late`: it is being shown after the fact (see `Cascade`): the pieces are just where they belong, with no light and no sound.
    */
-  private showSwap(before: Rect[], wasPlaced: boolean[], opts: { by?: string; bomb?: Pt; sound?: boolean } = {}): void {
+  private showSwap(before: Rect[], wasPlaced: boolean[], opts: { by?: string; sound?: boolean; late?: boolean } = {}): void {
+    if (opts.late) return;
     const game = this.game;
     const now = performance.now();
     const glide = this.init.flag('animate') ? SWAP_MS : 0;
-    let fresh = game.homes.flatMap((_, i) => (game.placed(i) && !wasPlaced[i] ? [i] : []));
-    const { bomb } = opts;
-    if (bomb) fresh = nearestFirst(fresh, bomb.x, bomb.y, (i) => ({ x: game.homes[i].x + game.homes[i].w / 2, y: game.homes[i].y + game.homes[i].h / 2 }));
-    const step = bomb ? cascadeStep(fresh.length) : 0;
-    const wait = new Map(fresh.map((piece, k) => [piece, k * step]));
-    // (a swap that puts both its pieces in place is not a bomb, but its two ripples are as far apart as the bomb's: 0.2 s, and the bell rings for each as it begins)
-    const ripple = bomb ? step : CASCADE_MS;
+    const fresh = game.homes.flatMap((_, i) => (game.placed(i) && !wasPlaced[i] ? [i] : []));
     const color = rippleColor(this.init, opts.by);
-    fresh.forEach((piece, k) => this.ripples.add([game.homes[piece]], now, k * ripple + glide, color));
+    fresh.forEach((piece, k) => this.ripples.add([game.homes[piece]], now, k * CASCADE_MS + glide, color));
     if (glide) {
       for (let i = 0; i < game.count; i++) {
         const to: Rect = game.slotRect(i);
-        if (to === before[i]) continue;
-        const sender = wait.has(i) ? i : fresh.find((p) => game.homes[p] === before[i]);        // (a piece that was pushed aside goes with the one that took its place)
-        this.anims.set(i, { from: before[i], to, start: now + (sender === undefined ? 0 : wait.get(sender)!) });
+        if (to !== before[i]) this.anims.set(i, { from: before[i], to, start: now });
       }
     }
     if (!opts.sound) return;                                                                     // (the last piece rings the bell too, before the end of the puzzle begins)
-    if (bomb) {
-      for (const piece of fresh) {
-        playEffect('pickup', wait.get(piece)!);
-        playEffect('placed', wait.get(piece)! + glide);
-      }
-    } else {
-      playEffect('pickup');
-      fresh.forEach((_, k) => playEffect('placed', k * CASCADE_MS + glide));
-    }
+    playEffect('pickup');
+    fresh.forEach((_, k) => playEffect('placed', k * CASCADE_MS + glide));
   }
 
-  /** Applies a hint or a bomb to the board, shown as a swap is (the pieces glide to their places, and those that found them get a ripple). */
-  private run(op: BoardOp): boolean {
+  /**
+   * Applies a hint or a bomb to the board, shown as a swap is. A bomb falls and explodes where it lands, and the pieces it places then glide home one after the other, the nearest first.
+   * `by` is the player who used it, if it is another's (only this player's own are heard).
+   */
+  private run(op: BoardOp, by?: string): boolean {
+    this.cascade.flush();
+    const game = this.game;
+    if (op.t === 'hint') return this.placeOne(op.piece, by, false, true);
+    if (op.t !== 'bomb') return false;
+    const homeOf = (i: number) => ({ x: game.homes[i].x + game.homes[i].w / 2, y: game.homes[i].y + game.homes[i].h / 2 });
+    const hits = nearestFirst(game.bombHits(op.x, op.y), op.x, op.y, homeOf);
+    if (!hits.length) return false;
+    const unit = Math.sqrt((this.init.width * this.init.height) / game.count);               // (a piece of the average size: the pieces are of different sizes)
+    const plan = { x: op.x, y: op.y, unit, area: hits.map((i) => game.homes[i]), lo: 0.4, hi: 0.9 };
+    if (by === undefined) buzz(this.init, 'join');
+    dropBomb(this.cascade, this.ripples.bombs, this.init, plan, by === undefined, hits, (piece, late) => void this.placeOne(piece, by, late, false));
+    this.init.requestDraw();
+    return true;
+  }
+
+  /** One piece is put in its home by a hint or a bomb (it glides there, with its ripple and, this player's own, its sounds), unless it is being done late. */
+  private placeOne(piece: number, by: string | undefined, late: boolean, buzzNow: boolean): boolean {
     const game = this.game;
     const before = game.slotOf.map((_, i) => game.slotRect(i));
     const wasPlaced = game.slotOf.map((_, i) => game.placed(i));
-    if (!applyBoardOp(this.board, op).ok) return false;
-    buzz(this.init, game.solved ? 'solved' : 'join');
-    this.showSwap(before, wasPlaced, { bomb: op.t === 'bomb' ? op : undefined, sound: true });
+    if (!applyBoardOp(this.board, { t: 'hint', piece }).ok) return false;               // (it is home already)
+    if (buzzNow && by === undefined && !late) buzz(this.init, game.solved ? 'solved' : 'join');
+    this.showSwap(before, wasPlaced, { by, sound: by === undefined && !late, late });
     this.init.requestDraw();
     this.init.progress?.();
     return true;
@@ -289,18 +300,24 @@ export class FocusSession implements PuzzleSession {
   applyEvent(ev: RoomEvent): void {
     const op = ev.op as BoardOp | undefined;
     if (!op) return;
+    this.cascade.flush();
+    if (op.t === 'hint' || op.t === 'bomb') {
+      this.run(op, ev.by);
+      return;
+    }
     const game = this.game;
     const before = game.slotOf.map((_, i) => game.slotRect(i));
     const wasPlaced = game.slotOf.map((_, i) => game.placed(i));
     if (!applyBoardOp(this.board, op).ok) return;
     if (game.selected >= 0 && game.placed(game.selected)) game.selected = -1;          // the piece this player had chosen found its place
-    this.showSwap(before, wasPlaced, { by: ev.by, bomb: op.t === 'bomb' ? op : undefined });
+    this.showSwap(before, wasPlaced, { by: ev.by });
     this.init.requestDraw();
     this.init.progress?.();
   }
 
   /** Takes the room's board in place of this one (the piece this player had chosen stays chosen, if it can still be). */
   resync(state: RoomState): void {
+    this.cascade.cancel();
     const game = this.game;
     const chosen = game.selected;
     try {

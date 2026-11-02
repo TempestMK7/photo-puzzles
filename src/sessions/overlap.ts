@@ -7,7 +7,7 @@ import { makePattern } from './patterns';
 import { Ripples } from './ripple';
 import { beginFrame, drawSlice, type View } from '../render';
 import { playEffect } from '../sounds';
-import { buzz, Cascade, cascadeStep, nearestFirst, rippleColor, startLift, type Lift } from './feedback';
+import { bombCut, buzz, Cascade, dropBomb, nearestFirst, rippleColor, startLift, type Lift } from './feedback';
 import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
@@ -72,7 +72,7 @@ export class OverlapSession implements PuzzleSession {
   private activeStack = 0;
   private ripples = new Ripples(() => this.init.flag('animate'));
   /** The pieces of a bomb, put in their places one after the other. */
-  private cascade = new Cascade();
+  private cascade = new Cascade(bombCut(this.ripples.bombs));
   /** How many stacks the pieces wait in: more for a bigger puzzle. */
   private readonly stackN: number;
   private wrong: { cells: { x: number; y: number }[]; at: number } | null = null;
@@ -794,7 +794,9 @@ export class OverlapSession implements PuzzleSession {
     const cells = (id: number) => g.homeCells(id);
     const hits = nearestFirst(g.bombHits(op.x, op.y), op.x + 0.5, op.y + 0.5, (id) => ({ x: cells(id).reduce((n, c) => n + c.x + 0.5, 0) / cells(id).length, y: cells(id).reduce((n, c) => n + c.y + 0.5, 0) / cells(id).length }));
     if (!hits.length) return false;
-    this.cascade.start(hits, cascadeStep(hits.length), (id, _k, late) => void this.placeOne(id, by, late));
+    const plan = { x: (op.x + 0.5) * CELL, y: (op.y + 0.5) * CELL, unit: CELL, area: hits.flatMap((id) => g.homeCells(id).map((c) => ({ x: c.x * CELL, y: c.y * CELL, w: CELL, h: CELL }))), lo: 0.75, hi: 2 };
+    dropBomb(this.cascade, this.ripples.bombs, this.init, plan, by === undefined, hits, (id, late) => void this.placeOne(id, by, late));
+    this.init.requestDraw();
     return true;
   }
 

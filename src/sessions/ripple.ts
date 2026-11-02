@@ -1,4 +1,5 @@
 import type { Rect } from '../core/layout';
+import { BombFx } from './bomb';
 import type { Pt } from './types';
 
 export const RIPPLE_MS = 650;
@@ -23,9 +24,13 @@ interface Ripple {
  */
 export class Ripples {
   private list: Ripple[] = [];
+  /** The bomb that falls and explodes over the board, drawn with the ripples (the same transform, over everything else). */
+  readonly bombs: BombFx;
 
   /** `enabled` says whether ripples are wanted at all (the player's Animations setting): when it says no, nothing is added. */
-  constructor(private readonly enabled: () => boolean = () => true) {}
+  constructor(private readonly enabled: () => boolean = () => true) {
+    this.bombs = new BombFx(enabled);
+  }
 
   /** A ripple over `rects`, starting `delay` milliseconds from `now` (a swap that is still moving has to arrive first), its ring in `color` (the colour of the player who put the pieces there). */
   add(rects: readonly Rect[], now: number, delay = 0, color: string = GOLD): void {
@@ -48,6 +53,7 @@ export class Ripples {
 
   clear(): void {
     this.list.length = 0;
+    this.bombs.clear();
   }
 
   /** Draws the ripples; true while one is still on its way. */
@@ -76,7 +82,8 @@ export class Ripples {
       }
       ctx.restore();
     }
-    return this.list.length > 0;
+    const bombing = this.bombs.draw(ctx, now);
+    return this.list.length > 0 || bombing;
   }
 }
 
