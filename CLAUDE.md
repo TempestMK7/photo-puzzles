@@ -63,7 +63,7 @@ npm run server     # the online server on this machine, http://localhost:8787 (m
 
 ## Android
 
-The game is also packaged for Android as a thin WebView app, in `android/` (it is part of this repository: `android/README.md` says how it is built and what is not kept, which is the web build that is copied into it, `local.properties`, and anything with a key in it). Put the web build in with `node scripts/android-web.mjs dev|prod|offline`, then `cd android && ./gradlew assembleDebug`. When changing
+The game is also packaged for Android as a thin WebView app, in `android/` (it is part of this repository: `android/README.md` says how it is built and what is not kept, which is the web build that is copied into it, `local.properties`, and anything with a key in it). **The workflow `.github/workflows/android.yml` (Actions > Android) builds the dev and prod apps** from `main` (run by hand; artifacts only; the prod one is signed with the upload key from repository secrets; `android/README.md` has the secrets, the variables and the version code rule). Put the web build in with `node scripts/android-web.mjs dev|prod|offline`, then `cd android && ./gradlew assembleDebug`. When changing
 something the app depends on (file picking, storage, video, ads), remember that an Android WebView differs from a desktop browser, and test there if you can. Never commit a keystore, `keystore.properties` or `local.properties` (the AdMob ids and the signing are there); the ad unit ids are not secret but are kept out of the repository too.
 
 The page and the shell talk through `window.PhotoPuzzlesNative` (`src/haptics.ts` uses `haptic(kind)`, `src/store/shared.ts` uses `takeShared()`). **Sharing into the app:** the shell lists itself for `ACTION_SEND` and
