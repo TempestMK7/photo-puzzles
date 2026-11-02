@@ -20,6 +20,11 @@ export function helpHeld(account: AccountRecord, limits: Limits): { hints: numbe
   return { hints: account.hints ?? limits.startHints, bombs: account.bombs ?? limits.startBombs };
 }
 
+/** When the account can next have an ad for hints or bombs: after the last one, and for an account that has not had one, a while after it was made (so that nobody makes accounts to have one at once). */
+export function helpAdAtOf(account: AccountRecord, limits: Limits): number {
+  return account.helpAdAt ?? account.createdAt + limits.helpAdFirstMs;
+}
+
 /** How many ads gave credits today (the counts are of the day they were made on). */
 export function adsToday(account: AccountRecord, now: number): { photo: number; video: number } {
   return account.adDay === dayOf(now) ? { photo: account.photoAds, video: account.videoAds } : { photo: 0, video: 0 };
@@ -28,7 +33,7 @@ export function adsToday(account: AccountRecord, now: number): { photo: number; 
 /** The account as the game shows it. `type` is the type that counts (the operator's group makes an account an admin whatever its record says). */
 export function summaryOf(type: AccountType, account: AccountRecord, limits: Limits, now: number): AccountSummary {
   const today = adsToday(account, now);
-  const helpAdIn = Math.max(0, (account.helpAdAt ?? 0) - now);
+  const helpAdIn = Math.max(0, helpAdAtOf(account, limits) - now);
   return {
     type,
     photo: account.photo,
