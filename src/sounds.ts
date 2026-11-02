@@ -8,17 +8,18 @@ import fuse from './sounds/fuse.mp3?url';
 import incorrect from './sounds/incorrect.wav?url';
 import partyBlower from './sounds/party-blower.mp3?url';
 import pickup from './sounds/pickup.wav?url';
-import place from './sounds/place.wav?url';
+import drop from './sounds/drop.wav?url';
+import rotate from './sounds/rotate.wav?url';
 import select from './sounds/select.wav?url';
 import successBell from './sounds/success-bell.mp3?url';
 
 /**
- * solved: the puzzle is done; placed: a piece is in its place; select: a piece is chosen; pickup: a piece is lifted (or traded); drop: a piece is set down loose; wrong: a piece does not go there;
+ * solved: the puzzle is done; placed: a piece is in its place; select: a piece is chosen; pickup: a piece is lifted (or traded); drop: a piece is set down loose (or put back in a tray); rotate: a piece is turned; wrong: a piece does not go there;
  * fuse: a bomb is falling (it is not looped, and is stopped when the bomb lands); explode: the bomb has landed.
  */
-export type Effect = 'solved' | 'placed' | 'select' | 'pickup' | 'drop' | 'wrong' | 'fuse' | 'explode';
+export type Effect = 'solved' | 'placed' | 'select' | 'pickup' | 'drop' | 'rotate' | 'wrong' | 'fuse' | 'explode';
 
-const FILES: Record<Effect, string> = { solved: partyBlower, placed: successBell, select, pickup, drop: place, wrong: incorrect, fuse, explode };
+const FILES: Record<Effect, string> = { solved: partyBlower, placed: successBell, select, pickup, drop, rotate, wrong: incorrect, fuse, explode };
 
 const players = new Map<Effect, HTMLAudioElement>();
 /** The copies of each effect that are sounding, so that one can be stopped (the fuse ends when the bomb lands). */

@@ -751,6 +751,7 @@ export class OverlapSession implements PuzzleSession {
     const g = this.game;
     if (!h.moved) {                                           // a tap turns the piece (the press has buzzed already: a second buzz would only cancel it)
       g.rotate(h.id);
+      playEffect('rotate');
       this.init.online?.send({ t: 'turn', piece: h.id });
     } else {
       const at = this.heldPoint(h, performance.now());       // where the piece is, which is not where a finger is
@@ -878,6 +879,7 @@ export class OverlapSession implements PuzzleSession {
     if (g.solved) return;
     const id = this.held ? this.held.id : g.top(this.hoverStack >= 0 ? this.hoverStack : this.activeStack);
     g.rotate(id);
+    if (id >= 0) playEffect('rotate');
     if (id >= 0 && !g.done[id]) this.init.online?.send({ t: 'turn', piece: id });
     buzz(this.init, 'turn');
     this.init.requestDraw();
