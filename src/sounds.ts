@@ -17,6 +17,8 @@ const FILES: Record<Effect, string> = { solved: partyBlower, placed: successBell
 
 const players = new Map<Effect, HTMLAudioElement>();
 const listeners = new Set<() => void>();
+/** The effects that are waiting for their moment (see `playEffect`'s delay). */
+const waiting = new Set<ReturnType<typeof setTimeout>>();
 let on = true;
 
 export function effectsOn(): boolean {
@@ -51,15 +53,33 @@ export function preloadEffects(): void {
   for (const effect of Object.keys(FILES) as Effect[]) player(effect);
 }
 
-/** Plays an effect from its start, unless the player has switched effects off. */
-export function playEffect(effect: Effect): void {
+/**
+ * Plays an effect from its start, unless the player has switched effects off, `delayMs` from now if asked (a bell that is to ring as a ripple begins). An effect that is
+ * still sounding when it is asked for again goes on, and the new one sounds over it (a row of bells ring into each other).
+ */
+export function playEffect(effect: Effect, delayMs = 0): void {
   if (!on) return;
+  if (delayMs > 0) {
+    const timer = setTimeout(() => {
+      waiting.delete(timer);
+      playEffect(effect);
+    }, delayMs);
+    waiting.add(timer);
+    return;
+  }
   try {
-    const a = player(effect);
+    let a = player(effect);
     if (!a) return;
+    if (a.paused === false) a = new Audio(FILES[effect]);                  // (the browser has the file already)
     a.currentTime = 0;
     void a.play().catch(() => undefined);
   } catch {
     // no audio here: the game does not depend on it
   }
+}
+
+/** Drops the effects that were asked for later and have not begun (the puzzle they belong to has been left). */
+export function cancelEffects(): void {
+  for (const timer of waiting) clearTimeout(timer);
+  waiting.clear();
 }

@@ -54,7 +54,7 @@ export function beginFrame(ctx: CanvasRenderingContext2D, view: View): void {
 export function rectNow(game: FocusGame, anims: Map<number, Anim>, i: number, now: number): Rect {
   const a = anims.get(i);
   if (!a) return game.slotRect(i);
-  const t = (now - a.start) / SWAP_MS;
+  const t = Math.max(0, (now - a.start) / SWAP_MS);              // (a piece that is to move later waits where it is)
   if (t >= 1) {
     anims.delete(i);
     return game.slotRect(i);

@@ -22,8 +22,10 @@ export interface OnlineHooks {
   holding(piece: number | null): void;
   /** Tell the player why something did not happen. */
   notify(text: string): void;
-  /** The colour (CSS) a player's piece in hand glows in. */
+  /** The colour (CSS) a player's piece in hand glows in, and the ripple of a piece that player puts in its place. */
   colorOf(id: string): string;
+  /** This player's own id (for `colorOf`). */
+  self: string;
 }
 
 export interface SessionInit {

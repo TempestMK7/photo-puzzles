@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Lift, LIFT_CSS, LIFT_MS, startLift } from '../src/sessions/feedback';
+import { CASCADE_MS, cascadeStep, Lift, LIFT_CSS, LIFT_MS, nearestFirst, rippleColor, startLift } from '../src/sessions/feedback';
 import type { SessionInit } from '../src/sessions/types';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -37,5 +37,39 @@ describe('startLift', () => {
     const lift = startLift(init(true), true, view, 0)!;
     expect(lift.distance).toBeCloseTo((LIFT_CSS * 3) / 2);
     expect(startLift(init(true), true, { scale: 0.5, ox: 0, oy: 0 }, 0)!.distance).toBeCloseTo((LIFT_CSS * 3) / 0.5);
+  });
+});
+
+describe('the cascade of a bomb', () => {
+  it('places a piece every 0.2 seconds, and slows down for many so that the whole is over within three seconds', () => {
+    expect(CASCADE_MS).toBe(200);
+    expect(cascadeStep(1)).toBe(200);
+    expect(cascadeStep(6)).toBe(200);
+    expect(cascadeStep(16)).toBe(200);
+    expect(cascadeStep(31)).toBeCloseTo(100);
+    expect(cascadeStep(100) * 99).toBeLessThanOrEqual(3000);
+  });
+
+  it('goes from the piece nearest to the bomb outward', () => {
+    const at = (p: { x: number; y: number }) => p;
+    const pts = [{ x: 9, y: 0 }, { x: 1, y: 0 }, { x: 4, y: 0 }];
+    expect(nearestFirst(pts, 0, 0, at)).toEqual([{ x: 1, y: 0 }, { x: 4, y: 0 }, { x: 9, y: 0 }]);
+    expect(pts[0]).toEqual({ x: 9, y: 0 });                       // (the list given is left as it was)
+  });
+});
+
+describe('the colour of a ripple', () => {
+  const colors: Record<string, string> = { me: '#ffd84a', ann: '#4ac8ff' };
+  const online = { self: 'me', colorOf: (id: string) => colors[id] };
+
+  it('is the colour of the player who put the piece there: this player when nobody is named, another when named', () => {
+    const together = { online } as unknown as SessionInit;
+    expect(rippleColor(together)).toBe('#ffd84a');
+    expect(rippleColor(together, 'ann')).toBe('#4ac8ff');
+  });
+
+  it('is none (the ripple has its own) when the puzzle is played alone', () => {
+    expect(rippleColor({} as SessionInit)).toBeUndefined();
+    expect(rippleColor({} as SessionInit, 'ann')).toBeUndefined();
   });
 });

@@ -7,7 +7,7 @@ import { makePattern } from './patterns';
 import { Ripples } from './ripple';
 import { beginFrame, drawSlice, type View } from '../render';
 import { playEffect } from '../sounds';
-import { buzz, startLift, type Lift } from './feedback';
+import { buzz, cascadeStep, nearestFirst, rippleColor, startLift, type Lift } from './feedback';
 import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
@@ -755,7 +755,7 @@ export class OverlapSession implements PuzzleSession {
         buzz(this.init, 'drop');
       } else if (box.cell) {
         if (g.drop(h.id, box.cell.x, box.cell.y) === 'placed') {
-          this.ripples.add(g.cellsNow(h.id).map((c) => ({ x: (box.cell!.x + c.x) * CELL, y: (box.cell!.y + c.y) * CELL, w: CELL, h: CELL })), performance.now());
+          this.ripples.add(g.cellsNow(h.id).map((c) => ({ x: (box.cell!.x + c.x) * CELL, y: (box.cell!.y + c.y) * CELL, w: CELL, h: CELL })), performance.now(), 0, rippleColor(this.init));
           buzz(this.init, g.solved ? 'solved' : 'placed');
           if (!g.solved) playEffect('placed');                    // (the end of the puzzle has its own sound)
           this.init.online?.send({ t: 'put', piece: h.id, x: box.cell.x, y: box.cell.y });          // (a piece that did not fit is not news to the others: it is back on its stack)
@@ -770,16 +770,26 @@ export class OverlapSession implements PuzzleSession {
     this.init.requestDraw();
   }
 
-  /** Applies a hint or a bomb to the board: the pieces it placed get their ripple. */
-  private run(op: BoardOp): boolean {
+  /**
+   * Applies a hint or a bomb to the board: each piece it placed gets its ripple, in the colour of the player `by` who used it (this player, if nobody is named; and only theirs
+   * ring the bell). A bomb places its pieces one after the other, the nearest first.
+   */
+  private run(op: BoardOp, by?: string): boolean {
     const g = this.game;
     const was = [...g.done];
     if (!applyBoardOp(this.rules, op).ok) return false;
-    const rects: { x: number; y: number; w: number; h: number }[] = [];
-    g.done.forEach((d, id) => {
-      if (d && !was[id]) for (const c of g.homeCells(id)) rects.push({ x: c.x * CELL, y: c.y * CELL, w: CELL, h: CELL });
+    let fresh = g.done.flatMap((d, id) => (d && !was[id] ? [id] : []));
+    if (op.t === 'bomb') {
+      const cells = (id: number) => g.homeCells(id);
+      fresh = nearestFirst(fresh, op.x + 0.5, op.y + 0.5, (id) => ({ x: cells(id).reduce((n, c) => n + c.x + 0.5, 0) / cells(id).length, y: cells(id).reduce((n, c) => n + c.y + 0.5, 0) / cells(id).length }));
+    }
+    const step = op.t === 'bomb' ? cascadeStep(fresh.length) : 0;
+    const now = performance.now();
+    const color = rippleColor(this.init, by);
+    fresh.forEach((id, k) => {
+      this.ripples.add(g.homeCells(id).map((c) => ({ x: c.x * CELL, y: c.y * CELL, w: CELL, h: CELL })), now, k * step, color);
+      if (by === undefined && !g.solved) playEffect('placed', k * step);          // (the end of the puzzle has its own sound)
     });
-    if (rects.length) this.ripples.add(rects, performance.now());
     this.afterOthers();
     return true;
   }
@@ -812,7 +822,6 @@ export class OverlapSession implements PuzzleSession {
     if (!this.run(op)) return;
     this.init.online?.send(op);
     buzz(this.init, this.game.solved ? 'solved' : 'placed');
-    if (!this.game.solved) playEffect('placed');
   }
 
   pointerCancel(): void {
@@ -873,13 +882,13 @@ export class OverlapSession implements PuzzleSession {
     const op = ev.op as BoardOp | undefined;
     if (!op) return;
     if (op.t === 'hint' || op.t === 'bomb') {
-      this.run(op);
+      this.run(op, ev.by);
       return;
     }
     const res = applyBoardOp(this.rules, op);
     if (!res.ok) return;
     if (op.t === 'put' && res.placed) {
-      this.ripples.add(this.game.cellsNow(op.piece).map((c) => ({ x: (op.x + c.x) * CELL, y: (op.y + c.y) * CELL, w: CELL, h: CELL })), performance.now());
+      this.ripples.add(this.game.cellsNow(op.piece).map((c) => ({ x: (op.x + c.x) * CELL, y: (op.y + c.y) * CELL, w: CELL, h: CELL })), performance.now(), 0, rippleColor(this.init, ev.by));
     }
     this.afterOthers();
   }

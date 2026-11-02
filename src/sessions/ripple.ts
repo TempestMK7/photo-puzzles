@@ -2,6 +2,7 @@ import type { Rect } from '../core/layout';
 import type { Pt } from './types';
 
 export const RIPPLE_MS = 650;
+export const GOLD = '#ffd84a';
 
 /** The ring is drawn three times, wide and faint to narrow and bright: its width (as a share of the band) and opacity. */
 const RINGS: readonly (readonly [number, number])[] = [[1, 0.22], [0.55, 0.4], [0.18, 0.85]];
@@ -13,6 +14,7 @@ interface Ripple {
   /** The farthest the ring has to go to have crossed every rectangle. */
   reach: number;
   t0: number;
+  color: string;
 }
 
 /**
@@ -22,8 +24,8 @@ interface Ripple {
 export class Ripples {
   private list: Ripple[] = [];
 
-  /** A ripple over `rects`, starting `delay` milliseconds from `now` (a swap that is still moving has to arrive first). */
-  add(rects: readonly Rect[], now: number, delay = 0): void {
+  /** A ripple over `rects`, starting `delay` milliseconds from `now` (a swap that is still moving has to arrive first), its ring in `color` (the colour of the player who put the pieces there). */
+  add(rects: readonly Rect[], now: number, delay = 0, color: string = GOLD): void {
     if (!rects.length) return;
     let x0 = Infinity;
     let y0 = Infinity;
@@ -38,7 +40,7 @@ export class Ripples {
     const origin: Pt = { x: (x0 + x1) / 2, y: (y0 + y1) / 2 };
     let reach = 0;
     for (const r of rects) for (const cx of [r.x, r.x + r.w]) for (const cy of [r.y, r.y + r.h]) reach = Math.max(reach, Math.hypot(cx - origin.x, cy - origin.y));
-    this.list.push({ rects: [...rects], x: origin.x, y: origin.y, reach, t0: now + delay });
+    this.list.push({ rects: [...rects], x: origin.x, y: origin.y, reach, t0: now + delay, color });
   }
 
   clear(): void {
@@ -61,7 +63,7 @@ export class Ripples {
       ctx.fillStyle = '#ffffff';
       ctx.globalAlpha = 0.3 * fade * fade;
       ctx.fillRect(rp.x - rp.reach - band, rp.y - rp.reach - band, 2 * (rp.reach + band), 2 * (rp.reach + band));
-      ctx.strokeStyle = '#ffd84a';
+      ctx.strokeStyle = rp.color;
       for (const [share, alpha] of RINGS) {
         ctx.globalAlpha = alpha * fade;
         ctx.lineWidth = band * share;
@@ -87,13 +89,44 @@ export class GroupRipple {
   gid = -1;
   members: number[] = [];
   ks: number[] = [];
+  /** What colour the ripple glows in (CSS); null for the plain white. */
+  css: string | null = null;
   private delay: number[] = [];
   private t0 = 0;
   private end = 0;
 
-  /** A ripple over `members` of group `gid`, from the middle of `from` (pieces of the same picture, laid out in a grid of `cols` cells of `size`). */
-  start(gid: number, members: readonly number[], from: readonly number[], cols: number, size: number, now: number): void {
+  /**
+   * A ripple over `members` of group `gid`, from the middle of `from` (pieces of the same picture, laid out in a grid of `cols` cells of `size`). With a `step`, it is a
+   * cascade instead: `from` is in the order they go, one every `step` milliseconds, and each other piece lights up with the one of them it lies nearest to.
+   */
+  start(gid: number, members: readonly number[], from: readonly number[], cols: number, size: number, now: number, step = 0, css: string | null = null): void {
     const centre = (m: number): Pt => ({ x: ((m % cols) + 0.5) * size, y: (Math.floor(m / cols) + 0.5) * size });
+    this.css = css;
+    if (step > 0 && from.length > 1) {
+      const origins = from.map(centre);
+      let last = 0;
+      this.delay = members.map((m) => {
+        const c = centre(m);
+        let rank = 0;
+        let near = Infinity;
+        origins.forEach((o, k) => {
+          const d = Math.hypot(o.x - c.x, o.y - c.y);
+          if (d < near) {
+            near = d;
+            rank = k;
+          }
+        });
+        const t = rank * step + Math.min(WAVE_TRAVEL_MS / 2, near / ((size * WAVE_CELLS_PER_S) / 1000));
+        last = Math.max(last, t);
+        return t;
+      });
+      this.gid = gid;
+      this.members = [...members];
+      this.ks = new Array<number>(members.length).fill(0);
+      this.t0 = now;
+      this.end = now + last + WAVE_MS;
+      return;
+    }
     let ox = 0;
     let oy = 0;
     for (const m of from) {

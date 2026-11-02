@@ -10,7 +10,7 @@ import { buildAtlas, buildMasks, buildSprite, snapshot, type Atlas, type Sprite 
 import { glAvailable, PieceRenderer, type GlGroup } from './jigsawGl';
 import { GroupRipple } from './ripple';
 import { playEffect } from '../sounds';
-import { LIFT_CSS, LIFT_MS } from './feedback';
+import { cascadeStep, LIFT_CSS, LIFT_MS, nearestFirst, rippleColor } from './feedback';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const PAN_TAP = 3;
@@ -100,7 +100,7 @@ export class JigsawSession implements PuzzleSession {
   private sprites = new Map<number, { count: number; first: number; sprite: Sprite | null }>();
   private wave = new GroupRipple();
   private waveGroup: GlGroup = { members: [], rot: 0, dx: 0, dy: 0 };
-  private waveOut: { group: GlGroup; ks: number[] } = { group: this.waveGroup, ks: [] };
+  private waveOut: { group: GlGroup; ks: number[]; rgb?: [number, number, number] } = { group: this.waveGroup, ks: [] };
   /** The pieces other players hold: where each really is on the board (`truth`), where its holder's hand put it last (`target`), and where it is drawn (`cur`, which follows the target). */
   private hands = new Map<string, { gid: number; truth: Pose; target: Pose; cur: Pose }>();
   private lastDraw = 0;
@@ -315,6 +315,7 @@ export class JigsawSession implements PuzzleSession {
     this.waveGroup.dx = grp.dx;
     this.waveGroup.dy = grp.dy;
     this.waveOut.ks = this.wave.ks;
+    this.waveOut.rgb = this.wave.css ? rgbOf(this.wave.css) : undefined;
     return this.waveOut;
   }
 
@@ -323,7 +324,7 @@ export class JigsawSession implements PuzzleSession {
     const f = this.waveFlash();
     if (!f) return;
     const l = this.layout_;
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = this.wave.css ?? '#ffffff';
     f.group.members.forEach((m, j) => {
       if (f.ks[j] <= 0) return;
       const [rx, ry] = rotVec(f.group.rot, ((m % l.cols) + 0.5) * l.size, (Math.floor(m / l.cols) + 0.5) * l.size);
@@ -825,9 +826,10 @@ export class JigsawSession implements PuzzleSession {
   /**
    * Pieces have locked together or into the picture: the ripple runs from where `from` were put down. Pieces that join each other are lit all over the group they are in now. Pieces
    * that are placed in the picture only light up the ones near them: those within two pieces of the middle of the ones just placed, and the more pieces were placed at once, the
-   * wider it reaches (20% more for each piece placed after the first).
+   * wider it reaches (20% more for each piece placed after the first). With a `step` (a bomb) `from` is in the order they go and each lights up `step` milliseconds after the one before.
+   * The ripple glows in the colour of the player `by` who made it (this player, if nobody is named) when others are playing too.
    */
-  private startWave(gid: number, from: ReadonlySet<number>, now: number, placed: boolean): void {
+  private startWave(gid: number, from: ReadonlySet<number>, now: number, placed: boolean, by?: string, step = 0): void {
     const grp = this.game.groups.get(gid);
     if (!grp || !from.size) return;
     const { cols, size } = this.layout_;
@@ -843,7 +845,7 @@ export class JigsawSession implements PuzzleSession {
       const reach = 2 * size * (1 + 0.2 * (from.size - 1));
       members = members.filter((m) => Math.hypot(centre(m).x - ox, centre(m).y - oy) <= reach);
     }
-    this.wave.start(gid, members, [...from], cols, size, now);
+    this.wave.start(gid, members, [...from], cols, size, now, step, rippleColor(this.init, by) ?? null);
   }
 
   /** The group under a board point, on the table or in the open tray (-1: none). */
@@ -886,12 +888,15 @@ export class JigsawSession implements PuzzleSession {
    * A hint or a bomb, this player's or another's that the room has told of: the pieces it put in the picture light up (a ripple for each group of them), and a piece that was in hand and is
    * in the picture now is let go of. False if nothing was placed.
    */
-  private helped(op: Extract<PieceOp, { t: 'hint' | 'bomb' }>, mine = true): boolean {
+  private helped(op: Extract<PieceOp, { t: 'hint' | 'bomb' }>, mine = true, by?: string): boolean {
     const g = this.game;
     const was = Array.from({ length: g.count }, (_, i) => g.groups.get(g.groupOf[i])!.anchored);
     applyOp(g, op);
-    const placed = was.flatMap((w, i) => (!w && g.groups.get(g.groupOf[i])!.anchored ? [i] : []));
+    let placed = was.flatMap((w, i) => (!w && g.groups.get(g.groupOf[i])!.anchored ? [i] : []));
     if (!placed.length) return false;
+    const { cols, size } = this.layout_;
+    if (op.t === 'bomb') placed = nearestFirst(placed, op.x, op.y, (i) => ({ x: ((i % cols) + 0.5) * size, y: (Math.floor(i / cols) + 0.5) * size }));
+    const step = op.t === 'bomb' ? cascadeStep(placed.length) : 0;
     if (this.drag && g.groups.get(this.drag.gid)?.anchored !== false) {          // the piece in hand is in the picture (or part of a group that is): it is let go of
       this.drag = null;
       this.cancelHover();
@@ -900,11 +905,14 @@ export class JigsawSession implements PuzzleSession {
     const byGroup = new Map<number, Set<number>>();
     for (const i of placed) byGroup.set(g.groupOf[i], (byGroup.get(g.groupOf[i]) ?? new Set<number>()).add(i));
     const now = performance.now();
-    for (const [gid, from] of byGroup) this.startWave(gid, from, now, true);
+    for (const [gid, from] of byGroup) this.startWave(gid, from, now, true, by, step);
     if (this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
     if (mine) {
       this.buzz(g.solved ? 'solved' : 'placed');
-      if (!g.solved) playEffect('placed');
+      if (!g.solved) {
+        if (op.t === 'bomb') placed.forEach((_, k) => playEffect('placed', k * step));
+        else playEffect('placed');
+      }
     }
     this.init.traysChanged?.();
     this.init.requestDraw();
@@ -1066,7 +1074,7 @@ export class JigsawSession implements PuzzleSession {
       return;
     }
     if (op.t === 'hint' || op.t === 'bomb') {
-      this.helped(op, false);
+      this.helped(op, false, ev.by);
       return;
     }
     const g = this.game;
@@ -1080,7 +1088,7 @@ export class JigsawSession implements PuzzleSession {
     const wasAnchored = g.anchoredCount;
     const wasGroups = g.groups.size;
     applyOp(g, op);
-    if (g.groups.size < wasGroups) this.startWave(g.groupOf[op.piece], before, performance.now(), g.anchoredCount > wasAnchored);
+    if (g.groups.size < wasGroups) this.startWave(g.groupOf[op.piece], before, performance.now(), g.anchoredCount > wasAnchored, ev.by);
     if (g.anchoredCount > wasAnchored && this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
     this.init.traysChanged?.();
     this.init.requestDraw();

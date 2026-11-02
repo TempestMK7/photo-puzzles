@@ -81,4 +81,10 @@ describe('rectNow', () => {
     expect(rectNow(game, anims, 3, 1000 + SWAP_MS)).toEqual({ x: 30, y: 0, w: 10, h: 10 });
     expect(anims.has(3)).toBe(false);
   });
+
+  it('keeps a piece whose animation has not begun yet where it was', () => {
+    const anims = new Map<number, Anim>([[3, { from, to, start: 1000 }]]);
+    expect(rectNow(game, anims, 3, 800)).toEqual(from);
+    expect(anims.has(3)).toBe(true);
+  });
 });
