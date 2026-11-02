@@ -15,6 +15,7 @@ import type { OnlineHooks } from '../sessions/types';
 import { openVideo, type PhotoEntry, type PhotoLibrary, type PlaySource } from '../store/photos';
 import type { SaveRecord, SaveStore } from '../store/saves';
 import { cancelEffects, playEffect } from '../sounds';
+import { Autosave } from '../store/autosave';
 import { launchConfetti } from './confetti';
 import { h, svg } from './dom';
 import { HELP_ICONS } from './icons';
@@ -142,7 +143,8 @@ export class PlayScreen {
   private beginRun = 0;             // likewise for a begin
   private loading = false;          // a puzzle is being set up: nothing is saved meanwhile
   private saveKey = '';
-  private saveTimer = 0;
+  /** Keeps the puzzle once the player has been still for 1.5 s, and at the latest 5 s after the first move that has not been kept (see `Autosave`). */
+  private autosave = new Autosave(() => this.keep());
 
   constructor(private readonly deps: PlayDeps) {
     this.el = h(
@@ -434,7 +436,7 @@ export class PlayScreen {
     const { prefs, saves } = this.deps;
     const kind = this.kind;
     this.loading = true;
-    window.clearTimeout(this.saveTimer);
+    this.autosave.reset();
     this.saveKey = recordKey(kind, entry.id, prefs.data.settings);
     let rec: SaveRecord | undefined;
     if (fresh) await saves.remove(this.saveKey);
@@ -939,13 +941,16 @@ export class PlayScreen {
 
   private scheduleSave(): void {
     if (this.loading || !this.session || this.online) return;
-    window.clearTimeout(this.saveTimer);
-    this.saveTimer = window.setTimeout(() => this.saveNow(), 1500);
+    this.autosave.touch();
+  }
+
+  /** Keeps the puzzle now if anything has happened since it was last kept (the page is hidden or closed, or the player leaves). */
+  private saveNow(): void {
+    this.autosave.flush();
   }
 
   /** Keeps the puzzle as it is (or, if it is solved, forgets it: there is nothing to carry on). */
-  private saveNow(): void {
-    window.clearTimeout(this.saveTimer);
+  private keep(): void {
     const { entry, session, src } = this;
     if (!entry || !session || !src || this.loading || !this.saveKey || this.online) return;
     const { prefs, saves } = this.deps;
@@ -1330,7 +1335,7 @@ export class PlayScreen {
     this.elapsed = performance.now() - this.startedAt;
     this.stopClock();
     this.tick();
-    window.clearTimeout(this.saveTimer);
+    this.autosave.reset();
     void this.deps.saves.remove(this.saveKey);
     const { prefs } = this.deps;
     const key = recordKey(this.kind, entry.id, prefs.data.settings);

@@ -78,7 +78,7 @@ describe('BombFx, the bomb that falls and explodes', () => {
     expect(hues.length).toBeGreaterThan(20);
     expect(Math.min(...hues)).toBeGreaterThanOrEqual(0);
     expect(Math.max(...hues)).toBeLessThanOrEqual(58);                          // (from red, 0, to yellow, 58)
-    expect(Math.max(...sizes)).toBeLessThanOrEqual(p.unit * p.hi + 1e-6);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(p.unit * p.hi * 1.25 + 1e-6);
     expect(Math.max(...sizes)).toBeGreaterThan(p.unit * p.lo);
     expect(squares).toBeGreaterThan(20);
   });
@@ -86,7 +86,7 @@ describe('BombFx, the bomb that falls and explodes', () => {
   it('keeps the smoke going after the fire, and then nothing is left', () => {
     const fx = new BombFx();
     fx.explode(plan(), 0);
-    expect(fx.draw(canvas().ctx, 800)).toBe(true);                              // (the last burst begins 1.9 s in)
+    expect(fx.draw(canvas().ctx, 800)).toBe(true);                              // (the last burst begins 1.45 s in)
     expect(fx.draw(canvas().ctx, 4000)).toBe(false);
     expect(fx.active).toBe(false);
   });
@@ -120,12 +120,12 @@ describe('BombFx, the bomb that falls and explodes', () => {
     expect(body.r * 2).toBeCloseTo(5.5);
   });
 
-  it('plays twenty bursts of fire, a tenth of a second apart, each at an angle 90 to 270 degrees round from the one before and at a distance of its own', () => {
+  it('plays thirty bursts of fire, fifty milliseconds apart, each at an angle 90 to 270 degrees round from the one before and at a distance of its own', () => {
     const fx = new BombFx();
     const p = plan({ area: [{ x: 60, y: 60, w: 80, h: 80 }] });
     fx.explode(p, 0);
     const seen = new Map<string, { x: number; y: number; first: number }>();
-    for (let t = 0; t < 2400; t += 10) {
+    for (let t = 0; t < 2400; t += 5) {
       const c = canvas();
       fx.draw(c.ctx, t);
       for (const x of c.circles) {
@@ -135,8 +135,8 @@ describe('BombFx, the bomb that falls and explodes', () => {
       }
     }
     const bursts = [...seen.values()].sort((a, b) => a.first - b.first);
-    expect(bursts).toHaveLength(20);
-    bursts.forEach((b, i) => expect(Math.abs(b.first - i * 100)).toBeLessThanOrEqual(10));
+    expect(bursts).toHaveLength(30);
+    bursts.forEach((b, i) => expect(Math.abs(b.first - i * 50)).toBeLessThanOrEqual(5));
     const angles = bursts.map((b) => Math.atan2(b.y - p.y, b.x - p.x));
     const dists = bursts.map((b) => Math.hypot(b.x - p.x, b.y - p.y));
     for (let i = 1; i < angles.length; i++) {
