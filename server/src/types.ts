@@ -112,7 +112,7 @@ export interface AccountRecord {
   /** The day (UTC, YYYY-MM-DD) that `hintsEarned` is counted for: the hints that solved puzzles gave that day (a free account may earn so many a day). */
   hintDay?: string;
   hintsEarned?: number;
-  /** When the next ad for hints or bombs can be had (a time of the server's clock); nothing, or a time that has passed, means now. */
+  /** When the next ad for hints or bombs can be had (a time of the server's clock); a time that has passed means now. Nothing (no ad has been had): `helpAdFirstMs` after `createdAt`. */
   helpAdAt?: number;
   createdAt: number;
   /** Counts up with every write, so that two writers cannot overwrite each other (a conditional write, as for a room). */
@@ -310,6 +310,7 @@ export interface Limits {
   adHints: number;
   adBombs: number;
   helpAdMs: number;
+  helpAdFirstMs: number;
   idleMs: number;
   solvedKeepMs: number;
   /** A puzzle goes this long after it was made, whatever happens to it. */

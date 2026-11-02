@@ -19,7 +19,7 @@ import type { Auth, Player, Presence, PubSub } from './types';
 const PORT = Number(process.env.PORT ?? 8787);
 const WEB_BASE = process.env.WEB_BASE ?? 'http://localhost:5173';
 const ORIGIN = `http://localhost:${PORT}`;
-// every account made here is a free one (5 photo credits, or FREE_PHOTO_CREDITS) unless this says another type: `ACCOUNT_TYPE=paid npm run server` (free, paid, family or admin), to try what each can do
+// (HELP_AD_FIRST_MS=0 makes the first ad for hints or bombs ready at once, to try it.) every account made here is a free one (5 photo credits, or FREE_PHOTO_CREDITS) unless this says another type: `ACCOUNT_TYPE=paid npm run server` (free, paid, family or admin), to try what each can do
 const ACCOUNT = ACCOUNT_TYPES.find((t) => t === process.env.ACCOUNT_TYPE);
 /** A request may carry a video here (the local server is sent it itself: the cloud's storage takes it from the game). */
 const MAX_BODY = DEFAULT_LIMITS.videoBytes + 1_000_000;
@@ -92,7 +92,7 @@ const service = new RoomService({
   clock: systemClock,
   random: new SystemRandom(),
   // (an ad is believed here, unless FAKE_ADMOB stands in for AdMob: there is no ad network on this machine, and the game only offers ads in a mobile app)
-  limits: { ...DEFAULT_LIMITS, pictureBytes: 8_000_000, adsTrusted: FAKE ? 0 : 1, freePhotoCredits: Number(process.env.FREE_PHOTO_CREDITS ?? DEFAULT_LIMITS.freePhotoCredits) },
+  limits: { ...DEFAULT_LIMITS, pictureBytes: 8_000_000, adsTrusted: FAKE ? 0 : 1, freePhotoCredits: Number(process.env.FREE_PHOTO_CREDITS ?? DEFAULT_LIMITS.freePhotoCredits), helpAdFirstMs: Number(process.env.HELP_AD_FIRST_MS ?? DEFAULT_LIMITS.helpAdFirstMs) },
   webBase: WEB_BASE,
   adCallbacks: FAKE ? new AdMobCallbacks(['fake-unit'], systemClock, async () => new Map([['1', FAKE.publicKey.export({ type: 'spki', format: 'pem' }).toString()]])) : undefined,
 });

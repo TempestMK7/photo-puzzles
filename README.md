@@ -87,8 +87,10 @@ connection; solved puzzles ask for their hints with `POST /items/award` (the ser
 when starting it whether hints and bombs may be used (off unless ticked); each player then uses their own, as an operation of the room (`hint` and `bomb` of `BoardOp` and `JigsawOp`) that the server
 takes from the player's account and gives back if the room does not take it, and when the puzzle is solved the server gives every member with an account its hints. They do not change best times.
 
-**More hints and bombs from an ad.** The header of a puzzle that has hints and bombs also has a **Get more** button (`src/ui/morehelp.ts`). About every half an hour (the server makes the wait random, from 20 to 40
-minutes: `helpAdMs`, kept on the account as `helpAdAt`; the first one is ready at once) it lights up (a pulsing gold border and a star) and opens a window where the player chooses **5 hints** (`adHints`) or **1 bomb**
+**The inventory.** An **Inventory** button on the main screen and in the header of the play screen (`src/ui/inventory.ts`) opens a window that lists what the account holds, each with what it is for and how to get
+more: photo credits, video credits (only for an account that can start a video puzzle: nobody else is told about them), hints and bombs. It replaces the credit counters and the "get more" button that there were. **More hints and
+bombs from an ad:** the first can be had 15 minutes after the account is made (`helpAdFirstMs`), and each later one 20 to 30 minutes after the last (the server makes the wait random, around `helpAdMs`: kept on the account as
+`helpAdAt`; it is not the count of ads for credits, which is separate). While one can be had the Inventory buttons glow (a pulsing gold border), and the window lets the player choose **5 hints** (`adHints`) or **1 bomb**
 (`adBombs`): a free account watches a rewarded ad for them in the Android or iOS app (the same flow as the credits: `POST /credits/ad/start`, the ad network's signed report, `kind` `hint` or `bomb`; the server shows no
 ad for nothing, so it refuses one that is not ready), and a **paid, family or admin account is just given them** for the press of the button (`POST /items/reward`), as often as a free account could watch. One wait
 for both, whichever was chosen. They are on top of what solved puzzles give (they do not use up or count against the daily limit on earned hints). On the web page, Steam and itch a free account has no ads, so it has no button.

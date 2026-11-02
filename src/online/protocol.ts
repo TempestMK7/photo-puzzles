@@ -37,8 +37,10 @@ export const DEFAULT_LIMITS = {
   /** What a rewarded ad gives a free account that chose hints or a bomb (a paid account is given the same without an ad). */
   adHints: 5,
   adBombs: 1,
-  /** About how long after one ad for hints or bombs the next can be had (it is made random, from two thirds of this to one and a third of it, so that it cannot be waited for to the minute). */
-  helpAdMs: 30 * 60 * 1000,
+  /** About how long after one ad for hints or bombs the next can be had (it is made random, from 0.8 to 1.2 times this: 20 to 30 minutes, so that it cannot be waited for to the minute). */
+  helpAdMs: 25 * 60 * 1000,
+  /** How long after an account is made the first ad for hints or bombs can be had. */
+  helpAdFirstMs: 15 * 60 * 1000,
   /** A puzzle nobody has touched for this long is gone, with its picture and its codes. */
   idleMs: 24 * 3600 * 1000,
   /** After a puzzle is solved, how long it stays for those who are still watching. */

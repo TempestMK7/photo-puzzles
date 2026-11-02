@@ -136,6 +136,8 @@ describe.each(stores)('a rewarded ad, from the game to the credits, on %s', (_na
 
   it('gives hints or a bomb, and starts the wait for the next ad, when AdMob says an ad for them was watched', async () => {
     const w = worldWithAds();
+    await w.service.summary(ann);
+    w.clock.t += 16 * 60_000;                                                                         // (the first ad is for 15 minutes after the account was made)
     const hints = await start(w, ann, 'hint');
     if (!hints.ok) throw new Error(hints.error);
     expect(await reward(w, hints.nonce, 'TX-H1')).toBe(true);

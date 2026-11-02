@@ -57,7 +57,7 @@ import {
   type ReportRequest,
   type RoomSummary,
 } from '../../src/online/protocol';
-import { adsToday, dayOf, earnedToday, GUEST_SUMMARY, helpHeld, newAccount, summaryOf } from './accounts';
+import { adsToday, dayOf, earnedToday, GUEST_SUMMARY, helpAdAtOf, helpHeld, newAccount, summaryOf } from './accounts';
 import { isGuestId } from './guest';
 import { sniffImage } from './image';
 import type { AdminFile, AdminRoomSummary } from '../../src/online/adminProtocol';
@@ -481,16 +481,16 @@ export class RoomService {
 
   /** The reason an ad for hints or bombs cannot be had yet, or nothing if one can. */
   private helpAdWait(account: AccountRecord): ApiFailure | null {
-    return (account.helpAdAt ?? 0) > this.d.clock.now() ? fail('ad-refused', { reason: 'wait' }) : null;
+    return helpAdAtOf(account, this.d.limits) > this.d.clock.now() ? fail('ad-refused', { reason: 'wait' }) : null;
   }
 
-  /** Gives the hints or the bomb of an ad (or of the same without one), and sets when the next can be had: about `helpAdMs` from now, from two thirds of it to one and a third of it. */
+  /** Gives the hints or the bomb of an ad (or of the same without one), and sets when the next can be had: about `helpAdMs` from now, from 0.8 to 1.2 times it (20 to 30 minutes). It is the account's own wait: the ads for credits have their own count (`adsPerDay`) and do not touch it. */
   private addHelpAd(a: AccountRecord, item: HelpItem): void {
     const { limits, clock, random } = this.d;
     Object.assign(a, helpHeld(a, limits));
     if (item === 'hint') a.hints! += limits.adHints;
     else a.bombs! += limits.adBombs;
-    a.helpAdAt = clock.now() + Math.round(limits.helpAdMs * (2 / 3 + (random.below(1001) / 1000) * (2 / 3)));
+    a.helpAdAt = clock.now() + Math.round(limits.helpAdMs * (0.8 + (random.below(1001) / 1000) * 0.4));
   }
 
   /**

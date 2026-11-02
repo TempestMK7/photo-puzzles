@@ -55,16 +55,27 @@ input[type='email'], input[type='password'] { text-transform: none; letter-spaci
 .loading .spin { width: 22px; height: 22px; border: 3px solid var(--line); border-top-color: var(--accent2); border-radius: 50%; animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .bar .progress-btn { margin-left: auto; padding: 6px 12px; }
-.credits { display: flex; gap: 6px; }
-.credits .credit { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 999px; background: var(--panel2); border-color: var(--line); font-weight: 600; font-variant-numeric: tabular-nums; }
-.credits .credit .ico { display: inline-flex; color: var(--accent2); }
-.credits .credit:hover:not(:disabled) { border-color: var(--accent2); }
-.credits-dialog .body { display: flex; flex-direction: column; gap: 10px; padding: 12px 16px 16px; overflow-y: auto; }
-.credits-dialog p { margin: 0; line-height: 1.45; }
-.credits-dialog .who { color: var(--accent2); font-size: 13px; font-weight: 600; }
-.credits-dialog .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.credits-dialog .dim { color: var(--dim); font-size: 13px; }
-.credits-dialog .status { min-height: 1.3em; font-size: 13px; color: var(--accent2); }
+.inventory-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; background: var(--panel2); border-color: var(--line); font-weight: 600; }
+.inventory-btn .ico { display: inline-flex; color: var(--accent2); }
+.inventory-btn:hover:not(:disabled) { border-color: var(--accent2); }
+/* lit while an ad for hints or a bomb can be had (a paid account is given them without an ad) */
+.inventory-btn.glow { border-color: #ffd84a; box-shadow: 0 0 0 0 rgba(255, 216, 74, 0.7); animation: inventory-pulse 1.8s ease-out infinite; }
+.inventory-btn.glow .ico { color: #ffd84a; }
+@keyframes inventory-pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 216, 74, 0.7); } 70% { box-shadow: 0 0 0 9px rgba(255, 216, 74, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 216, 74, 0); } }
+@media (prefers-reduced-motion: reduce) { .inventory-btn.glow { animation: none; box-shadow: 0 0 0 3px rgba(255, 216, 74, 0.55); } }
+.inventory-dialog .body { display: flex; flex-direction: column; gap: 10px; padding: 12px 16px 16px; overflow-y: auto; }
+.inventory-dialog p { margin: 0; line-height: 1.45; }
+.inventory-dialog .who { color: var(--accent2); font-size: 13px; font-weight: 600; }
+.inventory-dialog .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.inventory-dialog .dim { color: var(--dim); font-size: 13px; }
+.inventory-dialog .inv-item { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); }
+.inventory-dialog .inv-item.focus { border-color: var(--accent2); }
+.inventory-dialog .inv-item .head { display: flex; align-items: center; gap: 8px; }
+.inventory-dialog .inv-item .head .ico { display: inline-flex; color: var(--accent2); }
+.inventory-dialog .inv-item h3 { margin: 0; flex: 1; font-size: 15px; }
+.inventory-dialog .inv-item .count { font-weight: 700; font-size: 17px; font-variant-numeric: tabular-nums; }
+.inventory-dialog .inv-item .status:empty { display: none; }
+.inventory-dialog .status { min-height: 1.3em; font-size: 13px; color: var(--accent2); }
 .inprogress { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(27, 18, 16, 0.72); }
 .inprogress .card { width: min(640px, 100%); max-height: 100%; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; overflow: hidden; }
 .inprogress header { flex: none; display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--panel2); border-bottom: 1px solid var(--line); }
@@ -197,17 +208,6 @@ body.dragging .library::after {
 .play .helps button .n { margin-left: 4px; opacity: 0.75; font-variant-numeric: tabular-nums; }
 .play .helps button:disabled { opacity: 0.45; cursor: not-allowed; }
 .play canvas.board.helping { cursor: crosshair; }
-/* the button for more hints and bombs lights up (and says so with its star) when an ad for them, or the same without an ad, is ready */
-.play .helps button.more.glow { color: var(--text); border-color: #ffd84a; box-shadow: 0 0 0 0 rgba(255, 216, 74, 0.7); animation: more-pulse 1.8s ease-out infinite; }
-@keyframes more-pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 216, 74, 0.7); } 70% { box-shadow: 0 0 0 9px rgba(255, 216, 74, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 216, 74, 0); } }
-@media (prefers-reduced-motion: reduce) { .play .helps button.more.glow { animation: none; box-shadow: 0 0 0 3px rgba(255, 216, 74, 0.55); } }
-.stage .getmore { position: absolute; right: 12px; top: 10px; z-index: 7; width: min(300px, calc(100% - 24px)); padding: 10px 14px 12px; border-radius: 12px; background: var(--panel2); border: 1px solid var(--accent2); color: var(--text); font-size: 14px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
-.stage .getmore[hidden] { display: none; }
-.stage .getmore header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
-.stage .getmore h3 { margin: 0; font-size: 15px; }
-.stage .getmore .body { display: flex; flex-direction: column; gap: 8px; }
-.stage .getmore p { margin: 0; }
-.stage .getmore .dim { color: var(--dim); font-size: 12px; }
 /* the line over the board that says what the chosen hint or bomb will do */
 .stage .helpnote { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 6; max-width: calc(100% - 24px); padding: 6px 14px; border-radius: 16px; width: max-content; background: var(--panel2); border: 1px solid var(--accent2); color: var(--text); font-size: 13px; text-align: center; pointer-events: none; }
 .play .stats { display: flex; gap: 14px; font-variant-numeric: tabular-nums; color: var(--dim); }

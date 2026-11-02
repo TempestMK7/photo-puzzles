@@ -24,8 +24,8 @@ export interface LibraryDeps {
   onOnline?: () => void;
   /** The round badge for the profile, at the end of the top bar (only in a build that has online play). */
   badge?: HTMLElement;
-  /** The photo and video credit counters, after the title (only in a build that has online play). */
-  credits?: HTMLElement;
+  /** The button of the inventory (credits, hints, bombs), after the title (only in a build that has online play). */
+  inventory?: HTMLElement;
   /** The address of the game's server, which has the stock library: without one the "Stock Files" tab is not offered. */
   stockBase?: string;
 }
@@ -187,13 +187,13 @@ export class LibraryScreen {
         'header',
         { class: 'bar' },
         h('h1', {}, 'PuzzleVidio'),
-        // the credits are what Play with friends spends: they sit together
-        ...(deps.credits || deps.onOnline
+        // the credits are what Play with friends spends: the inventory that holds them sits with it
+        ...(deps.inventory || deps.onOnline
           ? [
               h(
                 'div',
                 { class: 'online-group' },
-                ...(deps.credits ? [deps.credits] : []),
+                ...(deps.inventory ? [deps.inventory] : []),
                 ...(deps.onOnline ? [h('button', { type: 'button', class: 'progress-btn friends', title: 'Play a Jigsaw, Tile Swap, Overlap or Strips together over the internet', onclick: () => deps.onOnline!() }, 'Play with friends')] : []),
               ),
             ]
