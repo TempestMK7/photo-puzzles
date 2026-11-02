@@ -91,7 +91,7 @@ describe.each(stores)('ads for hints and bombs on %s', (_name, store) => {
   it('is for the apps, and for an account that has one', async () => {
     const w = await grown(world());
     expect(await w.service.claimAd(ann, ad('hint', 'web'))).toMatchObject({ ok: false, reason: 'platform' });
-    expect(await w.service.claimAd(guest, ad('hint'))).toEqual({ ok: false, error: 'account-required' });
+    expect(await w.service.claimAd(guest, { kind: 'photo', platform: 'ios' })).toEqual({ ok: false, error: 'account-required' });          // (a guest is given hints and bombs for an ad, not credits)
     expect(await w.service.claimAd(ann, { kind: 'rocket' as never, platform: 'ios' })).toEqual({ ok: false, error: 'bad-request' });
     await w.service.adminSetAccount('bob', { type: 'paid' });
     expect(await w.service.claimAd(bob, ad('hint'))).toMatchObject({ ok: false, reason: 'plan' });          // (a paid account is given them, without an ad)
@@ -112,10 +112,10 @@ describe.each(stores)('ads for hints and bombs on %s', (_name, store) => {
     }
   });
 
-  it('is not given to a free account without the ad, nor to a guest, nor for anything but the two', async () => {
+  it('is not given to a free account or a guest without the ad, nor for anything but the two', async () => {
     const w = await grown(world());
     expect(await w.service.rewardHelp(ann, { item: 'hint' })).toMatchObject({ ok: false, error: 'ad-refused', reason: 'watch', account: { hints: 10 } });
-    expect(await w.service.rewardHelp(guest, { item: 'hint' })).toEqual({ ok: false, error: 'account-required' });
+    expect(await w.service.rewardHelp(guest, { item: 'hint' })).toMatchObject({ ok: false, error: 'ad-refused', reason: 'watch', account: { hints: 5 } });
     await w.service.adminSetAccount('ann', { type: 'paid' });
     for (const bad of [{}, { item: 'rocket' }, undefined]) expect(await w.service.rewardHelp(ann, bad as never)).toEqual({ ok: false, error: 'bad-request' });
   });
@@ -137,6 +137,28 @@ describe.each(stores)('ads for hints and bombs on %s', (_name, store) => {
     await w.service.claimAd(ann, ad('hint'));
     w.clock.t += DAY;
     expect(await w.service.claimAd(ann, ad('hint'))).toMatchObject({ ok: true, account: { hints: 20 } });
+  });
+
+  it('is for a guest too: 15 minutes after they were first seen, and then every 20 to 30, for the same 5 hints or 1 bomb as a free account', async () => {
+    const w = world();
+    expect(await w.service.summary(guest)).toMatchObject({ type: 'guest', hints: 5, bombs: 1, helpAdReady: false, helpAdIn: 15 * MIN, helpAdHints: 5, helpAdBombs: 1, helpAdNoAd: false });
+    expect(await w.service.claimAd(guest, ad('hint'))).toMatchObject({ ok: false, error: 'ad-refused', reason: 'wait' });
+    w.clock.t += 15 * MIN;
+    expect(await w.service.claimAd(guest, ad('hint'))).toMatchObject({ ok: true, account: { type: 'guest', hints: 10, bombs: 1, helpAdReady: false } });
+    expect(await w.service.claimAd(guest, ad('bomb'))).toMatchObject({ ok: false, reason: 'wait' });
+    w.clock.t += 31 * MIN;
+    expect(await w.service.claimAd(guest, ad('bomb'))).toMatchObject({ ok: true, account: { hints: 10, bombs: 2 } });
+    expect(await w.service.claimAd(guest, { kind: 'video', platform: 'ios' })).toEqual({ ok: false, error: 'account-required' });
+  });
+
+  it('is started and paid for through the ad network for a guest, as for an account', async () => {
+    const w = world({ adsTrusted: 0 });
+    expect(await w.service.adStart(guest, { kind: 'hint', platform: 'android' })).toMatchObject({ ok: false, error: 'ads-off' });         // (this world has no ad network)
+    expect(await w.service.adStart(guest, { kind: 'photo', platform: 'android' })).toEqual({ ok: false, error: 'account-required' });
+    const t = world();
+    await t.service.summary(guest);
+    t.clock.t += 16 * MIN;
+    expect(await t.service.adStart(guest, { kind: 'bomb', platform: 'android' })).toMatchObject({ ok: true, mode: 'trusted', account: { type: 'guest', hints: 5, bombs: 1 } });
   });
 
   it('is asked for with the routes, by an account', async () => {

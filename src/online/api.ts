@@ -94,6 +94,11 @@ export class OnlineApi implements RoomApi {
     return this.call('POST', '/rooms', { protocol: PROTOCOL_VERSION, ...req });
   }
 
+  /** The account that was just made takes the hints and bombs of the guest it was (`guest` is the guest's token). */
+  carryGuest(guest: string): Promise<MeResponse | ApiFailure | Offline> {
+    return this.call('POST', '/me/carry', { guest });
+  }
+
   /** A hint or a bomb is about to be used in a puzzle played alone: the server takes one from the account (and says no when there is none). */
   useItem(item: 'hint' | 'bomb'): Promise<ItemResponse | Offline> {
     return this.call('POST', '/items/use', { item });

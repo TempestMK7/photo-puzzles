@@ -1,5 +1,6 @@
 import { BatchGetCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand, ScanCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import type { AccountRecord, AdNonce, Ban, Clock, FileRecord, Presence, RateCounter, Report, RoomRecord, Store } from '../types';
+import { isGuestId } from '../guest';
 
 /** The part of the document client that is used, so that a test can put a fake in its place. */
 export interface Sender {
@@ -12,7 +13,7 @@ export interface Sender {
  *   ROOM#<id>     / ONLINE#<player> a player who is connected to the room
  *   CODE#<digits> / CODE            a code and the room it opens
  *   PLAYER#<id>   / ROOM#<id>       a player's membership
- *   PLAYER#<id>   / ACCOUNT         the account's type and credits (`body` is the record as JSON; `rev` makes a write conditional, as for a room)
+ *   PLAYER#<id>   / ACCOUNT         the account's type and credits (`body` is the record as JSON; `rev` makes a write conditional, as for a room; a guest's has a `ttl`)
  *   PLAYER#<id>   / PROFILE         the display name the player chose (with a `ttl` for a guest, who may not come back)
  *   FILE#<id>     / FILE            a kept picture or video (`body` is the record as JSON; `ttl` is when it runs out)
  *   FILE#<id>     / USER#<player>   a player who may make a puzzle from the file (they joined a puzzle made from it)
@@ -44,6 +45,8 @@ const CLAIM_MS = HOUR;
 const FILE_SLACK_MS = 2 * 24 * HOUR;
 /** A report is kept this long: long enough to be looked at, and to be found again if the same puzzle or player is reported later. */
 const REPORT_KEEP_MS = 90 * 24 * HOUR;
+/** A guest's record (their hints and bombs) is kept this long after it was last written: a little longer than their token lasts. */
+const GUEST_RECORD_KEEP_MS = 100 * 24 * HOUR;
 
 const named = (e: unknown, name: string): boolean => (e as { name?: string })?.name === name;
 
@@ -235,18 +238,24 @@ export class DynamoStore implements Store {
 
   async getAccount(playerId: string): Promise<AccountRecord | undefined> {
     const { Item } = await this.db.send(new GetCommand({ TableName: this.table, Key: accountKey(playerId), ConsistentRead: true }));
-    return Item ? (JSON.parse(Item.body as string) as AccountRecord) : undefined;
+    // a guest's record runs out (DynamoDB deletes late: an entry that has run out is not looked at, and the guest starts again)
+    if (!Item || (typeof Item.ttl === 'number' && Item.ttl <= seconds(this.clock.now()))) return undefined;
+    return JSON.parse(Item.body as string) as AccountRecord;
   }
 
   async putAccount(account: AccountRecord): Promise<boolean> {
-    const item = { ...accountKey(account.id), body: JSON.stringify(account), rev: account.rev };
+    // (a guest may never come back: their record has a `ttl`, put forward with every write)
+    const item = { ...accountKey(account.id), body: JSON.stringify(account), rev: account.rev, ...(isGuestId(account.id) ? { ttl: seconds(this.clock.now() + GUEST_RECORD_KEEP_MS) } : {}) };
     try {
       await this.db.send(
         new PutCommand({
           TableName: this.table,
           Item: item,
-          ConditionExpression: account.rev > 0 ? '#rev = :prev' : 'attribute_not_exists(pk)',
-          ...(account.rev > 0 ? { ExpressionAttributeNames: { '#rev': 'rev' }, ExpressionAttributeValues: { ':prev': account.rev - 1 } } : {}),
+          // (a new record may take the place of a guest's that has run out and has not been deleted yet)
+          ConditionExpression: account.rev > 0 ? '#rev = :prev' : 'attribute_not_exists(pk) OR #ttl < :now',
+          ...(account.rev > 0
+            ? { ExpressionAttributeNames: { '#rev': 'rev' }, ExpressionAttributeValues: { ':prev': account.rev - 1 } }
+            : { ExpressionAttributeNames: { '#ttl': 'ttl' }, ExpressionAttributeValues: { ':now': seconds(this.clock.now()) } }),
         }),
       );
       return true;

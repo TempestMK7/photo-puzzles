@@ -6,7 +6,7 @@ import { loadPhoto } from '../image';
 import type { OnlineApi } from '../online/api';
 import { PLAYER_COLORS } from '../online/config';
 import { PlaybackSync } from '../online/playbackSync';
-import { DEFAULT_LIMITS, type Invite } from '../online/protocol';
+import { type Invite } from '../online/protocol';
 import type { OnlineRoom, RoomView } from '../online/room';
 import type { OnlineSession } from '../online/session';
 import { fitView, type View } from '../render';
@@ -16,7 +16,6 @@ import { openVideo, type PhotoEntry, type PhotoLibrary, type PlaySource } from '
 import type { SaveRecord, SaveStore } from '../store/saves';
 import { cancelEffects, playEffect } from '../sounds';
 import { launchConfetti } from './confetti';
-import { creditText } from './credits';
 import { h, svg } from './dom';
 import { settingsButton } from './settings';
 import { sayError } from './online';
@@ -508,18 +507,8 @@ export class PlayScreen {
     return h('button', { type: 'button', class: 'toggle', 'aria-pressed': 'false', onclick: () => this.pressHelp(kind) }, label, h('span', { class: 'n' }, '0'));
   }
 
-  /** What the buttons say to someone who is not signed in (they have none, and earn none). */
-  private noAccountText(): string {
-    return `Hints place one piece and bombs place the pieces round a point. Sign in to get ${DEFAULT_LIMITS.startHints} hints and ${DEFAULT_LIMITS.startBombs} bombs, and to earn more by solving puzzles.`;
-  }
-
-  /** A button of the header was pressed: chooses that one, or (nobody is signed in) says what they are and how to get them. */
+  /** A button of the header was pressed: chooses that one, or puts the choice away. */
   private pressHelp(kind: HelpKind): void {
-    if (this.deps.player?.summary().type === 'guest') {
-      this.arm(null);
-      this.flash(this.noAccountText(), 8000);
-      return;
-    }
     this.arm(this.armed === kind ? null : kind);
   }
 
@@ -529,13 +518,13 @@ export class PlayScreen {
     return !!this.session?.canHelp && !!p?.hasAccounts && !!this.deps.online && (!this.online || this.online.room.descriptor.helpers === true);
   }
 
-  /** The two buttons show how many the player has (the infinity sign for the operator), and are off when there are none, or the puzzle is over, or the player has no account. */
+  /** The two buttons show how many the player has, and are off when there are none or the puzzle is over. */
   private refreshHelp(): void {
     const p = this.deps.player;
     const available = this.helpAvailable();
     const a = p?.summary();
     const over = !!this.session?.solved;
-    const key = available && a ? `${a.type}|${a.hints}|${a.bombs}|${a.hintsInfinite}|${a.bombsInfinite}|${over}` : '';
+    const key = available && a ? `${a.hints}|${a.bombs}|${over}` : '';
     if (key === this.helpShown) return;
     this.helpShown = key;
     this.helpEl.hidden = !available;
@@ -543,21 +532,14 @@ export class PlayScreen {
       this.arm(null);
       return;
     }
-    const guest = a.type === 'guest';
-    const set = (kind: HelpKind, btn: HTMLButtonElement, n: number, infinite: boolean): void => {
-      btn.querySelector('.n')!.textContent = guest ? '0' : creditText(n, infinite);
-      btn.disabled = over || (!guest && !infinite && n < 1);
-      btn.title = guest
-        ? this.noAccountText()
-        : !infinite && n < 1
-          ? `You have no ${kind}s left. Solving puzzles earns hints.`
-          : kind === 'hint'
-            ? 'Place one piece where it belongs'
-            : 'Place the pieces round a point you choose';
+    const set = (kind: HelpKind, btn: HTMLButtonElement, n: number): void => {
+      btn.querySelector('.n')!.textContent = String(n);
+      btn.disabled = over || n < 1;
+      btn.title = n < 1 ? `You have no ${kind}s left. The Inventory says how to get more.` : kind === 'hint' ? 'Place one piece where it belongs' : 'Place the pieces round a point you choose';
       if (btn.disabled && this.armed === kind) this.arm(null);
     };
-    set('hint', this.hintBtn, a.hints, a.hintsInfinite);
-    set('bomb', this.bombBtn, a.bombs, a.bombsInfinite);
+    set('hint', this.hintBtn, a.hints);
+    set('bomb', this.bombBtn, a.bombs);
   }
 
   /** Chooses a hint or a bomb (the next tap on the board uses it), or puts the choice away. */
@@ -600,8 +582,7 @@ export class PlayScreen {
       return;
     }
     const a = player.summary();
-    const infinite = kind === 'hint' ? a.hintsInfinite : a.bombsInfinite;
-    if (!infinite && (kind === 'hint' ? a.hints : a.bombs) < 1) {
+    if ((kind === 'hint' ? a.hints : a.bombs) < 1) {
       this.arm(null);
       return;
     }
@@ -609,7 +590,7 @@ export class PlayScreen {
     try {
       if (this.online) {
         // the room takes it (the server counts), so the number is only brought up to date here
-        if (!infinite) player.setSummary({ ...a, [kind === 'hint' ? 'hints' : 'bombs']: (kind === 'hint' ? a.hints : a.bombs) - 1 });
+        player.setSummary({ ...a, [kind === 'hint' ? 'hints' : 'bombs']: (kind === 'hint' ? a.hints : a.bombs) - 1 });
         window.setTimeout(() => void player.refreshProfile(), 1500);
       } else {
         const res = await api.useItem(kind);

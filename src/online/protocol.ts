@@ -32,6 +32,9 @@ export const DEFAULT_LIMITS = {
   /** The hints and bombs every new account starts with, whatever its type (see `HelpItem`). */
   startHints: 10,
   startBombs: 2,
+  /** The hints and bombs a guest (somebody who has not signed in) starts with. An account made from a guest keeps what the guest has left and is given `startHints` and `startBombs` on top. */
+  guestHints: 5,
+  guestBombs: 1,
   /** The most hints a free account can earn by solving puzzles in a day (from midnight UTC); paid, family and admin accounts earn as many as they solve. */
   freeHintsPerDay: 10,
   /** What a rewarded ad gives a free account that chose hints or a bomb (a paid account is given the same without an ad). */
@@ -416,7 +419,7 @@ export const mayStartVideos = (type: AccountType): boolean => type !== 'free';
 export const videosAreFree = (type: AccountType): boolean => type === 'family' || type === 'admin';
 /** What the account sends is not looked at by the automatic check. */
 export const skipsTheCheck = (type: AccountType): boolean => type === 'family' || type === 'admin';
-/** Watching an ad gives a free account photo credits, hints or bombs and a paid account video credits, and nobody else anything. (A paid account is given hints and bombs without an ad: see `RewardRequest`.) */
+/** Watching an ad gives a free account photo credits, hints or bombs and a paid account video credits, and nobody else anything (a guest is given hints and bombs for one, as a free account is: the server counts a guest as free for them). (A paid, family or admin account is given hints and bombs without an ad: see `RewardRequest`.) */
 export const adGives = (type: AccountType, kind: AdKind): boolean => (kind === 'video' ? type === 'paid' : type === 'free');
 
 /** What an ad can be for: credits for a puzzle, or hints, or a bomb. */
@@ -439,18 +442,16 @@ export interface AccountSummary {
   videoAdsLeft: number;
   adPhoto: number;
   adVideo: number;
-  /** Hints and bombs held (the operator's account has an endless stock: `hintsInfinite`, `bombsInfinite`). */
+  /** Hints and bombs held (a guest has some too). */
   hints: number;
   bombs: number;
-  hintsInfinite: boolean;
-  bombsInfinite: boolean;
   /** Hints that solving puzzles can still give today: `earnPerDay` is the most in a day for this account, `earnLeft` what is left of it, and `earnInfinite` that there is no limit. A guest earns none. */
   earnPerDay: number;
   earnLeft: number;
   earnInfinite: boolean;
   /**
    * Hints and bombs for an ad: one can be had now when `helpAdReady` (else in `helpAdIn` ms: the time is the server's own count, so that no clock has to agree), for `helpAdHints` hints or
-   * `helpAdBombs` bombs, whichever the player chooses. `helpAdNoAd` says that this account is given them without watching an ad. A guest has none.
+   * `helpAdBombs` bombs, whichever the player chooses. `helpAdNoAd` says that this account is given them without watching an ad.
    */
   helpAdReady: boolean;
   helpAdIn: number;
@@ -459,28 +460,31 @@ export interface AccountSummary {
   helpAdNoAd: boolean;
 }
 
-/** What a guest (or somebody who has not signed in) sees: nothing to spend, and nothing to get. */
-export const GUEST_ACCOUNT: AccountSummary = { type: 'guest', photo: 0, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 0, videoAdsLeft: 0, adPhoto: 0, adVideo: 0, hints: 0, bombs: 0, hintsInfinite: false, bombsInfinite: false, earnPerDay: 0, earnLeft: 0, earnInfinite: false, helpAdReady: false, helpAdIn: 0, helpAdHints: 0, helpAdBombs: 0, helpAdNoAd: false };
+/** What somebody who has not signed in sees before the server has said (a guest the server knows has hints and bombs, and an ad to watch for more: see `RoomService.summary`): nothing. */
+export const GUEST_ACCOUNT: AccountSummary = { type: 'guest', photo: 0, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 0, videoAdsLeft: 0, adPhoto: 0, adVideo: 0, hints: 0, bombs: 0, earnPerDay: 0, earnLeft: 0, earnInfinite: false, helpAdReady: false, helpAdIn: 0, helpAdHints: 0, helpAdBombs: 0, helpAdNoAd: false };
 
 /**
- * What an account holds to use in a puzzle (see core/help.ts): a hint places one piece, a bomb every piece round a point. Every account is given some when it is made and a hint for every puzzle it
- * solves; the operator's account has as many as it likes. Used in a puzzle played alone, the game asks the server to take one (`ItemRequest`) before it places anything; in a puzzle played with friends
+ * What an account holds to use in a puzzle (see core/help.ts): a hint places one piece, a bomb every piece round a point. Every account is given some when it is made (a guest too: `guestHints`, `guestBombs`, which the account
+ * made from a guest keeps) and a hint for every puzzle it solves (a guest earns none). Used in a puzzle played alone, the game asks the server to take one (`ItemRequest`) before it places anything; in a puzzle played with friends
  * the room does, with the operation, and only when the host allowed them.
  */
 export type HelpItem = 'hint' | 'bomb';
 
 export const isHelpItem = (v: unknown): v is HelpItem => v === 'hint' || v === 'bomb';
 
-/** An account has an endless stock of these. */
-export const helpIsFree = (type: AccountType): boolean => type === 'admin';
 /** An account earns the hints of every puzzle it solves (a free account stops at `freeHintsPerDay` a day). */
 export const earnsUncapped = (type: AccountType): boolean => type !== 'free';
+
+/** An account that has just been made takes what the guest it was before has left of hints and bombs (and keeps the guest's wait for the next ad): `guest` is the guest's token. */
+export interface CarryRequest {
+  guest: string;
+}
 
 export interface ItemRequest {
   item: HelpItem;
 }
 
-/** A paid account takes the hints or the bomb that a free account would watch an ad for (when one is ready, as it is for a free account); the answer is the account, or `409 ad-refused` with `reason` `wait` (not ready yet) or `watch` (a free account has to watch the ad). */
+/** A paid, family or admin account takes the hints or the bomb that a free account or a guest would watch an ad for (when one is ready, as it is for them); the answer is the account, or `409 ad-refused` with `reason` `wait` (not ready yet) or `watch` (a free account or a guest has to watch the ad). */
 export type RewardRequest = ItemRequest;
 
 /** A puzzle played alone was solved: the hints it gives (`size` is the index of its size: S is 0). The server cannot see a puzzle that is played on one device, so it takes the game's word. */

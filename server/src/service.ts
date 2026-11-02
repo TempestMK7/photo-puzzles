@@ -12,7 +12,6 @@ import {
   normalizeCode,
   ACCOUNT_TYPES,
   adGives,
-  helpIsFree,
   earnsUncapped,
   isAdKind,
   isHelpItem,
@@ -57,7 +56,7 @@ import {
   type ReportRequest,
   type RoomSummary,
 } from '../../src/online/protocol';
-import { adsToday, dayOf, earnedToday, GUEST_SUMMARY, helpAdAtOf, helpHeld, newAccount, summaryOf } from './accounts';
+import { adsToday, dayOf, earnedToday, guestSummaryOf, helpAdAtOf, helpHeld, newAccount, summaryOf } from './accounts';
 import { isGuestId } from './guest';
 import { sniffImage } from './image';
 import type { AdminFile, AdminRoomSummary } from '../../src/online/adminProtocol';
@@ -102,6 +101,9 @@ const PEEK = 16;
 const COLORS = 8;
 /** A guest's chosen name is kept this long after it was last set (a little longer than their token lasts). */
 const GUEST_NAME_KEEP_MS = 100 * 24 * 3600 * 1000;
+
+/** An account can take what the guest it was has left only in its first hour (the time it takes to make an account), so that nobody does it with an account that is old. */
+const CARRY_WINDOW_MS = 3600 * 1000;
 const fail = (error: ApiError, extra: Partial<ApiFailure> = {}): ApiFailure => ({ ok: false, error, ...extra });
 
 async function sha256(text: string): Promise<string> {
@@ -408,11 +410,45 @@ export class RoomService {
     return player.admin ? 'admin' : account.type;
   }
 
-  /** Where the player stands: a guest has nothing. */
+  /** Where the player stands: a guest has hints and bombs and nothing else (their record is made the first time it is asked about, as an account's is). */
   async summary(player: Player): Promise<AccountSummary> {
-    if (player.guest) return GUEST_SUMMARY;
     const account = await this.accountOf(player.id);
-    return summaryOf(this.typeOf(player, account), account, this.d.limits, this.d.clock.now());
+    return this.summaryFor(player, this.typeOf(player, account), account);
+  }
+
+  private summaryFor(player: Player, type: AccountType, account: AccountRecord): AccountSummary {
+    const { limits, clock } = this.d;
+    return player.guest ? guestSummaryOf(account, limits, clock.now()) : summaryOf(type, account, limits, clock.now());
+  }
+
+  /**
+   * A new account takes what the guest it was before has left of hints and bombs, and keeps the guest's wait for the next ad (so that making an account does not shorten it). Once for the
+   * guest and once for the account, and only in the account's first hour: the account has its own starting hints and bombs on top. Anything else is answered as if there were nothing to take.
+   */
+  async carryGuest(player: Player, guestId: string): Promise<MeResponse | ApiFailure> {
+    if (player.guest) return fail('account-required');
+    const { store, limits, clock } = this.d;
+    const account = await this.accountOf(player.id);
+    const guest = await store.getAccount(guestId);
+    if (guest && !guest.carried && !account.carried && clock.now() - account.createdAt <= CARRY_WINDOW_MS) {
+      let held = { hints: 0, bombs: 0 };
+      let waitAt = 0;
+      // (the guest's is emptied first: if the account's write is lost, nothing is given twice)
+      const emptied = await this.changeAccount(guestId, (g) => {
+        if (g.carried) return fail('bad-request');
+        held = helpHeld(g, limits);
+        waitAt = helpAdAtOf(g, limits);
+        return { ...g, hints: 0, bombs: 0, carried: true };
+      });
+      if (!('error' in emptied)) {
+        await this.changeAccount(player.id, (a) => {
+          if (a.carried) return fail('bad-request');
+          const mine = helpHeld(a, limits);
+          return { ...a, hints: mine.hints + held.hints, bombs: mine.bombs + held.bombs, helpAdAt: Math.max(helpAdAtOf(a, limits), waitAt), carried: true };
+        });
+      }
+    }
+    return this.profile(player);
   }
 
   /** Changes an account and writes it, again from the start if someone else wrote in between. `fn` returns the account to write, or a failure (then nothing is written). */
@@ -444,8 +480,8 @@ export class RoomService {
    * an ad for nothing. `trusted` (the operator has said to take the game's word, for trying things out) means that the game asks for the credits itself (`claimAd`).
    */
   async adStart(player: Player, req: AdStartRequest): Promise<AdStartResponse> {
-    if (player.guest) return fail('account-required');
     if (!req || !isAdKind(req.kind)) return fail('bad-request');
+    if (player.guest && !isHelpItem(req.kind)) return fail('account-required');                // (a guest watches ads for hints and bombs only)
     const { limits, clock, adCallbacks, store, random } = this.d;
     const refuse = async (f: ApiFailure): Promise<ApiFailure> => ({ ...f, account: await this.summary(player) });
     if (req.platform !== 'android' && req.platform !== 'ios') return refuse(fail('ad-refused', { reason: 'platform' }));
@@ -457,7 +493,7 @@ export class RoomService {
     if (early) return refuse(early);
     const nonce = secretFrom(random.bytes(16));
     await store.putAdNonce({ nonce, playerId: player.id, kind: req.kind, expiresAt: clock.now() + AD_NONCE_MS });
-    return { ok: true, nonce, mode: trusted ? 'trusted' : 'verified', account: summaryOf(type, account, limits, clock.now()) };
+    return { ok: true, nonce, mode: trusted ? 'trusted' : 'verified', account: this.summaryFor(player, type, account) };
   }
 
   /** Gives an account the credits of an ad that was watched, if it is still owed them (it may have changed since the ad was asked for). */
@@ -498,7 +534,6 @@ export class RoomService {
    * told to watch the ad (`watch`).
    */
   async rewardHelp(who: Player, req: RewardRequest): Promise<ItemResponse> {
-    if (who.guest) return fail('account-required');
     if (!isHelpItem(req?.item)) return fail('bad-request');
     const type = this.typeOf(who, await this.accountOf(who.id));
     const refuse = async (f: ApiFailure): Promise<ApiFailure> => ({ ...f, account: await this.summary(who) });
@@ -547,9 +582,9 @@ export class RoomService {
    * paid one video credits, but only when it has none left, and only so many a day. Anyone who can call the API could ask, which is why it is off unless it is set.
    */
   async claimAd(player: Player, req: AdRequest): Promise<AdResponse> {
-    if (player.guest) return fail('account-required');
     if (!req || !isAdKind(req.kind)) return fail('bad-request');
-    const { limits, clock } = this.d;
+    if (player.guest && !isHelpItem(req.kind)) return fail('account-required');
+    const { limits } = this.d;
     const refuse = async (f: ApiFailure): Promise<ApiFailure> => ({ ...f, account: await this.summary(player) });
     if (req.platform !== 'android' && req.platform !== 'ios') return refuse(fail('ad-refused', { reason: 'platform' }));
     if (!(limits.adsTrusted > 0)) return fail('ads-off');
@@ -559,7 +594,7 @@ export class RoomService {
     if (early) return refuse(early);
     const done = await this.giveAd(player.id, type, req.kind);
     if ('error' in done) return done.error === 'ad-refused' ? refuse(done) : done;
-    return { ok: true, account: summaryOf(type, done.account, limits, clock.now()) };
+    return { ok: true, account: this.summaryFor(player, type, done.account) };
   }
 
   /** Takes one credit of the kind, if the account has one. */
@@ -579,10 +614,9 @@ export class RoomService {
     });
   }
 
-  /** Takes one hint or bomb from the account (the operator's account has an endless stock, and nothing is taken). `free` says that nothing was, so that there is nothing to give back. */
-  private async takeItem(who: Player, item: HelpItem): Promise<{ free: boolean } | ApiFailure> {
+  /** Takes one hint or bomb from the account (or the guest). */
+  private async takeItem(who: Player, item: HelpItem): Promise<ApiFailure | null> {
     const key = item === 'hint' ? 'hints' : 'bombs';
-    if (helpIsFree(this.typeOf(who, await this.accountOf(who.id)))) return { free: true };
     const done = await this.changeAccount(who.id, (a) => {
       Object.assign(a, helpHeld(a, this.d.limits));                                  // (an account from before they existed is given its starting number now)
       if (a[key]! < 1) return fail('no-credits', { item });
@@ -590,7 +624,7 @@ export class RoomService {
       return a;
     });
     if ('error' in done) return done.error === 'no-credits' ? fail('no-credits', { item, account: await this.summary(who) }) : done;
-    return { free: false };
+    return null;
   }
 
   /** Puts back what a puzzle did not use after all (a hint or bomb that the room refused), or adds what a puzzle gave. */
@@ -605,10 +639,9 @@ export class RoomService {
 
   /** The player is about to use a hint or a bomb in a puzzle that they play alone: it is taken from their account (the game places nothing until the server has said yes). */
   async useItem(who: Player, req: ItemRequest): Promise<ItemResponse> {
-    if (who.guest) return fail('account-required');
     if (!isHelpItem(req?.item)) return fail('bad-request');
     const taken = await this.takeItem(who, req.item);
-    if ('error' in taken) return taken;
+    if (taken) return taken;
     return { ok: true, account: await this.summary(who) };
   }
 
@@ -1124,10 +1157,9 @@ export class RoomService {
     let spent = false;
     if (item) {
       if (!before.room.helpers) return fail('helpers-off');
-      if (player.guest) return fail('account-required');
       const taken = await this.takeItem(player, item);
-      if ('error' in taken) return taken;
-      spent = !taken.free;
+      if (taken) return taken;
+      spent = true;
     }
     let event: Extract<CommandResponse, { ok: true }>['event'] | undefined;
     let refusal: ApiFailure | undefined;

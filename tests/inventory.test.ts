@@ -3,7 +3,7 @@ import { GUEST_ACCOUNT, type AccountSummary } from '../src/online/protocol';
 import { explainHelp, itemsOf } from '../src/ui/inventory';
 
 const MIN = 60_000;
-const free = (more: Partial<AccountSummary> = {}): AccountSummary => ({ type: 'free', photo: 5, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 5, videoAdsLeft: 0, adPhoto: 5, adVideo: 1, hints: 10, bombs: 2, hintsInfinite: false, bombsInfinite: false, earnPerDay: 10, earnLeft: 7, earnInfinite: false, helpAdReady: true, helpAdIn: 0, helpAdHints: 5, helpAdBombs: 1, helpAdNoAd: false, ...more });
+const free = (more: Partial<AccountSummary> = {}): AccountSummary => ({ type: 'free', photo: 5, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 5, videoAdsLeft: 0, adPhoto: 5, adVideo: 1, hints: 10, bombs: 2, earnPerDay: 10, earnLeft: 7, earnInfinite: false, helpAdReady: true, helpAdIn: 0, helpAdHints: 5, helpAdBombs: 1, helpAdNoAd: false, ...more });
 const paid = (more: Partial<AccountSummary> = {}) => free({ type: 'paid', photoInfinite: true, canVideo: true, video: 20, earnInfinite: true, earnLeft: 0, helpAdNoAd: true, ...more });
 const text = (e: ReturnType<typeof explainHelp>) => e.paragraphs.join(' ');
 
@@ -60,26 +60,32 @@ describe('what the inventory says about hints and bombs', () => {
     expect(explainHelp('bomb', paid(), 'web', 3 * MIN).ad).toBeUndefined();
   });
 
-  it('sends a free account on Steam, itch or the web to the mobile apps for ads, and offers no ad', () => {
+  it('sends a free account on Steam, itch or the web to the mobile apps for ads (or to a paid account), and offers no ad', () => {
     for (const where of ['web', 'steam', 'itch'] as const) {
       const e = explainHelp('bomb', free(), where, 0);
       expect(e.ad).toBeUndefined();
+      expect(text(e)).toContain('install the app and log in on a mobile device');
       expect(text(e)).toContain('Android and iOS apps');
+      expect(text(e)).toContain('upgrade to a paid account to get them here without watching ads');
     }
   });
 
-  it('tells a guest to sign in, and says what an account starts with', () => {
+  it('treats a guest as a free account for ads (and says what making an account adds)', () => {
+    const guest = free({ type: 'guest', photoAdsLeft: 0, adPhoto: 0, hints: 5, bombs: 1, earnPerDay: 0, earnLeft: 0 });
     for (const item of ['hint', 'bomb'] as const) {
-      const e = explainHelp(item, GUEST_ACCOUNT, 'android', 0);
-      expect(e.signIn).toBe(true);
-      expect(e.ad).toBeUndefined();
-      expect(text(e)).toContain('Sign in to start with 10 hints and 2 bombs');
+      const e = explainHelp(item, guest, 'android', 0);
+      expect(e.ad?.label).toBe(item === 'hint' ? 'Watch an ad for 5 hints' : 'Watch an ad for 1 bomb');
+      expect(text(e)).toContain('10 more hints and 2 more bombs');
+      expect(explainHelp(item, guest, 'web', 0).ad).toBeUndefined();
+      expect(text(explainHelp(item, guest, 'web', 0))).toContain('upgrade to a paid account');
     }
+    expect(text(explainHelp('hint', guest, 'android', 0))).toContain('earn hints by solving puzzles');
+    expect(text(explainHelp('bomb', guest, 'android', 0))).not.toContain('earn hints by solving puzzles');
   });
 
-  it('says that the operator has no limit, and offers no ad', () => {
-    const e = explainHelp('hint', free({ type: 'admin', hintsInfinite: true, bombsInfinite: true, helpAdNoAd: true }), 'android', 0);
-    expect(text(e)).toContain('never used up');
-    expect(e.ad).toBeUndefined();
+  it('gives the operator no more than anyone else: the hints are counted, and an ad (or none) is theirs every so often', () => {
+    const e = explainHelp('hint', free({ type: 'admin', helpAdNoAd: true }), 'android', 0);
+    expect(text(e)).not.toContain('never used up');
+    expect(e.ad?.label).toBe('Take 5 hints');
   });
 });

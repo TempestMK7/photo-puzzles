@@ -183,8 +183,9 @@ async function main(): Promise<void> {
       }
     });
   });
-  // the badge shows the account's name: ask the server for it once (the name that is kept on this device is used until it answers)
-  if (profile && player.kind() === 'account') void player.refreshProfile().then(() => profile.refreshBadge());
+  // the badge shows the account's name: ask the server for it once (the name that is kept on this device is used until it answers). Nobody signed in is a guest, and is asked about too: it is
+  // what gives them their hints and bombs
+  if (profile) void player.refreshProfile().then(() => profile.refreshBadge());
 
   function showLibrary(): void {
     play.el.hidden = true;

@@ -114,6 +114,8 @@ export interface AccountRecord {
   hintsEarned?: number;
   /** When the next ad for hints or bombs can be had (a time of the server's clock); a time that has passed means now. Nothing (no ad has been had): `helpAdFirstMs` after `createdAt`. */
   helpAdAt?: number;
+  /** A guest's record: the hints and bombs were taken into an account (so that they are not taken twice). An account's: it has taken a guest's. */
+  carried?: boolean;
   createdAt: number;
   /** Counts up with every write, so that two writers cannot overwrite each other (a conditional write, as for a room). */
   rev: number;
@@ -304,6 +306,9 @@ export interface Limits {
   /** The hints and bombs a new account starts with. */
   startHints: number;
   startBombs: number;
+  /** What a guest starts with (the account made from a guest keeps it, on top of `startHints` and `startBombs`). */
+  guestHints: number;
+  guestBombs: number;
   /** The hints a free account can earn in a day. */
   freeHintsPerDay: number;
   /** What an ad for hints or bombs gives, and about how long before the next one (see `DEFAULT_LIMITS`). */
