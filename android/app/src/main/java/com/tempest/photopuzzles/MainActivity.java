@@ -379,10 +379,10 @@ public class MainActivity extends Activity {
             ads.prepare();
         }
 
-        /** Starts a rewarded ad for `kind` credits ('photo' or 'video'); the page is told how it went with the window event photopuzzles-ad. `nonce` goes to AdMob with the ad (see Ads). */
+        /** Starts a rewarded ad for `kind` ('photo' or 'video' credits, 'hint' or 'bomb'); the page is told how it went with the window event photopuzzles-ad. `nonce` goes to AdMob with the ad (see Ads). */
         @JavascriptInterface
         public void showRewardedAd(String kind, String nonce) {
-            boolean valid = ("photo".equals(kind) || "video".equals(kind)) && nonce != null && nonce.matches("[A-Za-z0-9_-]{1,100}");
+            boolean valid = ("photo".equals(kind) || "video".equals(kind) || "hint".equals(kind) || "bomb".equals(kind)) && nonce != null && nonce.matches("[A-Za-z0-9_-]{1,100}");
             if (valid) ads.show(kind, nonce);
         }
 
