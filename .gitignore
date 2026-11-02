@@ -42,6 +42,8 @@ android/app/build/
 android/local.properties
 android/web-stage.txt
 android/app/src/main/assets/www/
+android/adi-registration.properties
+android/app/src/main/assets/adi-registration.properties
 *.apk
 *.aab
 ios/

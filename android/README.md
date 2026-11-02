@@ -50,6 +50,7 @@ base64 -w0 path/to/upload.jks | gh secret set ANDROID_KEYSTORE_B64        # prod
 gh secret set ANDROID_KEYSTORE_PASSWORD                                    # its passwords (each asks for the value)
 gh secret set ANDROID_KEY_ALIAS
 gh secret set ANDROID_KEY_PASSWORD
+gh variable set ANDROID_REGISTRATION < adi-registration.properties         # prod, optional: what the Play Console gave to prove the package name (it is put in the app's assets)
 ```
 
 The Google sign-in button and the legal pages use the Deploy workflow's variables (`GOOGLE_CLIENT_ID`, `GOOGLE_SECRET_NAME`, `LEGAL_*`). The upload key is written to the runner for the run and deleted after it. The **version code** of every build is the run number plus 10 (the workflow passes `-PversionCode` and `-PversionName`), so each upload to the Play Console is higher than the one before; a build on your own machine is version 1 unless you pass them yourself.

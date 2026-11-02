@@ -8,7 +8,7 @@ name: Android
 #
 # The repository needs these (Settings > Secrets and variables > Actions); android/README.md has the commands:
 #   variables  AWS_DEPLOY_ROLE_ARN (the Deploy workflow's), ADMOB_APP_ID, ADMOB_UNIT_DEV, ADMOB_UNIT_PROD; optional: ADMOB_TEST_DEVICES (your phones, comma-separated: they are shown test ads)
-#              and the Deploy workflow's GOOGLE_CLIENT_ID, GOOGLE_SECRET_NAME, LEGAL_OPERATOR, LEGAL_CONTACT, LEGAL_LAW
+#              and the Deploy workflow's GOOGLE_CLIENT_ID, GOOGLE_SECRET_NAME, LEGAL_OPERATOR, LEGAL_CONTACT, LEGAL_LAW; ANDROID_REGISTRATION (prod: the Play Console's package name registration, put in the app's assets)
 #   secrets    (prod only) ANDROID_KEYSTORE_B64 (the upload keystore, base64), ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
 # The version code of the app is the number of this run plus 10 (every upload to the Play Console needs a higher one than the one before).
 on:
@@ -113,6 +113,15 @@ jobs:
             echo "keyAlias=$KEY_ALIAS"
             echo "keyPassword=$KEY_PASSWORD"
           } > android/keystore.properties
+
+      # The registration of the package name that the Play Console asks for (a one-line file that goes into the app's assets); not secret, it is in every APK, but kept out of the repository.
+      - name: The registration of the package name
+        if: matrix.stage == 'prod' && vars.ANDROID_REGISTRATION != ''
+        env:
+          REGISTRATION: ${{ vars.ANDROID_REGISTRATION }}
+        run: |
+          mkdir -p android/app/src/main/assets
+          echo "$REGISTRATION" > android/app/src/main/assets/adi-registration.properties
 
       # The game's own build for this stage goes into the app (where the stage's server and sign-in are comes from its stacks: scripts/android-web.mjs).
       - name: Build the game for the app
