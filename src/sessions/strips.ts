@@ -160,7 +160,7 @@ export class StripsSession implements PuzzleSession {
         const owners = this.owners[i];
         const x = (MARGIN + c) * S;
         const y = (MARGIN + r) * S;
-        if (g.solved || owners.length === 0 || owners.some((id) => g.state[id].locked)) {
+        if (g.solved || owners.length === 0 || g.filled[i] || owners.some((id) => g.state[id].locked)) {
           if (!gpu) this.cellImage(ctx, c, r, x, y);               // (on the graphics card they are drawn by drawGl)
         } else {
           ctx.fillStyle = '#1d120d';
@@ -213,7 +213,7 @@ export class StripsSession implements PuzzleSession {
     for (let r = 0; r < this.picRows; r++) {
       for (let c = 0; c < this.picCols; c++) {
         const owners = this.owners[r * this.picCols + c];
-        if (g.solved || owners.length === 0 || owners.some((id) => g.state[id].locked)) L.quad((MARGIN + c) * S, (MARGIN + r) * S, S, S, (sx + c * w) / iw, (sy + r * h) / ih, (sx + (c + 1) * w) / iw, (sy + (r + 1) * h) / ih);
+        if (g.solved || owners.length === 0 || g.filled[r * this.picCols + c] || owners.some((id) => g.state[id].locked)) L.quad((MARGIN + c) * S, (MARGIN + r) * S, S, S, (sx + c * w) / iw, (sy + r * h) / ih, (sx + (c + 1) * w) / iw, (sy + (r + 1) * h) / ih);
       }
     }
     if (this.init.flag('grid')) {

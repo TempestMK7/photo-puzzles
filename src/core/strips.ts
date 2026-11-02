@@ -1,5 +1,9 @@
 import { nearPoint } from './help';
+import { prefillPatches } from './prefill';
 import { Rng } from './rng';
+
+/** The share of the picture's cells that start filled in, in percent. */
+export const FILLED_AT_START = 20;
 
 /** The room loose strips have round the picture, in cells. */
 export const MARGIN = 3;
@@ -31,8 +35,6 @@ export interface StripsOptions {
   picRows: number;
   /** The longest strip, in cells (the shortest is 3). */
   maxLen: number;
-  /** Percent of the strips that are already in place at the start. */
-  placed: number;
   /** How many tabs the loose strips are spread over (1 - 12). */
   tabs: number;
 }
@@ -45,6 +47,8 @@ export interface StripsSetup {
   tabs: number;
   defs: StripDef[];
   state: StripState[];
+  /** The picture's cells (row by row, inside the picture) that show it from the start, in patches round the centre of each quarter; no strip is in place. */
+  filled: number[];
 }
 
 /** The picture's size in cells: about `cells` of them, in the shape of the photo. */
@@ -138,9 +142,7 @@ export function generateStrips(rng: Rng, o: StripsOptions): StripsSetup {
   if (!cuts) throw new Error('could not cut the picture into strips');
   const defs: StripDef[] = cuts.map((c, id) => ({ id, len: c.len, horizontal: c.horizontal, hx: MARGIN + c.x, hy: MARGIN + c.y }));
   const tabs = Math.min(12, Math.max(1, Math.round(o.tabs)));
-  const placedCount = Math.min(defs.length - 1, Math.round((defs.length * Math.min(50, Math.max(0, o.placed))) / 100));
-  const state: StripState[] = defs.map((d, i) => {
-    if (i < placedCount) return { angle: 0, x: d.hx, y: d.hy, locked: true, tab: 0 };
+  const state: StripState[] = defs.map((d) => {
     for (;;) {
       const angle = rng.below(4);
       const b = boxOf(d, angle);
@@ -150,7 +152,8 @@ export function generateStrips(rng: Rng, o: StripsOptions): StripsSetup {
       return { angle, x, y, locked: false, tab: rng.below(tabs) };
     }
   });
-  return { cols, rows, picCols, picRows, tabs, defs, state };
+  const filled = prefillPatches(rng, picCols, picRows, () => true, Math.round((picCols * picRows * FILLED_AT_START) / 100));
+  return { cols, rows, picCols, picRows, tabs, defs, state, filled };
 }
 
 export interface StripsState {
@@ -168,6 +171,8 @@ export class StripsGame {
   readonly tabs: number;
   readonly defs: StripDef[];
   readonly state: StripState[];
+  /** Which of the picture's cells show from the start, whatever the strips (row by row, inside the picture). */
+  readonly filled: boolean[];
   /** Back to front. */
   readonly z: number[];
   moves = 0;
@@ -180,6 +185,8 @@ export class StripsGame {
     this.tabs = setup.tabs;
     this.defs = setup.defs;
     this.state = setup.state.map((s) => ({ ...s }));
+    this.filled = new Array<boolean>(this.picCols * this.picRows).fill(false);
+    for (const cell of setup.filled) this.filled[cell] = true;
     this.z = this.defs.map((d) => d.id);
   }
 
@@ -304,6 +311,6 @@ export class StripsGame {
 /** The Strips puzzle for a picture of this size: made the same way on a screen and on a server that keeps a shared board. */
 export function makeStrips(seed: number, width: number, height: number, opts: Record<string, number>): { game: StripsGame; picCols: number; picRows: number } {
   const { picCols, picRows } = pictureSize(width, height, opts.cells);
-  const setup = generateStrips(new Rng(seed), { picCols, picRows, maxLen: opts.length, placed: opts.placed, tabs: opts.tabs });
+  const setup = generateStrips(new Rng(seed), { picCols, picRows, maxLen: opts.length, tabs: opts.tabs });
   return { game: new StripsGame(setup), picCols, picRows };
 }

@@ -54,7 +54,7 @@ describe('Overlap state', () => {
 });
 
 describe('Strips state', () => {
-  const setup = generateStrips(new Rng(9), { picCols: 14, picRows: 10, maxLen: 6, placed: 20, tabs: 3 });
+  const setup = generateStrips(new Rng(9), { picCols: 14, picRows: 10, maxLen: 6, tabs: 3 });
 
   it('comes back as it was left', () => {
     const a = new StripsGame(setup);

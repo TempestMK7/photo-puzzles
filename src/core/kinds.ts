@@ -105,7 +105,7 @@ export const KINDS: readonly KindDef[] = [
       sizeOption(5),
       { key: 'turned', label: 'Turned pieces', min: 0, max: 1, def: 1, toggle: true },
       { key: 'windows', label: 'Window pieces', min: 0, max: 1, def: 1, toggle: true },
-      { key: 'placed', label: 'Placed at the start (%)', min: 0, max: 50, def: 20, step: 5 },
+      { key: 'placed', label: 'Cells filled in at the start (%)', min: 0, max: 50, def: 0, step: 5 },
     ],
     sizes: sizesOf(['total', 'stacks'], [[50, 3], [100, 4], [200, 5], [500, 6], [1000, 7]], (v) => `about ${v.total} cells, ${v.stacks} trays`),
   },
@@ -116,7 +116,6 @@ export const KINDS: readonly KindDef[] = [
     available: true,
     options: [
       sizeOption(5),
-      { key: 'placed', label: 'Placed at the start (%)', min: 0, max: 50, def: 20, step: 5 },
     ],
     sizes: sizesOf(['cells', 'length', 'tabs'], [[50, 4, 4], [100, 6, 6], [200, 8, 8], [500, 10, 10], [1000, 12, 12]], (v) => `about ${v.cells} cells, strips up to ${v.length}, ${v.tabs} tabs`),
   },

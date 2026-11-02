@@ -79,22 +79,22 @@ describe('generateOverlap', () => {
     expect(make(9, 8, 6)).not.toEqual(make(10, 8, 6));
   });
 
-  it('deals every piece that is not placed to a stack, and never starts solved', () => {
+  it('deals every piece to a stack, and never starts solved', () => {
     const s = make(3);
     const inStacks = s.stacks.flat().sort((a, b) => a - b);
     expect(s.stacks).toHaveLength(STACKS);
-    expect([...inStacks, ...s.placedAtStart].sort((a, b) => a - b)).toEqual(s.pieces.map((p) => p.id));
+    expect(inStacks).toEqual(s.pieces.map((p) => p.id));
     expect(new OverlapGame(s).solved).toBe(false);
   });
 
   it('deals the pieces to as many stacks as it is asked for (three when not asked)', () => {
     const s = generateOverlap(new Rng(5), { cols: 20, rows: 15, turned: true, placed: 20, windows: true, stacks: 6 });
     expect(s.stacks).toHaveLength(6);
-    expect([...s.stacks.flat(), ...s.placedAtStart].sort((a, b) => a - b)).toEqual(s.pieces.map((p) => p.id));
+    expect([...s.stacks.flat()].sort((a, b) => a - b)).toEqual(s.pieces.map((p) => p.id));
     expect(Math.max(...s.stacks.map((st) => st.length)) - Math.min(...s.stacks.map((st) => st.length))).toBeLessThanOrEqual(1);          // dealt evenly
   });
 
-  it('puts windows only on overlap cells that another piece also reveals, never on a centre, never on a placed piece, and never when windows are off', () => {
+  it('puts windows only on overlap cells that another piece also reveals, never on a centre, and never when windows are off', () => {
     let windows = 0;
     for (let seed = 1; seed <= 40; seed++) {
       const s = make(seed, 8, 6);
@@ -108,7 +108,6 @@ describe('generateOverlap', () => {
         expect(p.marker).toBeGreaterThanOrEqual(1);                            // not the centre
         expect(p.marker).toBeLessThanOrEqual(p.arms.length);
         expect(solid[cellsOf(s, p.id)[p.marker]]).toBeGreaterThanOrEqual(1);
-        expect(s.placedAtStart.includes(p.id)).toBe(false);
       }
       expect(make(seed, 8, 6, true, 20, false).pieces.every((p) => p.marker < 0)).toBe(true);
     }

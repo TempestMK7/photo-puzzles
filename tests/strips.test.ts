@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Rng } from '../src/core/rng';
 import { boxOf, generateStrips, MARGIN, pictureSize, StripsGame } from '../src/core/strips';
 
-const make = (seed: number, picCols = 16, picRows = 11, maxLen = 8, placed = 20, tabs = 3) => generateStrips(new Rng(seed), { picCols, picRows, maxLen, placed, tabs });
+const make = (seed: number, picCols = 16, picRows = 11, maxLen = 8, tabs = 3) => generateStrips(new Rng(seed), { picCols, picRows, maxLen, tabs });
 
 /** Which strips cover each picture cell. */
 function owners(s: ReturnType<typeof make>): number[][] {
@@ -56,7 +56,7 @@ describe('generateStrips', () => {
   it('works out how many strips it takes: more cells, more strips; longer strips, fewer', () => {
     const count = (cols: number, rows: number, maxLen: number) => {
       let total = 0;
-      for (let seed = 1; seed <= 8; seed++) total += make(seed, cols, rows, maxLen, 0).defs.length;
+      for (let seed = 1; seed <= 8; seed++) total += make(seed, cols, rows, maxLen).defs.length;
       return total / 8;
     };
     expect(count(24, 16, 8)).toBeGreaterThan(count(12, 8, 8));
@@ -79,17 +79,15 @@ describe('generateStrips', () => {
     expect(parallel / pairs).toBeLessThan(0.25);
   });
 
-  it('puts loose strips inside the field and never already home; some start placed', () => {
+  it('puts every strip loose inside the field and never already home: none starts in place', () => {
     const s = make(7);
-    let placed = 0;
     s.defs.forEach((d, i) => {
       const st = s.state[i];
       const b = boxOf(d, st.angle);
       expect(st.x >= 0 && st.y >= 0 && st.x + b.w <= s.cols && st.y + b.h <= s.rows).toBe(true);
-      if (st.locked) placed++;
-      else expect(st.angle === 0 && st.x === d.hx && st.y === d.hy).toBe(false);
+      expect(st.locked).toBe(false);
+      expect(st.angle === 0 && st.x === d.hx && st.y === d.hy).toBe(false);
     });
-    expect(placed).toBeGreaterThan(0);
     expect(new StripsGame(s).solved).toBe(false);
   });
 });
@@ -97,18 +95,18 @@ describe('generateStrips', () => {
 describe('tabs', () => {
   it('spreads the loose strips over the tabs at random, none outside them', () => {
     for (const tabs of [1, 3, 10]) {
-      const s = make(11, 22, 16, 8, 20, tabs);
+      const s = make(11, 22, 16, 8, tabs);
       expect(s.tabs).toBe(tabs);
       const used = new Set(s.state.filter((st) => !st.locked).map((st) => st.tab));
       for (const t of used) expect(t >= 0 && t < tabs).toBe(true);
       if (tabs > 1) expect(used.size).toBeGreaterThan(1);
       else expect(used.size).toBe(1);
     }
-    expect(make(12, 22, 16, 8, 20, 5)).toEqual(make(12, 22, 16, 8, 20, 5));
+    expect(make(12, 22, 16, 8, 5)).toEqual(make(12, 22, 16, 8, 5));
   });
 
   it('only the strips of the tab being shown can be picked, and they can be moved to another tab', () => {
-    const g = new StripsGame(make(13, 16, 12, 8, 0, 3));
+    const g = new StripsGame(make(13, 16, 12, 8, 3));
     const id = g.defs.findIndex((_, i) => g.state[i].tab === 0);
     const s = g.state[id];
     expect(g.stripAt(s.x, s.y, 0)).not.toBe(-1);
@@ -166,7 +164,7 @@ describe('StripsGame', () => {
   });
 
   it('picks the front-most strip', () => {
-    const g = new StripsGame(make(10, 16, 12, 8, 0, 1));
+    const g = new StripsGame(make(10, 16, 12, 8, 1));
     g.state[1].angle = g.state[0].angle;
     g.state[1].x = g.state[0].x;
     g.state[1].y = g.state[0].y;
