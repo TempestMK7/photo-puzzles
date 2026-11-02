@@ -203,7 +203,7 @@ export class OverlapSession implements PuzzleSession {
   }
 
   private maxZoom(): number {
-    return Math.max(this.fitZoom * 3, 4 * this.dpr);
+    return Math.max(this.fitZoom * 2, 4 * this.dpr);                 // (as far in as Strips: see Camera)
   }
 
   view(cw: number, ch: number): View {

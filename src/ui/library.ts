@@ -10,7 +10,7 @@ import type { SaveRecord, SaveStore } from '../store/saves';
 import type { PhotoEntry, PhotoLibrary } from '../store/photos';
 import { appVersion, versionLabel } from '../version';
 import { h, svg } from './dom';
-import { KIND_ICONS } from './icons';
+import { FILTER_ICON, KIND_ICONS } from './icons';
 import { aiMark, attribution, creditLine, siteMark } from './stocksite';
 import { AddFilesDialog } from './addfiles';
 import { settingsButton } from './settings';
@@ -67,7 +67,11 @@ export class LibraryScreen {
   private kindsEl = h('nav', { class: 'kinds', 'aria-label': 'Puzzle types' });
   private listEl = h('ul', { class: 'plist', role: 'listbox', 'aria-label': 'Photos', tabIndex: 0 });
   private sortSelect = h('select', { 'aria-label': 'Sort Local Files', onchange: () => this.sortChanged() }, h('option', { value: 'added' }, 'Date added'), h('option', { value: 'name' }, 'Name'));
-  private sortBar = h('label', { class: 'sortbar' }, h('span', {}, 'Sort by'), this.sortSelect);
+  /** The button that opens the window with the filters (a funnel, no text); it is marked while something is filtered out. */
+  private filterBtn = h('button', { type: 'button', class: 'filter-btn', title: 'Filter the files', 'aria-label': 'Filter the files', onclick: () => this.openFilter() }, svg(FILTER_ICON, 'ico'));
+  private sortBar = h('div', { class: 'sortbar' }, h('label', { class: 'sortlabel' }, h('span', {}, 'Sort by'), this.sortSelect), this.filterBtn);
+  /** The window with the filters, over the screen. */
+  private filterEl = h('div', { class: 'inprogress filter-dialog', role: 'dialog', 'aria-label': 'Filter the files', hidden: true, onclick: (e: Event) => (e.target === this.filterEl ? this.closeFilter() : undefined) });
   /** A thumbnail is given its picture when it comes near the screen: making the object URLs of a long list at once takes seconds on a phone. */
   private thumbOf = new WeakMap<Element, PhotoEntry>();
   private nearby =
@@ -88,6 +92,9 @@ export class LibraryScreen {
   private previewImg = h('img', { alt: '', referrerPolicy: 'no-referrer' });
   private previewVideo = h('video', { muted: true, loop: true, playsInline: true, autoplay: true, hidden: true, 'aria-label': 'Preview' });
   private nameEl = h('div', { class: 'pname' });
+  /** The name of the chosen local file, with the button that renames it (the file is known by its id, so the name is the player's to change). */
+  private renameBtn = h('button', { type: 'button', class: 'small rename', title: 'Give this file another name', onclick: () => this.startRename() }, 'Rename');
+  private nameRow = h('div', { class: 'pnamerow' }, this.nameEl, this.renameBtn);
   /** Who made the picture, for one from the stock library. */
   private creditEl = h('div', { class: 'pcreditbox' });
   private bestEl = h('div', { class: 'pbest' });
@@ -177,19 +184,13 @@ export class LibraryScreen {
         'header',
         { class: 'bar' },
         h('h1', {}, 'PuzzleVidio'),
-        // the credits are what Play with friends spends: the inventory that holds them sits with it
-        ...(deps.inventory || deps.onOnline
-          ? [
-              h(
-                'div',
-                { class: 'online-group' },
-                ...(deps.inventory ? [deps.inventory] : []),
-                ...(deps.onOnline ? [h('button', { type: 'button', class: 'progress-btn friends', title: 'Play a Jigsaw, Tile Swap, Overlap or Strips together over the internet', onclick: () => deps.onOnline!() }, 'Play with friends')] : []),
-              ),
-            ]
-          : []),
-        this.progressBtn,
-        settingsButton(deps.prefs),
+        h(
+          'div',
+          { class: 'online-group' },
+          ...(deps.onOnline ? [h('button', { type: 'button', class: 'progress-btn friends', title: 'Play a Jigsaw, Tile Swap, Overlap or Strips together over the internet', onclick: () => deps.onOnline!() }, 'Play with friends')] : []),
+          this.progressBtn,
+        ),
+        h('div', { class: 'tool-group' }, settingsButton(deps.prefs), ...(deps.inventory ? [deps.inventory] : [])),
         ...(deps.badge ? [deps.badge] : []),
       ),
       this.kindsEl,
@@ -197,7 +198,7 @@ export class LibraryScreen {
         'div',
         { class: 'main' },
         h('aside', { class: 'photos' }, this.tabsEl, this.stockBar, this.sortBar, this.listEl, this.stockListEl, this.photoNoteEl, this.footEl),
-        h('section', { class: 'preview' }, h('div', { class: 'frame' }, this.previewImg, this.previewVideo), this.nameEl, this.creditEl, this.bestEl, this.blurbEl),
+        h('section', { class: 'preview' }, h('div', { class: 'frame' }, this.previewImg, this.previewVideo), this.nameRow, this.creditEl, this.bestEl, this.blurbEl),
         h(
           'aside',
           { class: 'side' },
@@ -226,6 +227,7 @@ export class LibraryScreen {
       this.progressEl,
       this.addDialog.el,
       this.matchEl,
+      this.filterEl,
     );
     this.listEl.addEventListener('keydown', (e) => this.listKey(e));
     this.stockListEl.addEventListener('keydown', (e) => this.stockKey(e));
@@ -241,6 +243,7 @@ export class LibraryScreen {
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !this.progressEl.hidden) this.closeProgress();
       if (e.key === 'Escape' && !this.matchEl.hidden) this.matchEl.hidden = true;
+      if (e.key === 'Escape' && !this.filterEl.hidden) this.closeFilter();
     });
     this.buildKinds();
     this.renderFoot();
@@ -304,7 +307,7 @@ export class LibraryScreen {
   private refresh(selectId?: string): void {
     for (const id of [...this.marked]) if (!this.entries.some((e) => e.id === id)) this.marked.delete(id);
     if (selectId) this.deps.prefs.data.photo = selectId;
-    if (!this.entries.some((e) => e.id === this.deps.prefs.data.photo)) this.deps.prefs.data.photo = this.entries[0]?.id ?? '';
+    if (!this.visible().some((e) => e.id === this.deps.prefs.data.photo)) this.deps.prefs.data.photo = this.visible()[0]?.id ?? '';
     this.renderList();
     this.renderChosen();
     this.renderFoot();
@@ -401,12 +404,22 @@ export class LibraryScreen {
     this.renderList();
   }
 
+  /** The files that the filters let through: the ones the player added or the ones from the stock library, and photos or videos. */
+  private visible(): PhotoEntry[] {
+    const { source, type } = this.deps.prefs.data.filter;
+    return this.entries.filter((e) => (source === 'all' || (source === 'stock') === !!e.credit) && (type === 'all' || (type === 'video') === e.video));
+  }
+
   private renderList(): void {
     this.sortEntries();
     this.listEl.classList.toggle('removing', this.removing !== 'no');
     const keep = new Set(this.entries.map((e) => e.id));
     for (const id of this.items.keys()) if (!keep.has(id)) this.items.delete(id);
-    const lis = this.entries.map((e) => this.itemFor(e));
+    const shown = this.visible();
+    const { source, type } = this.deps.prefs.data.filter;
+    this.filterBtn.classList.toggle('on', source !== 'all' || type !== 'all');
+    const lis: HTMLElement[] = shown.map((e) => this.itemFor(e));
+    if (!shown.length && this.entries.length) lis.push(h('li', { class: 'none' }, 'No file matches the filter'));
     const now = this.listEl.children;
     if (lis.length !== now.length || lis.some((li, i) => li !== now[i])) this.listEl.replaceChildren(...lis);
     showInList(this.listEl, this.listEl.querySelector('.on'));
@@ -423,6 +436,8 @@ export class LibraryScreen {
       kept.setAttribute('aria-selected', String(e.id === this.deps.prefs.data.photo));
       const b = kept.querySelector('.b')!;
       if (b.textContent !== text) b.textContent = text;
+      const n = kept.querySelector('.n')!;
+      if (n.textContent !== e.name) n.textContent = e.name;                       // (it may have been renamed)
       return kept;
     }
     const li = h(
@@ -477,6 +492,7 @@ export class LibraryScreen {
       this.previewImg.src = shown?.url ?? '';
       this.previewImg.hidden = !shown;
     }
+    this.renameBtn.hidden = this.tab === 'stock' || !e;
     this.nameEl.textContent = shown?.name ?? (this.tab === 'stock' ? (this.stock.busy ? 'Searching…' : 'Nothing to show') : this.loading ? 'Loading photos…' : this.deps.stockBase ? 'No photos yet. Add some, or try Stock Files' : 'No photos yet. Add some below');
     this.creditEl.replaceChildren(...(shown?.credit ? [creditLine(shown.credit, shown.video)] : []));
     const best = e ? this.recordFor(e) : undefined;
@@ -710,6 +726,85 @@ export class LibraryScreen {
   /** The library's photo that was made from this item of the stock library, if it has been played before. */
   private entryOfStock(item: StockItem): PhotoEntry | undefined {
     return this.entries.find((e) => e.credit?.source === item.source && e.credit.id === item.id && e.video === (item.type === 'video'));
+  }
+
+  /** The name of the chosen file becomes a box to type in (Enter keeps what was typed, Esc leaves the name as it was). */
+  private startRename(): void {
+    const e = this.chosen;
+    if (!e) return;
+    let done = false;
+    const finish = (keep: boolean): void => {
+      if (done) return;
+      done = true;
+      this.nameRow.replaceChildren(this.nameEl, this.renameBtn);
+      if (!keep) return;
+      void this.deps.photos.rename(e.id, input.value).then(() => {
+        this.renderList();
+        this.renderChosen();
+        if (!this.progressEl.hidden) this.renderProgress();
+      });
+    };
+    const input = h('input', {
+      type: 'text',
+      class: 'rename-input',
+      maxLength: 100,
+      value: e.name,
+      'aria-label': 'Name of the file',
+      onkeydown: (ev: KeyboardEvent) => {
+        if (ev.key === 'Enter') finish(true);
+        else if (ev.key === 'Escape') {
+          ev.stopPropagation();
+          finish(false);
+        }
+      },
+    });
+    this.nameRow.replaceChildren(input, h('button', { type: 'button', class: 'small', onclick: () => finish(true) }, 'Save'), h('button', { type: 'button', class: 'small', onclick: () => finish(false) }, 'Cancel'));
+    input.focus();
+    input.select();
+  }
+
+  /** Opens the window with the filters: which files to list (those the player added, those from the stock library, or both) and which kinds (photos, videos, or both). */
+  private openFilter(): void {
+    const { prefs } = this.deps;
+    const group = <T extends string>(title: string, name: string, options: [T, string][], current: T, set: (v: T) => void): HTMLElement =>
+      h(
+        'fieldset',
+        { class: 'filter-group' },
+        h('legend', {}, title),
+        ...options.map(([value, label]) =>
+          h(
+            'label',
+            { class: 'field check' },
+            h('input', { type: 'radio', name, value, checked: value === current, onchange: () => set(value) }),
+            h('span', {}, label),
+          ),
+        ),
+      );
+    const changed = (): void => {
+      prefs.save();
+      if (!this.visible().some((e) => e.id === prefs.data.photo)) prefs.data.photo = this.visible()[0]?.id ?? '';
+      this.renderList();
+      this.renderChosen();
+    };
+    this.filterEl.replaceChildren(
+      h(
+        'div',
+        { class: 'card' },
+        h('header', {}, h('h2', {}, 'Filter the files'), h('button', { type: 'button', class: 'close', onclick: () => this.closeFilter() }, 'Close')),
+        h(
+          'div',
+          { class: 'body' },
+          group('Show', 'filter-source', [['mine', 'Files I have added'], ['stock', 'Stock files'], ['all', 'Both']], prefs.data.filter.source, (v) => ((prefs.data.filter.source = v), changed())),
+          group('Kind', 'filter-type', [['photo', 'Photos'], ['video', 'Videos'], ['all', 'Both']], prefs.data.filter.type, (v) => ((prefs.data.filter.type = v), changed())),
+        ),
+      ),
+    );
+    this.filterEl.hidden = false;
+    this.filterEl.querySelector<HTMLElement>('input:checked')?.focus();
+  }
+
+  private closeFilter(): void {
+    this.filterEl.hidden = true;
   }
 
   private setTab(tab: 'mine' | 'stock'): void {
@@ -1020,7 +1115,7 @@ export class LibraryScreen {
       this.renderStockFoot();
       return;
     }
-    const mine = this.entries;
+    const mine = this.visible();
     const n = this.marked.size;
     const btn = (label: string, onclick: () => void, extra: Record<string, unknown> = {}) => h('button', { type: 'button', onclick, ...extra }, label);
     if (this.removing === 'no') {

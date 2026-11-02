@@ -24,3 +24,6 @@ export const HELP_ICONS = {
   hint: `<svg ${SMALL}><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg>`,
   bomb: `<svg ${SMALL}><circle cx="11" cy="14" r="7"/><path d="M16 8l2-2M18 3v2M21 6h-2"/></svg>`,
 };
+
+/** The funnel of the button that filters the list of files (currentColor, no text). */
+export const FILTER_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>';

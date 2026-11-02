@@ -47,7 +47,7 @@ export class RotascopeSession implements PuzzleSession {
   videoFrame?: (now: number) => void;
 
   constructor(private readonly init: SessionInit) {
-    this.cam = new Camera(Math.min(init.width, init.height), Math.min(init.width, init.height), 2, () => init.requestDraw());
+    this.cam = new Camera(init.width, init.height, 2, () => init.requestDraw());
     this.game = new RotascopeGame(init.opts.rings, init.opts.wedges, init.seed);
     if (init.restore) this.game.restore((init.restore as { game: RotascopeState }).game);
     this.side = Math.min(init.width, init.height);
@@ -76,8 +76,9 @@ export class RotascopeSession implements PuzzleSession {
     return { game: this.game.snapshot() };
   }
 
+  /** The board is the whole picture: the puzzle is the disc in the middle of it, and the rest of the picture shows dimmed round it. */
   layout(): { width: number; height: number } {
-    return { width: this.side, height: this.side };
+    return { width: this.init.width, height: this.init.height };
   }
 
   /** The wedge of a cell as it is drawn now: the middle shows the piece in it as it would lie one ring further in, at its own angle. */
@@ -152,11 +153,14 @@ export class RotascopeSession implements PuzzleSession {
     const L = this.layer!;
     const g = this.game;
     const view = this.lastView;
-    if (!L.begin(this.canvasW, this.canvasH, view)) return false;
+    // (everything below is drawn in the puzzle's own space, whose corner is where the cropped square starts)
+    const inSquare: View = { scale: view.scale, ox: view.ox + this.cropX * view.scale, oy: view.oy + this.cropY * view.scale };
+    if (!L.begin(this.canvasW, this.canvasH, inSquare)) return false;
     const c = this.side / 2;
     const R = this.radius;
-    // the whole picture, dimmed: it shows in the empty cell, and in the middle (which is not a piece)
+    // the whole picture, dimmed: it shows in the empty cell, in the middle (which is not a piece) and round the disc
     const dim = g.solved ? 1 : 0.26;
+    L.quad(-this.cropX, -this.cropY, this.init.width, this.init.height, 0, 0, 1, 1, dim);
     const rim = 96;
     const at = (a: number): [number, number] => [c + R * Math.cos(a), c + R * Math.sin(a)];
     const uvOf = (x: number, y: number): [number, number] => [(this.cropX + x) / L.vw, (this.cropY + y) / L.vh];
@@ -254,6 +258,13 @@ export class RotascopeSession implements PuzzleSession {
       this.canvasH = ctx.canvas.height;
       return this.drawGl(now);
     }
+    // the rest of the picture round the disc, dimmed (the puzzle's own space begins where the cropped square does)
+    ctx.drawImage(this.init.source, 0, 0, this.init.width, this.init.height);
+    if (!g.solved) {
+      ctx.fillStyle = 'rgba(16,10,8,0.74)';
+      ctx.fillRect(0, 0, this.init.width, this.init.height);
+    }
+    ctx.translate(this.cropX, this.cropY);
     const c = this.side / 2;
     const line = 1 / view.scale;
     const disc = () => {
@@ -328,8 +339,8 @@ export class RotascopeSession implements PuzzleSession {
   }
 
   private cellAt(p: Pt): number {
-    const dx = p.x - this.side / 2;
-    const dy = p.y - this.side / 2;
+    const dx = p.x - this.cropX - this.side / 2;
+    const dy = p.y - this.cropY - this.side / 2;
     return this.game.cellAt(Math.hypot(dx, dy) / this.radius, Math.atan2(dy, dx) / RAD);
   }
 

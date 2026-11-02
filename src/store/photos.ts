@@ -2,6 +2,13 @@ import { gifToWebm, isGifFile } from '../gif';
 import type { StockCredit } from './stock';
 import { isVideoFile, loadPhoto, makeThumb, readVideo } from '../image';
 
+const EXTENSION = /\.(jpe?g|png|gif|webp|avif|bmp|svg|heic|heif|tiff?|mp4|m4v|webm|mov|mkv|avi|ogv)$/i;
+
+/** What a file is called on the screen: its name without the extension of its type (what the player typed, when they renamed it, is never cut short but for that). */
+export function displayName(name: string): string {
+  return name.replace(EXTENSION, '').trim() || name;
+}
+
 /** One photo in the list. */
 export interface PhotoEntry {
   id: string;
@@ -43,6 +50,11 @@ interface StoredPhoto {
 
 const DB = 'photo-puzzles';
 const STORE = 'photos';
+/**
+ * The names the player gave their files, apart from the files (a few bytes each, so that a file is renamed without writing it again). They are kept in the browser's local storage and not in
+ * the database: a new version of the database cannot be opened while another tab still has the old one open, and a name is not worth that.
+ */
+const NAMES_KEY = 'photo-puzzles/names';
 /** The order the photos are listed in; with it the keys come back in that order, without reading the pictures. */
 const BY_DATE = 'addedAt';
 /** How many photos are read from the store at once: the first few, so that the list starts to fill quickly, then more. */
@@ -94,6 +106,7 @@ export class PhotoLibrary {
   private memory: StoredPhoto[] = [];
   private urls = new Map<string, { thumb?: string; preview?: string }>();
   private serverFiles = new Map<string, string>();
+  private names = new Map<string, string>();
 
   /** `onRemove` is told when a photo or video is deleted (its saved puzzles go with it). */
   constructor(private readonly onRemove?: (id: string) => Promise<void>) {}
@@ -104,6 +117,12 @@ export class PhotoLibrary {
       for (const r of await request<{ id: string; fileId: string }[]>(this.db, 'readonly', (s) => s.getAll(), SERVER_FILES)) this.serverFiles.set(r.id, r.fileId);
     } catch {
       this.db = this.db ?? null;
+    }
+    try {
+      const raw = JSON.parse(localStorage.getItem(NAMES_KEY) ?? '{}') as Record<string, unknown>;
+      for (const [id, name] of Object.entries(raw)) if (typeof name === 'string' && name) this.names.set(id, name);
+    } catch {
+      /* no names of their own */
     }
   }
 
@@ -146,6 +165,7 @@ export class PhotoLibrary {
   private entryOf(p: StoredPhoto): PhotoEntry {
     const urls = this.urls;
     const files = this.serverFiles;
+    const names = this.names;
     const url = (which: 'thumb' | 'preview', blob: Blob): string => {
       let u = urls.get(p.id);
       if (!u) urls.set(p.id, (u = {}));
@@ -153,7 +173,10 @@ export class PhotoLibrary {
     };
     return {
       id: p.id,
-      name: p.name,
+      /** The name the player gave it, or else the file's own, without its extension. Read when asked: it can be changed (`rename`). */
+      get name() {
+        return displayName(names.get(p.id) ?? p.name);
+      },
       addedAt: p.addedAt,
       get thumbUrl() {
         return url('thumb', p.thumb);
@@ -180,6 +203,23 @@ export class PhotoLibrary {
   async idOf(file: Blob): Promise<string | undefined> {
     const id = await hashOf(file);
     return (await this.record(id)) ? id : undefined;
+  }
+
+  /** Gives a file a name of the player's own (the file itself is not written again; it is known by its id). False if the name is empty or the file is not here. */
+  async rename(id: string, name: string): Promise<boolean> {
+    const clean = name.replace(/[\p{Cc}]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 100);
+    if (!clean || !(await this.record(id))) return false;
+    this.names.set(id, clean);
+    this.keepNames();
+    return true;
+  }
+
+  private keepNames(): void {
+    try {
+      localStorage.setItem(NAMES_KEY, JSON.stringify(Object.fromEntries(this.names)));
+    } catch {
+      // they are the names for this visit
+    }
   }
 
   /** Remembers (or, with nothing, forgets) the id that the online server holds this photo under. */
@@ -281,6 +321,7 @@ export class PhotoLibrary {
     }
     this.memory = this.memory.filter((m) => m.id !== id);
     await this.setServerFile(id, undefined);
+    if (this.names.delete(id)) this.keepNames();
     if (this.db) {
       try {
         await request(this.db, 'readwrite', (s) => s.delete(id));
