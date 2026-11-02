@@ -6,7 +6,7 @@ import type { Rect } from '../core/layout';
 import { beginFrame, draw, rectNow, SWAP_MS, type Anim, type View } from '../render';
 import { Ripples } from './ripple';
 import { playEffect } from '../sounds';
-import { buzz, cascadeStep, nearestFirst, rippleColor } from './feedback';
+import { buzz, CASCADE_MS, cascadeStep, nearestFirst, rippleColor } from './feedback';
 import { Camera } from './camera';
 import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
@@ -150,8 +150,10 @@ export class FocusSession implements PuzzleSession {
     if (bomb) fresh = nearestFirst(fresh, bomb.x, bomb.y, (i) => ({ x: game.homes[i].x + game.homes[i].w / 2, y: game.homes[i].y + game.homes[i].h / 2 }));
     const step = bomb ? cascadeStep(fresh.length) : 0;
     const wait = new Map(fresh.map((piece, k) => [piece, k * step]));
+    // (a swap that puts both its pieces in place is not a bomb, but its two ripples are as far apart as the bomb's: 0.2 s, and the bell rings for each as it begins)
+    const ripple = bomb ? step : CASCADE_MS;
     const color = rippleColor(this.init, opts.by);
-    for (const piece of fresh) this.ripples.add([game.homes[piece]], now, wait.get(piece)! + glide, color);
+    fresh.forEach((piece, k) => this.ripples.add([game.homes[piece]], now, k * ripple + glide, color));
     if (glide) {
       for (let i = 0; i < game.count; i++) {
         const to: Rect = game.slotRect(i);
@@ -168,7 +170,7 @@ export class FocusSession implements PuzzleSession {
       }
     } else {
       playEffect('pickup');
-      if (fresh.length) playEffect('placed', glide);
+      fresh.forEach((_, k) => playEffect('placed', k * CASCADE_MS + glide));
     }
   }
 
