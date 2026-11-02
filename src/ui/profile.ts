@@ -135,10 +135,40 @@ export class ProfileDialog {
     this.show();
   }
 
+  /** The outside providers (Google) that are joined to this account, once the server has said (nothing until then). */
+  private providers: { linked: string[]; federated: boolean } | null = null;
+
+  /** Asks which providers the account has, to offer the ones it has not (only an account in a build whose user pool has Google can add one). */
+  private async loadProviders(): Promise<void> {
+    if (this.deps.identity.kind() !== 'account' || !this.deps.identity.addGoogle) return;
+    const res = await this.deps.api.providers();
+    if (!res.ok) return;
+    this.providers = { linked: res.linked, federated: res.federated };
+    if (!this.el.hidden && !this.loading) this.render();
+  }
+
+  /** The owner of the account presses Add Google: the server is told first (so that the sign-in service joins the two and does not turn Google's sign-in away), and then Google's page opens. */
+  private async addGoogle(): Promise<void> {
+    const go = this.deps.identity.addGoogle;
+    if (!go || this.busy) return;
+    this.busy = true;
+    this.say('Getting ready…');
+    const res = await this.deps.api.linkIntent();
+    this.busy = false;
+    if (!res.ok) {
+      this.say(sayError(res.error));
+      return;
+    }
+    this.say('Going to Google…');
+    await go();
+  }
+
   private show(): void {
     const s = this.deps.identity;
     this.el.hidden = false;
     this.loading = !s.profileLoaded();
+    this.providers = null;
+    void this.loadProviders();
     this.render();
     if (this.loading) {
       void s.refreshProfile().then(() => {
@@ -181,6 +211,19 @@ export class ProfileDialog {
           h('button', { type: 'button', 'aria-expanded': String(this.deleting), onclick: () => ((this.deleting = !this.deleting), this.render()) }, 'Delete account…'),
         ),
       );
+      if (s.addGoogle && this.providers) {
+        const has = this.providers.federated || this.providers.linked.includes('Google');
+        parts.push(
+          has
+            ? h('p', { class: 'chosen' }, 'Google is added to your account: you can sign in with it too.')
+            : h(
+                'div',
+                { class: 'row' },
+                h('button', { type: 'button', onclick: () => void this.addGoogle() }, 'Add Google'),
+                h('span', { class: 'dim' }, 'to sign in with it as well (use the Google account with this e-mail address)'),
+              ),
+        );
+      }
       if (this.deleting) {
         parts.push(
           h(

@@ -11,6 +11,10 @@ export interface Player {
   name: string;
   /** Someone who joins with no account: they may join puzzles, not make them. */
   guest?: boolean;
+  /** The e-mail address of the account (what the sign-in service has for it). */
+  email?: string;
+  /** The account was signed in to with an outside provider (Google), not with its password. */
+  federated?: boolean;
   /** The token says this account is in the administrators' group (the admin page's): it may make a video puzzle that is not limited in size or looked at (for trying things out). */
   admin?: true;
 }
@@ -157,6 +161,8 @@ export interface Store {
   allRooms(): Promise<RoomRecord[]>;
   /** The account of a player who has one (nothing for a guest, or an account that has not been asked about yet). */
   getAccount(playerId: string): Promise<AccountRecord | undefined>;
+  /** The owner of an account (made with a password) asked to add an outside provider to it: until `expiresAt` (ms), a first sign-in with that provider and this e-mail address is joined to the account. */
+  putLinkIntent(email: string, playerId: string, expiresAt: number): Promise<void>;
   /** Keeps what an ad was asked for (see `AdNonce`) until it has been watched; nothing is found once it has run out. */
   putAdNonce(nonce: AdNonce): Promise<void>;
   getAdNonce(nonce: string): Promise<AdNonce | undefined>;
@@ -213,6 +219,8 @@ export interface VideoModeration {
 /** The sign-in service, which can be told to forget an account (Cognito in the cloud; the local server has none). */
 export interface Accounts {
   delete(playerId: string): Promise<void>;
+  /** The outside providers (Google) that are joined to this account, by name. */
+  linked?(playerId: string): Promise<string[]>;
 }
 
 /** Counts things per key in fixed windows of time (for the limits on how often an address or a player may do something). */

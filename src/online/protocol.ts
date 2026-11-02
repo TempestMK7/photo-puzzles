@@ -618,3 +618,9 @@ export function parseInvite(text: string): { code: string; secret?: string } | n
   if (!code || rest.length || (secret !== undefined && !isSecret(secret))) return null;
   return secret === undefined ? { code } : { code, secret };
 }
+
+/** The owner of an account made with a password said that they are about to add Google to it: for a few minutes (until `expiresAt`, ms) a first sign-in with Google and the same e-mail address is joined to it. */
+export type LinkIntentResponse = { ok: true; expiresAt: number } | ApiFailure;
+
+/** Which outside providers (Google) are joined to the account, and whether it was signed in to with one (an account that was may not add one: it has them already). */
+export type ProvidersResponse = { ok: true; linked: string[]; federated: boolean } | ApiFailure;

@@ -95,8 +95,8 @@ export class ApiStack extends Stack {
       return f;
     };
     const fn = serviceFunction('Api', 'server/src/aws/api.ts', 512, Duration.seconds(20));
-    // deleting an account (the player asked for it) is the one thing the function does to the user pool
-    fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['cognito-idp:AdminDeleteUser'], resources: [props.pool.userPoolArn] }));
+    // deleting an account (the player asked for it) is what the function does to the user pool, and it looks at which outside providers (Google) are joined to an account
+    fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['cognito-idp:AdminDeleteUser', 'cognito-idp:AdminGetUser'], resources: [props.pool.userPoolArn] }));
     // the picture of every puzzle is looked at (for explicit, violent, disturbing or hateful content) before anyone else can see it
     fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['rekognition:DetectModerationLabels', 'rekognition:StartContentModeration', 'rekognition:GetContentModeration'], resources: ['*'] }));
     // the stock library: each site's key is read from a secret that only this function may read, and the library is open to everyone (its address is limited by the function)
@@ -162,7 +162,7 @@ export class ApiStack extends Stack {
     // other routes are not checked by the gateway: the function checks the token it is shown, a Cognito one or a guest's (server/src/aws/api.ts). `/guest` gives a guest their token, to
     // whoever asks. The upload of a picture has no sign-in: its address is signed.
     this.api.addRoutes({ path: '/rooms', methods: [POST], integration, authorizer: jwt });
-    for (const [path, methods] of [['/guest', [POST]], ['/me', [GET, PUT]], ['/me/delete', [POST]], ['/me/carry', [POST]], ['/join', [POST]], ['/rooms', [GET]], ['/rooms/{proxy+}', [GET, POST]]] as const) {
+    for (const [path, methods] of [['/guest', [POST]], ['/me', [GET, PUT]], ['/me/delete', [POST]], ['/me/carry', [POST]], ['/me/link-intent', [POST]], ['/me/providers', [GET]], ['/join', [POST]], ['/rooms', [GET]], ['/rooms/{proxy+}', [GET, POST]]] as const) {
       this.api.addRoutes({ path, methods: [...methods], integration });
     }
     // an ad for hints or a bomb, and the hints and bombs themselves, are a guest's too, so the function checks the token (a guest's is turned away there from the ads for credits). The hints that a

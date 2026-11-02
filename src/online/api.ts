@@ -11,6 +11,8 @@ import type {
   CreateRoomRequest,
   CreateRoomResponse,
   Invite,
+  LinkIntentResponse,
+  ProvidersResponse,
   JoinRequest,
   JoinResponse,
   MeResponse,
@@ -92,6 +94,16 @@ export class OnlineApi implements RoomApi {
 
   createRoom(req: Omit<CreateRoomRequest, 'protocol'>): Promise<CreateRoomResponse | ApiFailure | Offline> {
     return this.call('POST', '/rooms', { protocol: PROTOCOL_VERSION, ...req });
+  }
+
+  /** The owner of an account made with a password is about to add Google to it (the sign-in service joins them if the same e-mail address signs in with Google in the next few minutes). */
+  linkIntent(): Promise<LinkIntentResponse | Offline> {
+    return this.call('POST', '/me/link-intent', {});
+  }
+
+  /** Which outside providers are joined to the account. */
+  providers(): Promise<ProvidersResponse | Offline> {
+    return this.call('GET', '/me/providers');
   }
 
   /** The account that was just made takes the hints and bombs of the guest it was (`guest` is the guest's token). */

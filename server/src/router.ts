@@ -165,6 +165,9 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
     }
     // a player whom the operator has stopped can still see and delete what is theirs (above), and nothing else
     if (await service.isBanned(player.id)) return { status: 403, body: { ok: false, error: 'banned' } };
+    // an account made with a password adds an outside provider (Google) to itself: it says so first (the sign-in service joins them), and can ask which are there
+    if (parts[0] === 'me' && parts[1] === 'link-intent' && parts.length === 2 && req.method === 'POST') return reply(await service.linkIntent(player));
+    if (parts[0] === 'me' && parts[1] === 'providers' && parts.length === 2 && req.method === 'GET') return reply(await service.providers(player));
     // a new account takes what the guest it was has left of hints and bombs
     if (parts[0] === 'me' && parts[1] === 'carry' && parts.length === 2 && req.method === 'POST') {
       const given = json<CarryRequest>(req)?.guest;

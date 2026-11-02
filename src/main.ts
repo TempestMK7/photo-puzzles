@@ -67,13 +67,15 @@ async function main(): Promise<void> {
   // the sign-in page sends the player back with a code in the address
   let signedInHash = '';
   let signInFailed = false;
+  let signInNotice = '';
   if (accountSource instanceof CognitoAccount) {
     // (in an app: the address that the sign-in service sent the player back to the app with, if it came while the page was not there: the system closed the app, say)
     const back = await accountSource.completeSignIn(takeSignIn() || window.location.href);
     if (back.handled) {
       history.replaceState(null, '', window.location.pathname + (back.ok ? back.hash : ''));        // the code does not stay in the address bar
       signedInHash = back.ok ? back.hash : '';
-      signInFailed = !back.ok;
+      signInFailed = !back.ok && !back.retrying;
+      signInNotice = back.linked ? LINKED_TEXT : (back.message ?? '');             // (told when the page is up: below)
     }
   }
   // who is playing: the account, or else a guest (who may join puzzles but not make them), or nobody yet
@@ -177,8 +179,10 @@ async function main(): Promise<void> {
     if (!back || !(accountSource instanceof CognitoAccount)) return;
     void accountSource.completeSignIn(back).then((done) => {
       if (!done.handled) return;                                 // (coming back from signing out, say: nothing to finish)
-      signInDialog?.externalDone(done.ok);
+      if (done.retrying) return;                               // (on its way to Google's page a second time)
+      signInDialog?.externalDone(done.ok, done.message);
       if (done.ok) {
+        if (done.linked) profile?.notice(LINKED_TEXT);
         void player.refreshProfile().then(() => profile?.refreshBadge());
         player.changed();
         profile?.refreshBadge();
@@ -237,6 +241,8 @@ async function main(): Promise<void> {
   } else if (profile && link === DELETE_HASH && !signInFailed) {
     history.replaceState(null, '', window.location.pathname + window.location.search);
     void profile.openDeletion();
+  } else if (profile && signInNotice) {
+    profile.notice(signInNotice);                         // (Google was added, or the sign-in service said why not: only the player's profile has room for it)
   } else if (panel && signInFailed) {
     panel.notice('Signing in did not work. Please try again.');
   } else {
@@ -244,5 +250,8 @@ async function main(): Promise<void> {
     if (profile && deleted) profile.notice(deleted);
   }
 }
+
+/** What the profile says when Google has been added to the account. */
+const LINKED_TEXT = 'Google was added to your account. You can sign in with it from now on.';
 
 void main();

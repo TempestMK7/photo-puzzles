@@ -131,6 +131,12 @@ export class OnlineSession implements Account {
     return a?.signInWithGoogle && a.hasGoogle ? () => a.signInWithGoogle!() : undefined;
   }
 
+  /** The way to add Google to the account that is signed in, in a build whose user pool has it (ask the server first: `OnlineApi.linkIntent`). */
+  get addGoogle(): (() => Promise<void>) | undefined {
+    const a = this.account;
+    return a?.linkWithGoogle && a.hasGoogle ? () => a.linkWithGoogle!() : undefined;
+  }
+
   /** The account is an administrator (the server says so, or the sign-in is in the administrators' group): it may try a video of any size. */
   isAdmin(): boolean {
     return this.summary().type === 'admin' || this.account?.who()?.admin === true;

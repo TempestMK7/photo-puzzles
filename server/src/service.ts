@@ -56,7 +56,7 @@ import {
   type ReportRequest,
   type RoomSummary,
 } from '../../src/online/protocol';
-import { adsToday, dayOf, earnedToday, guestSummaryOf, helpAdAtOf, helpHeld, newAccount, summaryOf } from './accounts';
+import { adsToday, dayOf, earnedToday, guestSummaryOf, helpAdAtOf, helpHeld, LINK_INTENT_MS, newAccount, summaryOf } from './accounts';
 import { isGuestId } from './guest';
 import { sniffImage } from './image';
 import type { AdminFile, AdminRoomSummary } from '../../src/online/adminProtocol';
@@ -422,6 +422,25 @@ export class RoomService {
   private summaryFor(player: Player, type: AccountType, account: AccountRecord): AccountSummary {
     const { limits, clock } = this.d;
     return player.guest ? guestSummaryOf(account, limits, clock.now()) : summaryOf(type, account, limits, clock.now());
+  }
+
+  /**
+   * The owner of an account that was made with a password presses "Add Google" in their profile: for the next few minutes a first sign-in with Google, with the same e-mail address, is joined
+   * to this account (the sign-in service does the joining: server/src/aws/presignup.ts). Without this a Google sign-in with the e-mail address of an account is refused, and the player is told
+   * to sign in with the password first.
+   */
+  async linkIntent(player: Player): Promise<{ ok: true; expiresAt: number } | ApiFailure> {
+    if (player.guest) return fail('account-required');
+    if (!player.email || player.federated) return fail('bad-request');            // (only an account that was made with a password and an e-mail address can add one)
+    const expiresAt = this.d.clock.now() + LINK_INTENT_MS;
+    await this.d.store.putLinkIntent(player.email.trim().toLowerCase(), player.id, expiresAt);
+    return { ok: true, expiresAt };
+  }
+
+  /** Which outside providers are joined to this account, and whether it was signed in to with one just now. */
+  async providers(player: Player): Promise<{ ok: true; linked: string[]; federated: boolean } | ApiFailure> {
+    if (player.guest) return fail('account-required');
+    return { ok: true, linked: (await this.d.accounts?.linked?.(player.id)) ?? [], federated: player.federated === true };
   }
 
   /**

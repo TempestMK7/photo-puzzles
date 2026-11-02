@@ -65,6 +65,26 @@ const AUTH_ERRORS: Record<string, AuthError> = {
   TooManyFailedAttemptsException: 'limit',
 };
 
+/** What coming back from the sign-in service came to: `handled` (it was the sign-in service sending the player back), `ok` (they are signed in), `hash` (what `signIn` was given). */
+export interface SignInResult {
+  handled: boolean;
+  ok: boolean;
+  hash: string;
+  /** What to tell the player when it did not work, if it is something they can do something about. */
+  message?: string;
+  /** The player was adding Google to their account, and it was added. */
+  linked?: boolean;
+  /** Adding Google is being tried a second time (the page is on its way to Google's again): nothing is to be said yet. */
+  retrying?: boolean;
+}
+
+/** The text of an error that the sign-in service sent back: the sentence of ours that the function put in it, else something general. */
+export const SIGN_IN_FIRST_TEXT = 'An account with this e-mail address already exists. Sign in with your e-mail and password first, then add Google from your profile.';
+function messageOf(said: string, linking: boolean): string {
+  if (said.includes('An account with this e-mail address already exists')) return SIGN_IN_FIRST_TEXT;
+  return linking ? 'Google could not be added to your account. Please try again.' : 'Signing in with Google did not work. Please try again.';
+}
+
 /** The user pool's region, from the address of its sign-in pages (`https://<prefix>.auth.<region>.amazoncognito.com`). */
 const regionOf = (host: string): string => /\.auth\.([a-z0-9-]+)\.amazoncognito\.com/.exec(host)?.[1] ?? 'us-east-1';
 
@@ -190,15 +210,23 @@ export class CognitoAccount implements Account {
     return this.signIn(returnHash, 'Google');
   }
 
+  /**
+   * Goes to Google's page to add Google to the account that is signed in. The owner has told the server first, so the sign-in service joins the two instead of refusing; coming back is the
+   * same as a sign-in with Google, and the player is signed in to the same account (see `completeSignIn`: `linked`).
+   */
+  linkWithGoogle(returnHash = ''): Promise<void> {
+    return this.signIn(returnHash, 'Google', { link: true });
+  }
+
   /** Goes to the sign-in page. `returnHash` (an invite link, say) comes back with the player. */
-  async signIn(returnHash = '', provider = ''): Promise<void> {
+  async signIn(returnHash = '', provider = '', flow: { link?: boolean; retried?: boolean } = {}): Promise<void> {
     const rand = (n: number) => b64url(crypto.getRandomValues(new Uint8Array(n)));
     const verifier = rand(48);
     const state = rand(16);
     const challenge = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
     try {
       // (kept on the device and not for the visit when the sign-in is in another app: the system may close this one while the player is away)
-      (this.env.external ? (this.local ?? this.session) : this.session)?.setItem(FLOW_KEY, JSON.stringify({ verifier, state, hash: returnHash }));
+      (this.env.external ? (this.local ?? this.session) : this.session)?.setItem(FLOW_KEY, JSON.stringify({ verifier, state, hash: returnHash, ...flow }));
     } catch {
       /* then signing in cannot be completed: the player is told when they come back */
     }
@@ -219,11 +247,11 @@ export class CognitoAccount implements Account {
    * Called with the address the page was opened at. If it is the sign-in page sending the player back (`?code=...&state=...`), swaps the code for the tokens. `handled` says
    * whether it was; `ok` whether the player is signed in now; `hash` is what `signIn` was given.
    */
-  async completeSignIn(href: string): Promise<{ handled: boolean; ok: boolean; hash: string }> {
+  async completeSignIn(href: string): Promise<SignInResult> {
     const url = new URL(href);
     const code = url.searchParams.get('code');
     if (!code && !url.searchParams.get('error')) return { handled: false, ok: false, hash: '' };
-    let flow: { verifier?: string; state?: string; hash?: string } | null = null;
+    let flow: { verifier?: string; state?: string; hash?: string; link?: boolean; retried?: boolean } | null = null;
     try {
       flow = JSON.parse(this.session?.getItem(FLOW_KEY) ?? this.local?.getItem(FLOW_KEY) ?? 'null');
       this.session?.removeItem(FLOW_KEY);
@@ -232,6 +260,16 @@ export class CognitoAccount implements Account {
       /* no flow to go with it */
     }
     const hash = flow?.hash ?? '';
+    // the sign-in service refused, or Google did, or the player turned back: an error comes in place of the code
+    if (!code && url.searchParams.get('error')) {
+      const said = url.searchParams.get('error_description') ?? '';
+      // Adding Google: the service joins the two with the first sign-in, and answers that one with an error of its own; the next one is a sign-in to the account, so it is tried again once
+      if (flow?.link && !flow.retried && /already found an entry/i.test(said)) {
+        await this.signIn(hash, 'Google', { link: true, retried: true });
+        return { handled: true, ok: false, hash, retrying: true };
+      }
+      return { handled: true, ok: false, hash, message: messageOf(said, flow?.link === true) };
+    }
     // an address with a code that this tab did not ask for is not trusted (it may be somebody else's code)
     if (!code || !flow?.verifier || !flow.state || flow.state !== url.searchParams.get('state')) return { handled: true, ok: false, hash };
     try {
@@ -243,7 +281,7 @@ export class CognitoAccount implements Account {
       const body = (await res.json()) as { id_token?: string; refresh_token?: string };
       if (!res.ok || !body.id_token || !body.refresh_token) return { handled: true, ok: false, hash };
       this.write({ id: body.id_token, refresh: body.refresh_token, hosted: true });
-      return { handled: true, ok: true, hash };
+      return { handled: true, ok: true, hash, ...(flow.link ? { linked: true } : {}) };
     } catch {
       return { handled: true, ok: false, hash };
     }

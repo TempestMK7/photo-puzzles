@@ -137,6 +137,16 @@ describe('data', () => {
 });
 
 describe('auth', () => {
+  it('checks a first sign-in with Google against the accounts made with a password, with a function that may only look them up and join an identity to one', () => {
+    const t = stack(app(), 'PuzzleVidio-prod-Auth');
+    t.hasResourceProperties('AWS::Cognito::UserPool', { LambdaConfig: { PreSignUp: Match.anyValue() } });
+    t.hasResourceProperties('AWS::Lambda::Function', { Environment: { Variables: Match.objectLike({ TABLE_NAME: Match.anyValue() }) }, Handler: 'index.handler' });
+    const st = statementsOf(t, /^PreSignUpServiceRole|PreSignUpDefaultPolicy/);
+    const pool = st.filter((x) => actionsOf([x]).some((a) => a.startsWith('cognito-idp:')));
+    expect(pool.map((x) => actionsOf([x]).join())).toEqual(['cognito-idp:ListUsers,cognito-idp:AdminLinkProviderForUser']);
+    expect(actionsOf(st)).not.toContain('*');
+  });
+
   it('signs in with e-mail, by the code flow without a secret', () => {
     const t = stack(app(), 'PuzzleVidio-prod-Auth');
     t.hasResourceProperties('AWS::Cognito::UserPool', { UsernameAttributes: ['email'], AutoVerifiedAttributes: ['email'], DeletionProtection: 'ACTIVE' });
@@ -312,7 +322,9 @@ describe('api', () => {
         ['GET /me', 'NONE'],
         ['PUT /me', 'NONE'],
         ['POST /me/delete', 'NONE'],
-        ['POST /me/carry', 'NONE'],              // a new account takes a guest's hints and bombs (the function wants an account's token)
+        ['POST /me/carry', 'NONE'],
+        ['POST /me/link-intent', 'NONE'],        // an account made with a password says that it is about to add Google (the function wants an account's token)
+        ['GET /me/providers', 'NONE'],              // a new account takes a guest's hints and bombs (the function wants an account's token)
         ['POST /credits/ad', 'NONE'],            // ads and hints and bombs are a guest's too: the function checks the token, and turns a guest away from the ads for credits
         ['POST /credits/ad/start', 'NONE'],
         ['POST /items/use', 'NONE'],
@@ -355,7 +367,7 @@ describe('api', () => {
     const publish = iot.find((x) => actionsOf([x]).includes('iot:Publish'))!;
     expect(JSON.stringify(publish.Resource)).toContain('topic/puzzle/*');
     const pool = st.filter((x) => actionsOf([x]).some((a) => a.startsWith('cognito-idp:')));
-    expect(pool.map((x) => actionsOf([x]).join())).toEqual(['cognito-idp:AdminDeleteUser']);                // the one thing it does to the user pool
+    expect(pool.map((x) => actionsOf([x]).join())).toEqual(['cognito-idp:AdminDeleteUser,cognito-idp:AdminGetUser']);                // what it does to the user pool: forget an account, and say which providers are joined to one
     const look = st.filter((x) => actionsOf([x]).some((a) => a.startsWith('rekognition:')));
     expect(look.map((x) => actionsOf([x]).join())).toEqual(['rekognition:DetectModerationLabels,rekognition:StartContentModeration,rekognition:GetContentModeration']);          // it looks at pictures and at whole videos, and does nothing else with the service
     expect(statementsOf(prod, /^AdminServiceRole|AdminDefaultPolicy|AdminServiceRoleDefaultPolicy/).some((x) => actionsOf([x]).some((a) => a.startsWith('rekognition:')))).toBe(false);

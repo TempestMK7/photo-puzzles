@@ -179,6 +179,10 @@ The steps for a notice of copyright infringement (the published procedure is the
 - A ban is an id and a short reason, kept until it is lifted, **also when the account is deleted** (a new account has a new id, so a ban stops a player only as far as they do not sign up again; a guest who clears their browser is a new guest).
 - A player who asks to be forgotten uses **Profile > Delete account** in the game, or `https://<game>/#/delete-account`. For someone who cannot sign in: `delete-account` above, with the id (ask them for the e-mail they signed up with; find the id in the Cognito user pool: `aws cognito-idp list-users --user-pool-id <id> --filter 'email = "<address>"'`, the `sub` attribute). Safety copies of the table expire within 35 days (prod only has them).
 
+## Signing in with Google, and an account that has the same address
+
+A first sign-in with Google for an address that an account made with a password already has is **refused** by the user pool's pre-sign-up function (`PuzzleVidio-<stage>-Auth-PreSignUp...`; its log is in CloudWatch): the player is told to sign in with the password first and press **Add Google** in their profile, which lets the next Google sign-in with that address join the account. If a player writes that it does not work: look at the function's log for the address (nothing is written about it but the error), and if they have two accounts already, one made with each, the Google one has to be deleted before the two can be joined (`aws cognito-idp admin-delete-user` for the `Google_...` user, then they press Add Google). Nothing here needs a setting.
+
 ## Sign-up e-mail
 
 - The codes come from `no-reply@<domain>` through Amazon SES. **While the SES account is in the sandbox** (`aws sesv2 get-account` says `ProductionAccessEnabled: false`) only addresses verified one by one receive anything: `aws sesv2 create-email-identity --email-identity <address>`, then they click the link. A request to leave the sandbox was filed by the owner on 2026-10-30 (it can take up to 96 hours).
