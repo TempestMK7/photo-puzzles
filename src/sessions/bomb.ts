@@ -40,8 +40,10 @@ interface Smoke {
 }
 
 /** The fire is this many circles, one every `BURST_MS` from the landing. */
-const BURSTS = 20;
-const BURST_MS = 100;
+const BURSTS = 30;
+const BURST_MS = 50;
+/** The circles of the fire are this much larger than `BombPlan.lo` to `hi` say. */
+const FIRE_SCALE = 1.25;
 const FIRE_MIN_MS = 260;
 const FIRE_MAX_MS = 460;
 const SMOKE_MIN_MS = 500;
@@ -87,7 +89,7 @@ export class BombFx {
       const px = x + Math.cos(angle) * dist;
       const py = y + Math.sin(angle) * dist;
       const at = now + i * BURST_MS;
-      this.fire.push({ x: px, y: py, at, life: between(FIRE_MIN_MS, FIRE_MAX_MS), size: unit * between(lo, hi), colour: `hsl(${Math.round(between(0, 58))}, 100%, ${Math.round(between(48, 58))}%)` });
+      this.fire.push({ x: px, y: py, at, life: between(FIRE_MIN_MS, FIRE_MAX_MS), size: unit * between(lo, hi) * FIRE_SCALE, colour: `hsl(${Math.round(between(0, 58))}, 100%, ${Math.round(between(48, 58))}%)` });
       this.smoke.push({
         x: px,
         y: py,

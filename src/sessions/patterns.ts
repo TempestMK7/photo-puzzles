@@ -1,8 +1,8 @@
 import type { Rng } from '../core/rng';
 
-// Backgrounds for the empty board in Overlap: radial patterns drawn in code (sunbursts, targets, rose windows, spirals, ray-and-dot wheels). A piece's window cell shows
-// the bit of this pattern that lies under its home, so the pattern has to look different from one place to the next: every style has its centre off the board (past one
-// of its sides), so that the board shows rings and rays sweeping across it, with bands of varying widths.
+// Backgrounds for the empty board in Overlap: spokes radiating out from a centre, drawn in code (wedges of colour, thin rays, or both). A piece's window cell shows the bit of this
+// pattern that lies under its home, so the pattern has to look different from one place to the next: every style has its centre off the board (past one of its sides), so that the
+// board shows spokes fanning across it, of varying widths. There are no rings and no bands round the centre.
 
 const PALETTES: string[][] = [
   ['#5b1f1a', '#c8793a', '#f0d9b5', '#2a1b14'],
@@ -28,149 +28,75 @@ interface Env {
 
 const rand = (rng: Rng, a: number, b: number): number => a + rng.unit() * (b - a);
 
+/** Wedges of colour from the centre, each of its own width (the angles are shares of a whole turn, drawn from the seed). */
 function wedges(e: Env, n: number, offset = 0): void {
-  const { g, cx, cy, R, pal } = e;
+  const { g, cx, cy, R, pal, rng } = e;
+  const widths = Array.from({ length: n }, () => rand(rng, 0.4, 1.6));
+  const total = widths.reduce((a, b) => a + b, 0);
+  let from = offset;
   for (let i = 0; i < n; i++) {
+    const to = from + (widths[i] / total) * Math.PI * 2;
     g.fillStyle = pal[i % pal.length];
     g.beginPath();
     g.moveTo(cx, cy);
-    g.arc(cx, cy, R, offset + (i / n) * Math.PI * 2, offset + ((i + 1) / n) * Math.PI * 2);
+    g.arc(cx, cy, R, from, to + 0.002);
     g.closePath();
     g.fill();
+    from = to;
   }
 }
 
-function ring(e: Env, r: number, width: number, colour: string, alpha = 1): void {
-  const { g, cx, cy } = e;
-  g.globalAlpha = alpha;
+/** Thin rays from the centre over what is drawn, as far as the board goes. */
+function rays(e: Env, n: number, colour: string, alpha: number, thick: [number, number]): void {
+  const { g, cx, cy, R, rng } = e;
   g.strokeStyle = colour;
-  g.lineWidth = width;
-  g.beginPath();
-  g.arc(cx, cy, r, 0, Math.PI * 2);
-  g.stroke();
-  g.globalAlpha = 1;
-}
-
-function sunburst(e: Env): void {
-  const n = 16 + 2 * e.rng.below(10);
-  wedges(e, n, rand(e.rng, 0, 6.28));
-  let r = rand(e.rng, 30, 60);
-  while (r < e.R) {
-    ring(e, r, rand(e.rng, 3, 16), e.pal[e.rng.below(e.pal.length)], 0.55);
-    r += rand(e.rng, 40, 120);
-  }
-}
-
-function target(e: Env): void {
-  const { g, cx, cy, pal, rng } = e;
-  let r = e.R;
-  let i = 0;
-  while (r > 0) {
-    g.fillStyle = pal[i++ % pal.length];
-    g.beginPath();
-    g.arc(cx, cy, r, 0, Math.PI * 2);
-    g.fill();
-    r -= rand(rng, 18, 70);
-  }
-  g.strokeStyle = pal[3];
-  g.globalAlpha = 0.35;
-  g.lineWidth = 3;
-  const spokes = 20 + rng.below(16);
-  for (let k = 0; k < spokes; k++) {
-    const a = (k / spokes) * Math.PI * 2;
+  g.globalAlpha = alpha;
+  for (let k = 0; k < n; k++) {
+    const a = rand(rng, 0, Math.PI * 2);
+    g.lineWidth = rand(rng, thick[0], thick[1]);
     g.beginPath();
     g.moveTo(cx, cy);
-    g.lineTo(cx + Math.cos(a) * e.R, cy + Math.sin(a) * e.R);
+    g.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
     g.stroke();
   }
   g.globalAlpha = 1;
 }
 
-function rose(e: Env): void {
-  const { g, cx, cy, pal, rng } = e;
-  g.fillStyle = pal[0];
-  g.fillRect(0, 0, e.w, e.h);
-  for (let layer = 0; layer < 5; layer++) {
-    const petals = 8 + 2 * rng.below(6);
-    const radius = e.R * (0.2 + layer * 0.17);
-    const pr = radius * rand(rng, 0.35, 0.6);
-    const off = rand(rng, 0, 6.28);
-    g.strokeStyle = pal[1 + (layer % 3)];
-    g.fillStyle = pal[1 + ((layer + 1) % 3)];
-    g.lineWidth = rand(rng, 3, 9);
-    for (let k = 0; k < petals; k++) {
-      const a = off + (k / petals) * Math.PI * 2;
-      g.globalAlpha = 0.5;
-      g.beginPath();
-      g.arc(cx + Math.cos(a) * radius, cy + Math.sin(a) * radius, pr, 0, Math.PI * 2);
-      g.fill();
-      g.globalAlpha = 1;
-      g.stroke();
-    }
-  }
+/** A sunburst: wedges of the palette's colours, wide and narrow. */
+function sunburst(e: Env): void {
+  wedges(e, 16 + 2 * e.rng.below(10), rand(e.rng, 0, 6.28));
 }
 
-function spiral(e: Env): void {
-  const { g, cx, cy, pal, rng } = e;
-  g.fillStyle = pal[0];
-  g.fillRect(0, 0, e.w, e.h);
-  const arms = 3 + rng.below(4);
-  const turns = rand(rng, 2.5, 5);
-  g.lineCap = 'round';
-  for (let a = 0; a < arms; a++) {
-    for (let band = 0; band < 3; band++) {
-      g.strokeStyle = pal[1 + band];
-      g.lineWidth = e.R * (0.075 - band * 0.02);
-      g.beginPath();
-      for (let t = 0; t <= 1; t += 0.004) {
-        const ang = (a / arms) * Math.PI * 2 + t * turns * Math.PI * 2 + band * 0.12;
-        const r = t * e.R;
-        const x = cx + Math.cos(ang) * r;
-        const y = cy + Math.sin(ang) * r;
-        if (t === 0) g.moveTo(x, y);
-        else g.lineTo(x, y);
-      }
-      g.stroke();
-    }
-  }
+/** A sunburst with fine rays over it, in a lighter or darker colour. */
+function fan(e: Env): void {
+  wedges(e, 8 + 2 * e.rng.below(6), rand(e.rng, 0, 6.28));
+  rays(e, 30 + e.rng.below(30), e.pal[e.rng.below(2) ? 3 : 0], 0.35, [1, 4]);
 }
 
+/** Rays alone, of different widths, on the dark ground: a wheel without its rim. */
 function wheel(e: Env): void {
-  const { g, cx, cy, pal, rng } = e;
+  const { g, cx, cy, R, pal, rng } = e;
   g.fillStyle = pal[0];
   g.fillRect(0, 0, e.w, e.h);
   const spokes = 24 + rng.below(24);
   for (let k = 0; k < spokes; k++) {
-    const a = (k / spokes) * Math.PI * 2;
-    const grad = g.createLinearGradient(cx, cy, cx + Math.cos(a) * e.R, cy + Math.sin(a) * e.R);
-    grad.addColorStop(0, pal[1]);
-    grad.addColorStop(0.8, pal[1]);          // (the centre is off the board: the spokes have to last as far as the board is)
+    const a = (k / spokes) * Math.PI * 2 + rand(rng, -0.03, 0.03);
+    const grad = g.createLinearGradient(cx, cy, cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+    grad.addColorStop(0, pal[1 + (k % 3)]);
+    grad.addColorStop(0.85, pal[1 + (k % 3)]);          // (the centre is off the board: the spokes have to last as far as the board is)
     grad.addColorStop(1, 'rgba(0,0,0,0)');
     g.strokeStyle = grad;
-    g.lineWidth = rand(rng, 2, 9);
+    g.lineWidth = rand(rng, 3, 14);
     g.beginPath();
     g.moveTo(cx, cy);
-    g.lineTo(cx + Math.cos(a) * e.R, cy + Math.sin(a) * e.R);
+    g.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
     g.stroke();
-  }
-  let r = 40;
-  while (r < e.R) {
-    const dots = Math.max(6, Math.round(r / 7));
-    const size = rand(rng, 2, 7);
-    g.fillStyle = pal[2 + rng.below(2)];
-    for (let k = 0; k < dots; k++) {
-      const a = (k / dots) * Math.PI * 2 + r;
-      g.beginPath();
-      g.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r, size, 0, Math.PI * 2);
-      g.fill();
-    }
-    r += rand(rng, 25, 70);
   }
 }
 
-const STYLES = [sunburst, target, rose, spiral, wheel];
+const STYLES = [sunburst, fan, wheel];
 
-/** A radial pattern of the given pixel size; the seed picks the style, the colours, the centre and the proportions. */
+/** A pattern of spokes of the given pixel size; the seed picks the style, the colours, the centre and the proportions. */
 export function makePattern(rng: Rng, w: number, h: number): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = w;
