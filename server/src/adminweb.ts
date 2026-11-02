@@ -10,6 +10,8 @@ import type { RoomService } from './service';
 /** The user pool's list of accounts. */
 export interface Directory {
   listUsers(next?: string): Promise<{ users: DirectoryUser[]; next?: string }>;
+  /** The ids of the accounts in the administrators' group: they are administrators whatever their own record says (the group is what the token says), so the page shows them as that. */
+  admins(): Promise<Set<string>>;
 }
 
 export interface DirectoryUser {
@@ -76,7 +78,11 @@ export function makeAdminWeb(d: { service: RoomService; directory: Directory; lo
       const names = await service.adminNames(page.users.map((u) => u.id));
       const banned = new Set((await service.adminBans()).map((b) => b.playerId));
       const accounts = await service.adminAccounts(page.users.map((u) => u.id));
-      const players: AdminPlayer[] = page.users.map((u) => ({ ...u, name: names.get(u.id) ?? '', banned: banned.has(u.id), ...accounts.get(u.id)! }));
+      const admins = await d.directory.admins();
+      const players: AdminPlayer[] = page.users.map((u) => {
+        const account = accounts.get(u.id)!;
+        return { ...u, name: names.get(u.id) ?? '', banned: banned.has(u.id), ...account, type: admins.has(u.id) ? 'admin' : account.type };
+      });
       return ok({ players, next: page.next ?? null });
     }
 

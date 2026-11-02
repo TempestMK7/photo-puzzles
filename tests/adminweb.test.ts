@@ -9,7 +9,7 @@ const users: DirectoryUser[] = [
   { id: 'bob', email: 'bob@example.com', created: 2000, status: 'UNCONFIRMED', enabled: true },
 ];
 
-function setup(extra = {}) {
+function setup(extra = {}, admins: string[] = []) {
   const w = world({ ...extra });
   const asked: { group: string; since: number; filter: string; limit: number }[] = [];
   const pages: (string | undefined)[] = [];
@@ -17,6 +17,9 @@ function setup(extra = {}) {
     async listUsers(next) {
       pages.push(next);
       return next ? { users: [users[1]] } : { users: [users[0]], next: 'more' };
+    },
+    async admins() {
+      return new Set(admins);
     },
   };
   const groups: AdminLogGroup[] = [{ name: 'PuzzleVidio-dev-Api-ApiLogsAAAAAAAA-x', label: 'Api' }];
@@ -193,6 +196,30 @@ describe('the admin routes', () => {
 });
 
 describe('the pieces that ask AWS', () => {
+  it('shows an account in the administrators\' group as an admin, whatever its own record says, and the others as their record does', async () => {
+    const { w, call } = setup({}, ['ann']);
+    await w.service.adminSetAccount('bob', { type: 'paid' });
+    const first = (await call('GET', '/admin/players')).body.players as { id: string; type: string }[];
+    expect(first.map((p) => [p.id, p.type])).toEqual([['ann', 'admin']]);
+    const second = (await call('GET', '/admin/players', { query: 'next=more' })).body.players as { id: string; type: string }[];
+    expect(second.map((p) => [p.id, p.type])).toEqual([['bob', 'paid']]);
+  });
+
+  it('asks the user pool who is in the administrators\' group, page after page', async () => {
+    const sent: Record<string, unknown>[] = [];
+    const client = {
+      send: async (c: { input: Record<string, unknown> }) => {
+        sent.push(c.input);
+        return c.input.NextToken
+          ? { Users: [{ Username: 'u-2' }] }
+          : { Users: [{ Username: 'u-1', Attributes: [{ Name: 'sub', Value: 'sub-1' }] }], NextToken: 'more' };
+      },
+    };
+    expect([...(await new CognitoDirectory(client as never, 'pool1').admins())]).toEqual(['sub-1', 'u-2']);
+    expect(sent[0]).toMatchObject({ UserPoolId: 'pool1', GroupName: 'admins' });
+    expect(sent[1]).toMatchObject({ NextToken: 'more' });
+  });
+
   it('turns the user pool\'s accounts into players, and passes the page token on', async () => {
     const sent: Record<string, unknown>[] = [];
     const client = {

@@ -17,6 +17,7 @@ import type { SaveRecord, SaveStore } from '../store/saves';
 import { cancelEffects, playEffect } from '../sounds';
 import { launchConfetti } from './confetti';
 import { h, svg } from './dom';
+import { HELP_ICONS } from './icons';
 import { settingsButton } from './settings';
 import { sayError } from './online';
 import { OnlineBar } from './onlinebar';
@@ -97,9 +98,8 @@ export class PlayScreen {
   private stage = h('div', { class: 'stage' }, this.canvas, this.dialogEl, this.viewBar, this.zoomEl, this.trayBar, this.trayHead, this.helpNote);
   /** The original picture or video in a window of its own, for looking at while solving. */
   private ref = new RefWindow(this.stage, () => this.toggleRef(false));
-  private refBtn = h('button', { type: 'button', class: 'toggle', title: 'Look at the original picture', 'aria-pressed': 'false', onclick: () => this.toggleRef() }, 'Original');
+  private refBtn = h('button', { type: 'button', class: 'toggle', title: 'Look at the original photo', 'aria-pressed': 'false', onclick: () => this.toggleRef() }, 'Show Photo');
   private main = h('main', {}, this.tabsEl, this.stage, this.vbar);
-  private restartBtn = h('button', { type: 'button', onclick: () => this.restart() }, 'Restart');
   // hints and bombs (Tile Swap, Overlap, Strips, Jigsaw): the player picks one, then taps the board; it comes out of their account (see core/help.ts)
   private hintBtn = this.helpButton('hint', 'Hint');
   private bombBtn = this.helpButton('bomb', 'Bomb');
@@ -108,6 +108,7 @@ export class PlayScreen {
   private armed: HelpKind | null = null;
   private helpTap: { x: number; y: number } | null = null;
   private helpBusy = false;
+  private waiting = 0;
   private helpShown = '';
   private noteTimer = 0;
   /** What the solved puzzle gave, for the end-of-puzzle window of a puzzle played with friends. */
@@ -158,7 +159,6 @@ export class PlayScreen {
         this.helpEl,
         this.refBtn,
         this.rotateBtn,
-        this.restartBtn,
       ),
       this.main,
     );
@@ -254,8 +254,21 @@ export class PlayScreen {
     }
     this.closeSource();
     this.src = src;
+    this.refreshRefLabel();
     this.setupVideo();
     await this.begin();
+  }
+
+  /** What the puzzle is made from, as the buttons say it. */
+  private mediaWord(): 'Photo' | 'Video' {
+    return this.entry?.video ? 'Video' : 'Photo';
+  }
+
+  /** The button for the original says what it shows: the photo or the video that the puzzle is cut from. */
+  private refreshRefLabel(): void {
+    const word = this.mediaWord();
+    this.refBtn.textContent = `Show ${word}`;
+    this.refBtn.title = `Look at the original ${word.toLowerCase()}`;
   }
 
   /** Opens or closes the window with the original picture (or video, which follows the one the puzzle is cut from). */
@@ -504,7 +517,8 @@ export class PlayScreen {
   // ---------------------------------------------------------------------------------------------------------------- hints and bombs
 
   private helpButton(kind: HelpKind, label: string): HTMLButtonElement {
-    return h('button', { type: 'button', class: 'toggle', 'aria-pressed': 'false', onclick: () => this.pressHelp(kind) }, label, h('span', { class: 'n' }, '0'));
+    // (the word goes on a narrow screen to save room: the icon says it, and so does the label that a screen reader reads)
+    return h('button', { type: 'button', class: 'toggle', 'aria-pressed': 'false', 'aria-label': label, onclick: () => this.pressHelp(kind) }, svg(HELP_ICONS[kind], 'ico'), h('span', { class: 'label' }, label), h('span', { class: 'n' }, '0'));
   }
 
   /** A button of the header was pressed: chooses that one, or puts the choice away. */
@@ -551,6 +565,8 @@ export class PlayScreen {
       b.setAttribute('aria-pressed', String(kind === k));
     }
     this.canvas.classList.toggle('helping', !!kind);
+    this.canvas.classList.toggle('helping-hint', kind === 'hint');          // (the cursor is the hint's or the bomb's own: style.css)
+    this.canvas.classList.toggle('helping-bomb', kind === 'bomb');
     this.instruct();
   }
 
@@ -588,27 +604,39 @@ export class PlayScreen {
     }
     this.helpBusy = true;
     try {
-      if (this.online) {
-        // the room takes it (the server counts), so the number is only brought up to date here
-        player.setSummary({ ...a, [kind === 'hint' ? 'hints' : 'bombs']: (kind === 'hint' ? a.hints : a.bombs) - 1 });
-        window.setTimeout(() => void player.refreshProfile(), 1500);
-      } else {
-        const res = await api.useItem(kind);
-        if (this.session !== session) return;                          // (the player has gone on to another puzzle meanwhile)
-        if (!res.ok) {
-          if (res.error === 'no-credits' && 'account' in res && res.account) player.setSummary(res.account);
-          this.flash(res.error === 'no-credits' ? `You have no ${kind}s left.` : res.error === 'offline' ? 'Hints and bombs need a connection to the server.' : sayError(res.error));
-          this.arm(null);
-          return;
-        }
-        player.setSummary(res.account);
-      }
+      // the number goes down at once, and the server's own count replaces it when it answers
+      const key = kind === 'hint' ? 'hints' : 'bombs';
+      player.setSummary({ ...a, [key]: a[key] - 1 });
       session.help(kind, p);
       this.arm(null);
       this.after();
+      if (this.online) {
+        // the room takes it (the server counts) with the operation, and the cursor shows that the player waits for its answer, until it has come
+        window.setTimeout(() => void player.refreshProfile(), 1500);
+        this.waitFor(this.online.room.whenSent());
+      } else {
+        // played alone, the board does not wait for the server: it is asked to take one meanwhile, and says if it could not
+        void api.useItem(kind).then((res) => {
+          if (res.ok) {
+            player.setSummary(res.account);
+            return;
+          }
+          if ('account' in res && res.account) player.setSummary(res.account);
+          if (this.session === session) this.flash(res.error === 'no-credits' ? `The server had no ${kind}s left for that one.` : res.error === 'offline' ? 'Could not reach the server: that one was not counted.' : sayError(res.error));
+        });
+      }
     } finally {
       this.helpBusy = false;
     }
+  }
+
+  /** The cursor over the board is a wait cursor until `done` (what the player did is being sent to the room and answered). */
+  private waitFor(done: Promise<void>): void {
+    this.waiting++;
+    this.canvas.classList.add('waiting');
+    void done.finally(() => {
+      if (--this.waiting === 0) this.canvas.classList.remove('waiting');
+    });
   }
 
   /** A puzzle that was played alone is solved: the server adds its hints. How many were given (none if it could not be told). */
@@ -675,6 +703,7 @@ export class PlayScreen {
     this.dialogEl.hidden = true;
     this.entry = { id: room.id, name: 'Online puzzle', addedAt: Date.now(), thumbUrl: url, previewUrl: url, video: !!src.video, duration: src.video?.duration ?? 0 };
     this.src = src;
+    this.refreshRefLabel();
     this.online = { room, shown: false, blob, saved: false };
     void this.refreshSaved();
     this.saveKey = '';
@@ -722,7 +751,6 @@ export class PlayScreen {
       online: hooks,
     });
     this.mount(0, false);
-    this.restartBtn.hidden = true;
     this.timeEl.hidden = false;
     const showTime = () => (this.timeEl.textContent = formatTime(room.playedMs()));
     showTime();
@@ -834,7 +862,7 @@ export class PlayScreen {
       h(
         'div',
         { class: 'buttons' },
-        h('button', { type: 'button', onclick: () => this.viewPicture() }, 'View'),
+        h('button', { type: 'button', onclick: () => this.viewPicture() }, `View ${this.mediaWord()}`),
         (this.saveDialogBtn = h('button', { type: 'button', disabled: this.online.saved, title: this.online.saved ? 'This is in your library already' : '', onclick: () => void this.savePicture() }, this.online.room.descriptor.media.type === 'video' ? 'Save video' : 'Save picture')),
         h('button', { type: 'button', class: 'primary', onclick: () => this.leave() }, 'Leave'),
       ),
@@ -997,10 +1025,6 @@ export class PlayScreen {
     this.requestDraw();
   }
 
-  private restart(): void {
-    void this.begin(true);
-  }
-
   private newPuzzle(): void {
     this.deps.prefs.data.seed = randomSeedText();
     this.deps.prefs.save();
@@ -1028,7 +1052,6 @@ export class PlayScreen {
       // a puzzle that is over is not kept in the list; one that is not stays, and can be opened again
       if (o.room.solved || o.room.status === 'closed') void this.deps.online?.api.leave(o.room.id);
       this.online = null;
-      this.restartBtn.hidden = false;
       this.timeEl.textContent = '0:00';
     }
     this.saveNow();
@@ -1337,10 +1360,14 @@ export class PlayScreen {
       h(
         'div',
         { class: 'buttons' },
-        h('button', { type: 'button', onclick: () => this.viewPicture() }, 'View'),
-        h('button', { type: 'button', class: 'primary', onclick: () => this.newPuzzle() }, 'New puzzle'),
-        ...(this.entry && this.deps.otherPhoto(this.entry.id) ? [h('button', { type: 'button', title: 'The same settings on another photo', onclick: () => this.otherPhotoPuzzle() }, 'Other photo')] : []),
-        h('button', { type: 'button', onclick: () => this.leave() }, 'Photos'),
+        h('button', { type: 'button', onclick: () => this.viewPicture() }, `View ${this.mediaWord()}`),
+        h('button', { type: 'button', onclick: () => this.leave() }, 'Back To Main Screen'),
+      ),
+      h(
+        'div',
+        { class: 'buttons' },
+        h('button', { type: 'button', class: 'primary', onclick: () => this.newPuzzle() }, 'New Puzzle (Same File)'),
+        ...(this.entry && this.deps.otherPhoto(this.entry.id) ? [h('button', { type: 'button', title: 'The same settings on another file of your library', onclick: () => this.otherPhotoPuzzle() }, 'New Puzzle (Random Local File)')] : []),
       ),
     );
     this.dialogEl.hidden = false;

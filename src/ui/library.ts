@@ -4,7 +4,7 @@ import { randomSeedText } from '../core/rng';
 import { isVideoFile } from '../image';
 import { formatAgo, formatTime, type Prefs } from '../core/prefs';
 import { STOCK_NAMES, type StockItem, type StockSite, type StockType } from '../online/protocol';
-import { fetchLink, LINK_REFUSED, parseLink } from '../store/link';
+import { fetchLink, parseLink } from '../store/link';
 import { downloadStock, searchStock, stockCredit } from '../store/stock';
 import type { SaveRecord, SaveStore } from '../store/saves';
 import type { PhotoEntry, PhotoLibrary } from '../store/photos';
@@ -12,6 +12,7 @@ import { appVersion, versionLabel } from '../version';
 import { h, svg } from './dom';
 import { KIND_ICONS } from './icons';
 import { aiMark, attribution, creditLine, siteMark } from './stocksite';
+import { AddFilesDialog } from './addfiles';
 import { settingsButton } from './settings';
 
 export interface LibraryDeps {
@@ -65,7 +66,7 @@ export class LibraryScreen {
   private items = new Map<string, HTMLElement>();
   private kindsEl = h('nav', { class: 'kinds', 'aria-label': 'Puzzle types' });
   private listEl = h('ul', { class: 'plist', role: 'listbox', 'aria-label': 'Photos', tabIndex: 0 });
-  private sortSelect = h('select', { 'aria-label': 'Sort My Files', onchange: () => this.sortChanged() }, h('option', { value: 'added' }, 'Date added'), h('option', { value: 'name' }, 'Name'));
+  private sortSelect = h('select', { 'aria-label': 'Sort Local Files', onchange: () => this.sortChanged() }, h('option', { value: 'added' }, 'Date added'), h('option', { value: 'name' }, 'Name'));
   private sortBar = h('label', { class: 'sortbar' }, h('span', {}, 'Sort by'), this.sortSelect);
   /** A thumbnail is given its picture when it comes near the screen: making the object URLs of a long list at once takes seconds on a phone. */
   private thumbOf = new WeakMap<Element, PhotoEntry>();
@@ -95,28 +96,17 @@ export class LibraryScreen {
   private seedInput = h('input', { type: 'text', class: 'seed', maxLength: 12, spellcheck: false, 'aria-label': 'Seed' });
   private noteEl = h('div', { class: 'note', 'aria-live': 'polite' });
   private playBtn = h('button', { type: 'button', class: 'primary', onclick: () => this.play() }, 'Play');
-  /** On the stock tab, over Play: puts the chosen item in My Files without starting a puzzle. */
-  private addStockBtn = h('button', { type: 'button', hidden: true, onclick: () => void this.addStockOnly() }, 'Add to My Files');
+  /** On the stock tab, over Play: puts the chosen item in Local Files without starting a puzzle. */
+  private addStockBtn = h('button', { type: 'button', hidden: true, onclick: () => void this.addStockOnly() }, 'Add to Local Files');
   private footEl = h('div', { class: 'pfoot' });
   /** Taking photos out: not at all, choosing which ones, or asking whether to go ahead with the ones chosen. */
   private removing: 'no' | 'choose' | 'sure' = 'no';
   private marked = new Set<string>();
-  /** The box for pasting a link is open; and the download that is going on, if any (it can be stopped). */
-  private linking = false;
-  private linkAbort: AbortController | null = null;
-  private linkInput = h('input', {
-    type: 'url',
-    class: 'link',
-    placeholder: 'Paste a link to a picture or video',
-    spellcheck: false,
-    autocapitalize: 'off',
-    'aria-label': 'Link to a picture or video',
-    onkeydown: (e: KeyboardEvent) => {
-      if (e.key === 'Enter') void this.addLink(this.linkInput.value);
-      else if (e.key === 'Escape') this.setLinking(false);
-    },
-  });
   private fileInput = h('input', { type: 'file', accept: 'image/*,video/*,.webm,.mp4,.m4v,.mov,.mkv', multiple: true, hidden: true, onchange: () => this.filesChosen() });
+  /** Add Local Files: from the file browser, or from links (which are downloaded while the window stays open). */
+  private addDialog = new AddFilesDialog({ browse: () => this.fileInput.click(), download: (url, onStatus, signal) => fetchLink(url, onStatus, signal), add: (file) => this.addFiles([file]) });
+  /** The question of a puzzle that matches one in progress: continue it or start a new one. */
+  private matchEl = h('div', { class: 'inprogress', role: 'dialog', 'aria-label': 'A puzzle like this is in progress', hidden: true });
   private photoNoteEl = h('div', { class: 'note', 'aria-live': 'polite' });
   private noteTimers = new Map<HTMLElement, number>();
   /** The two lists of the photo panel: the player's own files and the stock library's. */
@@ -234,6 +224,8 @@ export class LibraryScreen {
       this.fileInput,
       this.loadingEl,
       this.progressEl,
+      this.addDialog.el,
+      this.matchEl,
     );
     this.listEl.addEventListener('keydown', (e) => this.listKey(e));
     this.stockListEl.addEventListener('keydown', (e) => this.stockKey(e));
@@ -242,12 +234,13 @@ export class LibraryScreen {
       this.tabsEl.hidden = false;
       this.tabsEl.replaceChildren(
         ...(['mine', 'stock'] as const).map((t) =>
-          h('button', { type: 'button', role: 'tab', class: t === 'mine' ? 'on' : '', 'aria-selected': t === 'mine', dataset: { tab: t }, onclick: () => this.setTab(t) }, t === 'mine' ? 'My Files' : 'Stock Files'),
+          h('button', { type: 'button', role: 'tab', class: t === 'mine' ? 'on' : '', 'aria-selected': t === 'mine', dataset: { tab: t }, onclick: () => this.setTab(t) }, t === 'mine' ? 'Local Files' : 'Stock Files'),
         ),
       );
     }
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !this.progressEl.hidden) this.closeProgress();
+      if (e.key === 'Escape' && !this.matchEl.hidden) this.matchEl.hidden = true;
     });
     this.buildKinds();
     this.renderFoot();
@@ -492,7 +485,7 @@ export class LibraryScreen {
     this.playBtn.disabled = !shown || !!this.stockAbort;
     this.addStockBtn.hidden = this.tab !== 'stock';
     this.addStockBtn.disabled = !stock || !!e || !!this.stockAbort;
-    this.addStockBtn.textContent = e ? 'In My Files' : 'Add to My Files';
+    this.addStockBtn.textContent = e ? 'In Local Files' : 'Add to Local Files';
     this.optionsEl.replaceChildren(
       ...this.kind.options.map((o) => {
         const v = optionValue(prefs.data.settings, this.kind.id, o);
@@ -613,7 +606,49 @@ export class LibraryScreen {
     const e = this.chosen;
     if (!e) return;
     this.commitSeed();
-    this.deps.onPlay(e);
+    void this.playOrAsk(e);
+  }
+
+  /**
+   * Starts the chosen puzzle, unless it is on a file and with settings that match a puzzle in progress: then the player is asked whether to carry on with that one or start a new one (which takes
+   * its place: there is one saved puzzle for each file, type and difficulty). If several matched, the oldest is the one offered.
+   */
+  private async playOrAsk(entry: PhotoEntry): Promise<void> {
+    const { prefs } = this.deps;
+    const key = recordKey(this.kind, entry.id, prefs.data.settings);
+    const found = (await this.deps.saves.list()).filter((r) => r.photoId === entry.id && r.key === key).sort((a, b) => a.savedAt - b.savedAt)[0];
+    if (!found) {
+      this.deps.onPlay(entry);
+      return;
+    }
+    const go = (seed: string): void => {
+      this.matchEl.hidden = true;
+      prefs.data.seed = seed;
+      prefs.save();
+      this.seedInput.value = seed;
+      this.deps.onPlay(entry);
+    };
+    this.matchEl.replaceChildren(
+      h(
+        'div',
+        { class: 'card' },
+        h('header', {}, h('h2', {}, 'Puzzle in progress'), h('button', { type: 'button', class: 'close', onclick: () => (this.matchEl.hidden = true) }, 'Cancel')),
+        h(
+          'div',
+          { class: 'body' },
+          h('p', {}, `You already have a ${this.kind.name} puzzle on ${entry.name} with these settings in progress (${[`${formatTime(found.elapsed)} played`, found.status].filter(Boolean).join(', ')}). Continue it, or start a new one?`),
+          h('p', { class: 'dim' }, 'A new puzzle takes the place of the one in progress.'),
+          h(
+            'div',
+            { class: 'buttons' },
+            h('button', { type: 'button', class: 'primary', onclick: () => go(found.seed) }, 'Continue In-Progress Puzzle'),
+            h('button', { type: 'button', onclick: () => go(randomSeedText()) }, 'Start New Puzzle'),
+          ),
+        ),
+      ),
+    );
+    this.matchEl.hidden = false;
+    this.matchEl.querySelector<HTMLElement>('.primary')?.focus();
   }
 
   private filesChosen(): void {
@@ -627,34 +662,10 @@ export class LibraryScreen {
     return this.queued(() => this.addNow(files));
   }
 
-  /** Adds the picture or video a pasted link points to. Taking turns with the other adding and removing, like the files. */
-  addLink(text: string): Promise<void> {
-    const url = parseLink(text);
-    if (!url) {
-      this.photoNote(text.trim() ? 'That is not a web address' : 'Paste a link first', false, 6000);
-      return Promise.resolve();
-    }
-    return this.queued(() => this.linkNow(url));
-  }
-
-  private async linkNow(url: URL): Promise<void> {
-    const abort = new AbortController();
-    this.linkAbort = abort;
-    this.renderFoot();
-    this.photoNote('Downloading…', true);
-    let file: File;
-    try {
-      file = await fetchLink(url, (text) => this.photoNote(text, true), abort.signal);
-    } catch (e) {
-      this.linkAbort = null;
-      this.photoNote(e instanceof Error ? e.message : LINK_REFUSED, false, 10000);
-      this.setLinking(true);                                      // the link stays in the box to be corrected
-      return;
-    }
-    this.linkAbort = null;
-    this.linkInput.value = '';
-    this.setLinking(false);
-    await this.addNow([file]);
+  /** A link that was dropped or pasted: the Add Local Files window opens and downloads it (and shows how it is going). */
+  addLink(text: string): void {
+    this.addDialog.open();
+    this.addDialog.addLink(text);
   }
 
   /** Control-V on the main screen: a link, or a picture copied from somewhere, is added. */
@@ -663,12 +674,6 @@ export class LibraryScreen {
     const text = data.getData('text/plain');
     if (files.length) void this.addFiles(files);
     else if (parseLink(text)) void this.addLink(text);
-  }
-
-  private setLinking(on: boolean): void {
-    this.linking = on;
-    this.renderFoot();
-    if (on) this.linkInput.focus();
   }
 
   private async addNow(files: File[]): Promise<void> {
@@ -837,7 +842,7 @@ export class LibraryScreen {
   }
 
   /**
-   * The library's photo for a stock item: the one that is there already, or the item downloaded and added (with its credit). `choose` also makes it the chosen photo of My Files.
+   * The library's photo for a stock item: the one that is there already, or the item downloaded and added (with its credit). `choose` also makes it the chosen photo of Local Files.
    * Says what went wrong, and gives nothing, if it could not be done.
    */
   private async addStock(item: StockItem, choose: boolean): Promise<PhotoEntry | undefined> {
@@ -893,7 +898,7 @@ export class LibraryScreen {
     this.deps.onPlay(entry);
   }
 
-  /** The button over Play on the stock tab: the item goes into My Files and nothing starts (the chosen photo of My Files stays the one it was). */
+  /** The button over Play on the stock tab: the item goes into Local Files and nothing starts (the chosen photo of Local Files stays the one it was). */
   private async addStockOnly(): Promise<void> {
     const item = this.stockChosen;
     if (!item || this.stockAbort || this.entryOfStock(item)) return;
@@ -901,7 +906,7 @@ export class LibraryScreen {
     this.renderStockList();
     this.renderFoot();
     this.renderChosen();
-    this.note('Added to My Files');
+    this.note('Added to Local Files');
   }
 
   /** The buttons under the stock list: more results, or stop a download, and the credit to the site that its terms ask for. */
@@ -1018,19 +1023,10 @@ export class LibraryScreen {
     const mine = this.entries;
     const n = this.marked.size;
     const btn = (label: string, onclick: () => void, extra: Record<string, unknown> = {}) => h('button', { type: 'button', onclick, ...extra }, label);
-    if (this.linkAbort) {
-      this.footEl.replaceChildren(btn('Stop downloading', () => this.linkAbort?.abort()));
-    } else if (this.linking) {
+    if (this.removing === 'no') {
       this.footEl.replaceChildren(
-        this.linkInput,
-        btn('Add', () => void this.addLink(this.linkInput.value), { class: 'primary' }),
-        btn('Cancel', () => this.setLinking(false)),
-      );
-    } else if (this.removing === 'no') {
-      this.footEl.replaceChildren(
-        btn('Add Files', () => this.fileInput.click()),
-        btn('From a link…', () => this.setLinking(true), { title: 'Add a picture or video from a web address' }),
-        btn('Remove Files', () => this.setRemoving('choose'), { disabled: mine.length === 0, title: mine.length ? 'Choose photos and videos to remove' : 'There are no files to remove' }),
+        btn('Add Local Files', () => this.addDialog.open(), { title: 'Add photos and videos from this device or from a link' }),
+        btn('Remove Local Files', () => this.setRemoving('choose'), { disabled: mine.length === 0, title: mine.length ? 'Choose photos and videos to remove' : 'There are no files to remove' }),
       );
     } else if (this.removing === 'choose') {
       this.footEl.replaceChildren(

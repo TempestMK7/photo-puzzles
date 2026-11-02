@@ -112,7 +112,7 @@ export class ApiStack extends Stack {
     // the admin page's function (https://<the game's address>/admin): the routes under /admin of the API, which the gateway only lets through with a Cognito token, and which check for
     // the admin group again. It lists the accounts of the user pool and reads the logs of this stage's functions, and does no more than that besides what the function above may do.
     const adminWeb = serviceFunction('AdminWeb', 'server/src/aws/adminweb.ts', 512, Duration.seconds(30));
-    adminWeb.addToRolePolicy(new iam.PolicyStatement({ actions: ['cognito-idp:ListUsers'], resources: [props.pool.userPoolArn] }));
+    adminWeb.addToRolePolicy(new iam.PolicyStatement({ actions: ['cognito-idp:ListUsers', 'cognito-idp:ListUsersInGroup'], resources: [props.pool.userPoolArn] }));
     adminWeb.addToRolePolicy(new iam.PolicyStatement({ actions: ['logs:DescribeLogGroups'], resources: ['*'] }));                    // (this one cannot be limited to a group)
     adminWeb.addToRolePolicy(
       new iam.PolicyStatement({ actions: ['logs:FilterLogEvents'], resources: [Arn.format({ service: 'logs', resource: 'log-group', resourceName: `PuzzleVidio-${props.stage}-*:*`, arnFormat: ArnFormat.COLON_RESOURCE_NAME }, this)] }),

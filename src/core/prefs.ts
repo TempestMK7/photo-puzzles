@@ -14,7 +14,7 @@ export interface PrefsData {
   muted: boolean;
   /** The game's sound effects are on (the sound of a video puzzle is `muted`'s business). */
   sfx: boolean;
-  /** How My Files is listed: in the order the files were added, or by name. */
+  /** How Local Files is listed: in the order the files were added, or by name. */
   sort: 'added' | 'name';
 }
 

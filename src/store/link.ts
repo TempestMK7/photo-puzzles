@@ -39,7 +39,7 @@ export function nameFromLink(url: URL, type: string): string {
 }
 
 /** What to tell the player when a link did not work (the page cannot tell a site that refuses from no connection at all). */
-export const LINK_REFUSED = 'Could not download that. The site may not allow other pages to take its pictures, or there is no connection. Save the picture and use Add photos instead.';
+export const LINK_REFUSED = 'Could not download that. The site may not allow other pages to take its pictures, or there is no connection. Save the picture and use Add Local Files instead.';
 export const LINK_IS_PAGE = 'That link is a web page, not a picture. Copy the picture\'s own address (touch and hold or right-click the picture, then Copy image address).';
 
 async function fetchOnce(url: URL, signal: AbortSignal): Promise<Response> {

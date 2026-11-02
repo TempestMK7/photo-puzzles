@@ -17,3 +17,10 @@ export const KIND_ICONS: Record<KindId, string> = {
   // a 3 x 3 grid with the last tile missing
   sliding: `<svg ${BOX}><rect x="5" y="5" width="11" height="11"/><rect x="18.5" y="5" width="11" height="11"/><rect x="32" y="5" width="11" height="11"/><rect x="5" y="18.5" width="11" height="11"/><rect x="18.5" y="18.5" width="11" height="11"/><rect x="32" y="18.5" width="11" height="11"/><rect x="5" y="32" width="11" height="11"/><rect x="18.5" y="32" width="11" height="11"/></svg>`,
 };
+
+/** The icons of the hint and the bomb: on their buttons in the play screen (currentColor), and in the cursors (style.css draws the same shapes with colours of their own). */
+const SMALL = 'viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+export const HELP_ICONS = {
+  hint: `<svg ${SMALL}><circle cx="12" cy="12" r="10"/><path d="M9.2 9.3a2.9 2.9 0 1 1 4.2 2.6c-.9.5-1.4 1.1-1.4 2.1"/><path d="M12 17.2h.01"/></svg>`,
+  bomb: `<svg ${SMALL}><circle cx="11" cy="14" r="7"/><path d="M16 8l2-2M18 3v2M21 6h-2"/></svg>`,
+};

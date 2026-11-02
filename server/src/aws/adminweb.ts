@@ -1,7 +1,7 @@
 import { CloudWatchLogsClient, DescribeLogGroupsCommand, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
-import { CognitoIdentityProviderClient, ListUsersCommand } from '@aws-sdk/client-cognito-identity-provider';
+import { CognitoIdentityProviderClient, ListUsersCommand, ListUsersInGroupCommand } from '@aws-sdk/client-cognito-identity-provider';
 import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
-import type { AdminLogEvent, AdminLogGroup } from '../../../src/online/adminProtocol';
+import { ADMIN_GROUP, type AdminLogEvent, type AdminLogGroup } from '../../../src/online/adminProtocol';
 import { makeAdminWeb, parseGroups, type AdminWebReq, type AdminWebRes, type Directory, type DirectoryUser, type LogSource } from '../adminweb';
 import { systemClock } from '../memory';
 import { buildService } from './api';
@@ -27,6 +27,17 @@ export class CognitoDirectory implements Directory {
       return { id: attr('sub') || (u.Username ?? ''), email: attr('email'), created: u.UserCreateDate?.getTime() ?? 0, status: u.UserStatus ?? '', enabled: u.Enabled !== false };
     });
     return { users, next: res.PaginationToken };
+  }
+
+  async admins(): Promise<Set<string>> {
+    const ids = new Set<string>();
+    let next: string | undefined;
+    do {
+      const res = await this.client.send(new ListUsersInGroupCommand({ UserPoolId: this.poolId, GroupName: ADMIN_GROUP, NextToken: next }));
+      for (const u of res.Users ?? []) ids.add(u.Attributes?.find((a) => a.Name === 'sub')?.Value ?? u.Username ?? '');
+      next = res.NextToken;
+    } while (next);
+    return ids;
   }
 }
 
