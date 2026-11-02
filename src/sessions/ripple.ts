@@ -24,9 +24,12 @@ interface Ripple {
 export class Ripples {
   private list: Ripple[] = [];
 
+  /** `enabled` says whether ripples are wanted at all (the player's Animations setting): when it says no, nothing is added. */
+  constructor(private readonly enabled: () => boolean = () => true) {}
+
   /** A ripple over `rects`, starting `delay` milliseconds from `now` (a swap that is still moving has to arrive first), its ring in `color` (the colour of the player who put the pieces there). */
   add(rects: readonly Rect[], now: number, delay = 0, color: string = GOLD): void {
-    if (!rects.length) return;
+    if (!rects.length || !this.enabled()) return;
     let x0 = Infinity;
     let y0 = Infinity;
     let x1 = -Infinity;

@@ -51,7 +51,7 @@ export class StripsSession implements PuzzleSession {
   private selected = -1;
   private drag: Drag | null = null;
   private lastView: View = { scale: 1, ox: 0, oy: 0 };
-  private ripples = new Ripples();
+  private ripples = new Ripples(() => this.init.flag('animate'));
   private tab = 0;
   private overTab = -1;
   private dwell = 0;
@@ -355,9 +355,13 @@ export class StripsSession implements PuzzleSession {
       this.game.moveToTab(d.id, this.overTab);
       this.tab = this.overTab;
       buzz(this.init, 'drop');
+      playEffect('drop');
     } else if (!d.moved) this.turn(d.id, true);                        // a tap turns the strip
     else if (this.game.lockIfHome(d.id)) this.locked(d.id);
-    else buzz(this.init, 'drop');
+    else {
+      buzz(this.init, 'drop');
+      playEffect('drop');                                            // (put down on the board, and not in its hole)
+    }
     if (d.moved) this.commit(d.id);                                    // (a tap has sent what it did)
     this.overTab = -1;
     this.init.requestDraw();

@@ -59,8 +59,8 @@ export class Lift {
   }
 }
 
-/** The lift for a piece just picked up by a finger (null for a mouse or a pen, or when the player has turned the offset off). */
-export function startLift(init: SessionInit, touch: boolean, view: View, now: number): Lift | null {
-  if (!touch || !init.flag('offset')) return null;
+/** The lift for a piece just picked up (null when the player has turned the offset off): by a finger, and by a mouse or a pen too, which hold the piece above the pointer. */
+export function startLift(init: SessionInit, _touch: boolean, view: View, now: number): Lift | null {
+  if (!init.flag('offset')) return null;
   return new Lift((LIFT_CSS * (window.devicePixelRatio || 1)) / view.scale, now);
 }

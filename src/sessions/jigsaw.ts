@@ -620,7 +620,7 @@ export class JigsawSession implements PuzzleSession {
     const [px, py] = this.game.toSolved(grp, q.x - this.frameX, q.y - this.frameY);
     const dpr = window.devicePixelRatio || 1;
     const here = this.toCanvas(p);
-    this.drag = { gid, px, py, qx: q.x - this.frameX, qy: q.y - this.frameY, cx: here.x, cy: here.y, moved: false, lift: touch && this.init.flag('offset') ? (LIFT_CSS * dpr) / this.cam.zoom : 0, t0: performance.now(), k: touch && this.init.flag('offset') ? 0 : 1 };
+    this.drag = { gid, px, py, qx: q.x - this.frameX, qy: q.y - this.frameY, cx: here.x, cy: here.y, moved: false, lift: this.init.flag('offset') ? (LIFT_CSS * dpr) / this.cam.zoom : 0, t0: performance.now(), k: touch && this.init.flag('offset') ? 0 : 1 };
     this.buzz('grab');
     this.init.requestDraw();
   }
@@ -830,6 +830,7 @@ export class JigsawSession implements PuzzleSession {
    * The ripple glows in the colour of the player `by` who made it (this player, if nobody is named) when others are playing too.
    */
   private startWave(gid: number, from: ReadonlySet<number>, now: number, placed: boolean, by?: string, step = 0): void {
+    if (!this.init.flag('animate')) return;                                            // (the player has switched animations off: no light, only the sound)
     const grp = this.game.groups.get(gid);
     if (!grp || !from.size) return;
     const { cols, size } = this.layout_;

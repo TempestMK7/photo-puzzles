@@ -70,7 +70,7 @@ export class OverlapSession implements PuzzleSession {
   private held: Held | null = null;
   private hoverStack = -1;
   private activeStack = 0;
-  private ripples = new Ripples();
+  private ripples = new Ripples(() => this.init.flag('animate'));
   /** How many stacks the pieces wait in: more for a bigger puzzle. */
   private readonly stackN: number;
   private wrong: { cells: { x: number; y: number }[]; at: number } | null = null;

@@ -30,10 +30,11 @@ describe('Lift', () => {
 });
 
 describe('startLift', () => {
-  it('only for a finger, and only when the player has not turned it off; the distance is in screen pixels whatever the zoom', () => {
+  it('for a finger and for a mouse alike, when the player has not turned it off; the distance is in screen pixels whatever the zoom', () => {
     vi.stubGlobal('window', { devicePixelRatio: 3 });
-    expect(startLift(init(true), false, view, 0)).toBeNull();
+    expect(startLift(init(false), false, view, 0)).toBeNull();
     expect(startLift(init(false), true, view, 0)).toBeNull();
+    expect(startLift(init(true), false, view, 0)!.distance).toBeCloseTo((LIFT_CSS * 3) / 2);          // (a mouse: the piece is held above the pointer too)
     const lift = startLift(init(true), true, view, 0)!;
     expect(lift.distance).toBeCloseTo((LIFT_CSS * 3) / 2);
     expect(startLift(init(true), true, { scale: 0.5, ox: 0, oy: 0 }, 0)!.distance).toBeCloseTo((LIFT_CSS * 3) / 0.5);

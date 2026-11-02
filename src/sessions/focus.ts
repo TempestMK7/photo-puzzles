@@ -18,7 +18,7 @@ export class FocusSession implements PuzzleSession {
   private board: Board;
   private anims = new Map<number, Anim>();
   private hover = -1;
-  private ripples = new Ripples();
+  private ripples = new Ripples(() => this.init.flag('animate'));
   /** A puzzle made from a video draws its pieces on the graphics card (see videoGl.ts), with the ripples on a canvas over them; both lie over the board's canvas. */
   private layer: VideoLayer | null = null;
   private frontLayer: FrontLayer | null = null;
