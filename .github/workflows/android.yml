@@ -72,7 +72,9 @@ jobs:
           distribution: temurin
           java-version: 17
           cache: gradle
-      - uses: android-actions/setup-android@v3
+      # (the runner already has the Android SDK; the setup-android action fails on it, asking sdkmanager for a package "tools" that no longer exists)
+      - name: Accept the Android SDK licences
+        run: yes | "$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | head -1)" --licenses > /dev/null || true
       - run: npm ci
 
       - uses: aws-actions/configure-aws-credentials@v4
