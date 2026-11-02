@@ -4,7 +4,7 @@ import type { RoomEvent, RoomState } from '../core/jigsawRoom';
 import { boxOf, makeStrips, MARGIN, type StripsGame, type StripsState } from '../core/strips';
 import { beginFrame, drawSlice, type View } from '../render';
 import { playEffect } from '../sounds';
-import { buzz, Cascade, cascadeStep, nearestFirst, rippleColor, startLift, type Lift } from './feedback';
+import { bombCut, buzz, Cascade, dropBomb, nearestFirst, rippleColor, startLift, type Lift } from './feedback';
 import { Camera } from './camera';
 import { Ripples } from './ripple';
 import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
@@ -53,7 +53,7 @@ export class StripsSession implements PuzzleSession {
   private lastView: View = { scale: 1, ox: 0, oy: 0 };
   private ripples = new Ripples(() => this.init.flag('animate'));
   /** The strips of a bomb, put home one after the other. */
-  private cascade = new Cascade();
+  private cascade = new Cascade(bombCut(this.ripples.bombs));
   private tab = 0;
   private overTab = -1;
   private dwell = 0;
@@ -482,7 +482,14 @@ export class StripsSession implements PuzzleSession {
       return { x: d.hx + b.w / 2, y: d.hy + b.h / 2 };
     });
     if (!hits.length) return false;
-    this.cascade.start(hits, cascadeStep(hits.length), (id, _k, late) => void this.placeOne(id, by, late));
+    const box = (id: number) => {
+      const d = g.defs[id];
+      const b = boxOf(d, 0);
+      return { x: d.hx * S, y: d.hy * S, w: b.w * S, h: b.h * S };
+    };
+    const plan = { x: (op.x + 0.5) * S, y: (op.y + 0.5) * S, unit: S, area: hits.map(box), lo: 0.75, hi: 2 };
+    dropBomb(this.cascade, this.ripples.bombs, this.init, plan, by === undefined, hits, (id, late) => void this.placeOne(id, by, late));
+    this.init.requestDraw();
     return true;
   }
 

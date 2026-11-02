@@ -1,5 +1,7 @@
 import { haptic, type Haptic } from '../haptics';
 import type { View } from '../render';
+import { playEffect, stopEffect } from '../sounds';
+import { FALL_MS, type BombFx, type BombPlan } from './bomb';
 import type { Pt, SessionInit } from './types';
 
 /** Gives touch feedback, unless the player has switched it off. */
@@ -25,10 +27,16 @@ export function cascadeStep(n: number): number {
 export class Cascade {
   private waiting: { timer: ReturnType<typeof setTimeout>; run: (late: boolean) => void }[] = [];
 
-  /** Starts the steps. `step` is told the item, its place in the row, and whether it is being done late (see `flush`). The first runs before this returns. */
-  start<T>(items: readonly T[], every: number, step: (item: T, k: number, late: boolean) => void): void {
+  /** `onEnd`: called when steps that were waiting are done at once or dropped (a bomb that was still falling is taken away). */
+  constructor(private readonly onEnd: () => void = () => {}) {}
+
+  /**
+   * Starts the steps. `step` is told the item, its place in the row, and whether it is being done late (see `flush`). With no `after` the first runs before this returns; with one (a bomb is
+   * falling) every step waits that long, and the first is the moment the bomb lands.
+   */
+  start<T>(items: readonly T[], every: number, step: (item: T, k: number, late: boolean) => void, after = 0): void {
     items.forEach((item, k) => {
-      if (k === 0) {
+      if (k === 0 && after <= 0) {
         step(item, 0, false);
         return;
       }
@@ -36,7 +44,7 @@ export class Cascade {
         timer: setTimeout(() => {
           this.waiting = this.waiting.filter((w) => w !== entry);
           step(item, k, false);
-        }, k * every),
+        }, after + k * every),
         run: (late: boolean) => step(item, k, late),
       };
       this.waiting.push(entry);
@@ -51,16 +59,54 @@ export class Cascade {
   /** Does what is left at once, in order. */
   flush(): void {
     const left = this.waiting;
+    if (!left.length) return;
     this.waiting = [];
     for (const w of left) clearTimeout(w.timer);
+    this.onEnd();
     for (const w of left) w.run(true);
   }
 
   /** Drops what is left (the puzzle is gone). */
   cancel(): void {
+    if (!this.waiting.length) return;
     for (const w of this.waiting) clearTimeout(w.timer);
     this.waiting = [];
+    this.onEnd();
   }
+}
+
+/**
+ * A bomb is used: it falls from above the screen (this player's own bomb is heard, a fuse), lands and explodes (the explosion; the explosion's sound for this player's own bomb; and the first
+ * piece is put in its place), and `placeOne` is then called for each of the pieces it places, nearest first, 0.2 s apart. With animations off there is no fall and no fire, and the
+ * pieces start at once.
+ */
+export function dropBomb<T>(cascade: Cascade, fx: BombFx, init: SessionInit, plan: BombPlan, mine: boolean, hits: readonly T[], placeOne: (item: T, late: boolean, k: number) => void): void {
+  const animate = init.flag('animate');
+  if (animate) {
+    fx.drop(plan, performance.now());
+    if (mine) playEffect('fuse');
+  }
+  cascade.start(
+    hits,
+    cascadeStep(hits.length),
+    (item, k, late) => {
+      if (k === 0 && !late) {
+        stopEffect('fuse');                                            // (it ends if it was still sounding: the bomb has landed)
+        fx.explode(plan, performance.now());
+        if (mine) playEffect('explode');
+      }
+      placeOne(item, late, k);
+    },
+    animate ? FALL_MS : 0,
+  );
+}
+
+/** What a Cascade does when it is cut short: a bomb that is still falling is taken away, and its fuse stops. */
+export function bombCut(fx: BombFx): () => void {
+  return () => {
+    fx.cancelFall();
+    stopEffect('fuse');
+  };
 }
 
 /** The colour of the ripple over a piece put in place by `by` (this player, if nobody is named): theirs in a puzzle played with friends, and none (the ripple's own) when played alone. */
