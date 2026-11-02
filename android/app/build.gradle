@@ -14,7 +14,11 @@ if (keystoreFile.exists()) keystoreFile.withInputStream { keystore.load(it) }
 def TEST_APP_ID = 'ca-app-pub-3940256099942544~3347511713'
 def TEST_REWARDED_UNIT = 'ca-app-pub-3940256099942544/5224354917'
 def admobAppId = (project.findProperty('admobAppId') ?: local.getProperty('admob.appId')) ?: TEST_APP_ID
-def admobRewardedUnit = (project.findProperty('admobRewardedUnit') ?: local.getProperty('admob.rewardedUnit')) ?: TEST_REWARDED_UNIT
+// The ad unit follows the stage whose web build is packed in the app (scripts/android-web.mjs leaves it in android/web-stage.txt; -PwebStage overrides): the dev unit's callback address is the
+// dev server's and the prod unit's the real one, so each app is paid for by the server it talks to. admob.rewardedUnit.dev / .prod; admob.rewardedUnit alone serves every stage.
+def stageFile = rootProject.file('web-stage.txt')
+def webStage = (project.findProperty('webStage') ?: (stageFile.exists() ? stageFile.text.trim() : '')) ?: 'dev'
+def admobRewardedUnit = (project.findProperty('admobRewardedUnit') ?: local.getProperty("admob.rewardedUnit.${webStage}") ?: local.getProperty('admob.rewardedUnit')) ?: TEST_REWARDED_UNIT
 // the phones (and emulators) that are shown test ads even with the real ad unit, so that its own ads are never watched or clicked by the developer: a comma-separated list of the ids that the ad SDK names in the log
 def admobTestDevices = (project.findProperty('admobTestDevices') ?: local.getProperty('admob.testDevices')) ?: ''
 
@@ -76,6 +80,6 @@ dependencies {
 gradle.taskGraph.whenReady { graph ->
     def release = graph.allTasks.any { it.name in ['assembleRelease', 'bundleRelease', 'packageRelease'] }
     if (release && (admobAppId == TEST_APP_ID || admobRewardedUnit == TEST_REWARDED_UNIT) && !project.hasProperty('allowTestAds')) {
-        throw new GradleException('A release build needs the real AdMob ids: admob.appId and admob.rewardedUnit in android/local.properties (or -PadmobAppId and -PadmobRewardedUnit). For a private build with test ads, add -PallowTestAds.')
+        throw new GradleException('A release build needs the real AdMob ids: admob.appId and admob.rewardedUnit.' + webStage + ' (or admob.rewardedUnit) in android/local.properties (or -PadmobAppId and -PadmobRewardedUnit). For a private build with test ads, add -PallowTestAds.')
     }
 }
