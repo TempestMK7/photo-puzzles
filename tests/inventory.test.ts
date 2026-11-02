@@ -21,11 +21,11 @@ describe('what the inventory lists', () => {
 });
 
 describe('what the inventory says about hints and bombs', () => {
-  it('says what each does, where they do not work, and how they are earned', () => {
+  it('says what each does, and how they are earned (and no longer where they do not work)', () => {
     const hint = explainHelp('hint', free(), 'android', 0);
     expect(text(hint)).toContain('places one piece');
-    expect(text(hint)).toContain('Sliding Tiles or Rotascope');
-    expect(text(hint)).toContain('host allows');
+    expect(text(hint)).not.toContain('Sliding Tiles');
+    expect(text(hint)).not.toContain('best times');
     expect(text(hint)).toContain('Solving a puzzle earns 1 hint (2 for the larger sizes)');
     expect(text(hint)).toContain('up to 10 a day: you can earn 7 more today');
     const bomb = explainHelp('bomb', free(), 'android', 0);
@@ -43,11 +43,11 @@ describe('what the inventory says about hints and bombs', () => {
     expect(text(explainHelp('bomb', free(), 'ios', 0))).toContain('Every 20 to 30 minutes you can watch an ad for 5 hints or 1 bomb');
   });
 
-  it('says how long the wait for the next ad is, and offers none until it is over', () => {
+  it('offers no ad until the wait is over, and does not say when the next will be', () => {
     const e = explainHelp('hint', free({ helpAdReady: false, helpAdIn: 12 * MIN }), 'android', 12 * MIN - 1);
     expect(e.ad).toBeUndefined();
-    expect(text(e)).toContain('ready in about 12 minutes');
-    expect(text(explainHelp('bomb', free(), 'android', 10_000))).toContain('about 1 minute.');
+    expect(text(e)).not.toContain('ready in');
+    expect(text(e)).toContain('Every 20 to 30 minutes');
   });
 
   it('gives a paid account what an ad would, with no ad, in an app or not', () => {

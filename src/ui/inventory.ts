@@ -16,9 +16,6 @@ export function itemsOf(a: AccountSummary): InventoryItem[] {
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
 
-/** How long, in words, until the next ad for hints or a bomb. */
-const inMinutes = (ms: number): string => `about ${plural(Math.max(1, Math.ceil(ms / 60_000)), 'minute', 'minutes')}`;
-
 /**
  * What the inventory says about hints or bombs: what they do and where they work, how to get more (solving puzzles, and an ad every so often, which a paid account is given without
  * watching), and the button for the ad when one is ready. `waitMs` is how long the player has to wait for the next one. Ads are only in the Android and iOS apps: elsewhere it says so.
@@ -29,9 +26,8 @@ export function explainHelp(item: HelpItem, a: AccountSummary, where: Platform, 
   const does = hint
     ? 'A hint places one piece of a puzzle where it belongs. Choose Hint at the top of the puzzle, then tap the piece.'
     : 'A bomb places all the pieces around a point you choose. Choose Bomb at the top of the puzzle, then tap the board.';
-  const only = 'They do not work in Sliding Tiles or Rotascope, and in a puzzle with friends only when the host allows them. They do not change best times.';
 
-  const paragraphs = [does, only];
+  const paragraphs = [does];
   if (a.type === 'guest') {
     paragraphs.push(`Sign in or make an account to be given ${plural(DEFAULT_LIMITS.startHints, 'more hint', 'more hints')} and ${plural(DEFAULT_LIMITS.startBombs, 'more bomb', 'more bombs')}, which come on top of what you have now${hint ? ', and to earn hints by solving puzzles' : ''}.`);
   } else if (hint) {
@@ -49,10 +45,7 @@ export function explainHelp(item: HelpItem, a: AccountSummary, where: Platform, 
     return { title, paragraphs };
   }
   paragraphs.push(every);
-  if (waitMs > 0) {
-    paragraphs.push(`The next ones are ready in ${inMinutes(waitMs)}.`);
-    return { title, paragraphs };
-  }
+  if (waitMs > 0) return { title, paragraphs };                            // (no button until the wait is over; the buttons of the screens glow when it is)
   return { title, paragraphs, ad: { label: a.helpAdNoAd ? `Take ${give}` : `Watch an ad for ${give}`, note: 'ready now' } };
 }
 

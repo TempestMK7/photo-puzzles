@@ -102,6 +102,9 @@ const COLORS = 8;
 /** A guest's chosen name is kept this long after it was last set (a little longer than their token lasts). */
 const GUEST_NAME_KEEP_MS = 100 * 24 * 3600 * 1000;
 
+/** How many of the ids of spends that were sent with one an account remembers (enough for what a phone could have waiting after a long time with no connection). */
+const SPENT_KEEP = 50;
+
 /** An account can take what the guest it was has left only in its first hour (the time it takes to make an account), so that nobody does it with an account that is old. */
 const CARRY_WINDOW_MS = 3600 * 1000;
 const fail = (error: ApiError, extra: Partial<ApiFailure> = {}): ApiFailure => ({ ok: false, error, ...extra });
@@ -615,12 +618,14 @@ export class RoomService {
   }
 
   /** Takes one hint or bomb from the account (or the guest). */
-  private async takeItem(who: Player, item: HelpItem): Promise<ApiFailure | null> {
+  private async takeItem(who: Player, item: HelpItem, id?: string): Promise<ApiFailure | null> {
     const key = item === 'hint' ? 'hints' : 'bombs';
     const done = await this.changeAccount(who.id, (a) => {
+      if (id && a.spent?.includes(id)) return a;                                     // (sent before, and the answer was lost: it is not taken again)
       Object.assign(a, helpHeld(a, this.d.limits));                                  // (an account from before they existed is given its starting number now)
       if (a[key]! < 1) return fail('no-credits', { item });
       a[key]!--;
+      if (id) a.spent = [...(a.spent ?? []), id].slice(-SPENT_KEEP);
       return a;
     });
     if ('error' in done) return done.error === 'no-credits' ? fail('no-credits', { item, account: await this.summary(who) }) : done;
@@ -640,7 +645,8 @@ export class RoomService {
   /** The player is about to use a hint or a bomb in a puzzle that they play alone: it is taken from their account (the game places nothing until the server has said yes). */
   async useItem(who: Player, req: ItemRequest): Promise<ItemResponse> {
     if (!isHelpItem(req?.item)) return fail('bad-request');
-    const taken = await this.takeItem(who, req.item);
+    if (req.id !== undefined && !(typeof req.id === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(req.id))) return fail('bad-request');
+    const taken = await this.takeItem(who, req.item, req.id);
     if (taken) return taken;
     return { ok: true, account: await this.summary(who) };
   }

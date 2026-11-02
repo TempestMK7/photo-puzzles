@@ -482,6 +482,8 @@ export interface CarryRequest {
 
 export interface ItemRequest {
   item: HelpItem;
+  /** A one-time id for a spend that may be sent more than once (the game keeps the ones it could not send and sends them when it can): the server counts each id once. */
+  id?: string;
 }
 
 /** A paid, family or admin account takes the hints or the bomb that a free account or a guest would watch an ad for (when one is ready, as it is for them); the answer is the account, or `409 ad-refused` with `reason` `wait` (not ready yet) or `watch` (a free account or a guest has to watch the ad). */

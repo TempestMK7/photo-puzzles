@@ -100,8 +100,8 @@ export class OnlineApi implements RoomApi {
   }
 
   /** A hint or a bomb is about to be used in a puzzle played alone: the server takes one from the account (and says no when there is none). */
-  useItem(item: 'hint' | 'bomb'): Promise<ItemResponse | Offline> {
-    return this.call('POST', '/items/use', { item });
+  useItem(item: 'hint' | 'bomb', id?: string): Promise<ItemResponse | Offline> {
+    return this.call('POST', '/items/use', id ? { item, id } : { item });
   }
 
   /** A puzzle played alone was solved: the server adds its hints (`size` is the index of the puzzle's size, S being 0). */

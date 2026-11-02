@@ -86,6 +86,26 @@ describe.each(stores)('hints and bombs on %s', (_name, store) => {
       expect(await w.service.useItem(guest, { item: 'bomb' })).toMatchObject({ ok: false, error: 'no-credits' });
     });
 
+    it('counts a spend that is sent with an id once, however often it is sent (the game keeps the ones it could not send)', async () => {
+      const w = world();
+      const again = { item: 'hint' as const, id: 'abcdefgh1234' };
+      expect(await w.service.useItem(ann, again)).toMatchObject({ ok: true, account: { hints: 9 } });
+      expect(await w.service.useItem(ann, again)).toMatchObject({ ok: true, account: { hints: 9 } });
+      expect(await w.service.useItem(ann, { item: 'hint', id: 'abcdefgh5678' })).toMatchObject({ ok: true, account: { hints: 8 } });
+      expect(await w.service.useItem(ann, { item: 'bomb', id: 'abcdefgh1234' })).toMatchObject({ ok: true, account: { bombs: 2 } });       // (an id that was used is used: whatever it came with)
+      for (const id of ['', 'short', 'has space in it', 'x'.repeat(65), 7]) expect(await w.service.useItem(ann, { item: 'hint', id: id as never })).toEqual({ ok: false, error: 'bad-request' });
+      expect((await w.store.getAccount('ann'))!.spent).toEqual(['abcdefgh1234', 'abcdefgh5678']);
+    });
+
+    it('remembers the last 50 ids, and no more', async () => {
+      const w = world();
+      await w.service.adminSetAccount('ann', { hints: 100 });
+      for (let i = 0; i < 60; i++) await w.service.useItem(ann, { item: 'hint', id: `spend-${String(i).padStart(4, '0')}` });
+      const spent = (await w.store.getAccount('ann'))!.spent!;
+      expect(spent).toHaveLength(50);
+      expect(spent[0]).toBe('spend-0010');
+    });
+
     it('is for the two things only', async () => {
       const w = world();
       for (const bad of [{}, { item: 'rocket' }, { item: 7 }, undefined]) expect(await w.service.useItem(ann, bad as never)).toEqual({ ok: false, error: 'bad-request' });
