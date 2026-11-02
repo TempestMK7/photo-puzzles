@@ -436,6 +436,8 @@ export class LibraryScreen {
       kept.setAttribute('aria-selected', String(e.id === this.deps.prefs.data.photo));
       const b = kept.querySelector('.b')!;
       if (b.textContent !== text) b.textContent = text;
+      const n = kept.querySelector('.n')!;
+      if (n.textContent !== e.name) n.textContent = e.name;                       // (it may have been renamed)
       return kept;
     }
     const li = h(

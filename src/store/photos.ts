@@ -50,8 +50,11 @@ interface StoredPhoto {
 
 const DB = 'photo-puzzles';
 const STORE = 'photos';
-/** The names the player gave their files, apart from the files: a few bytes each, so that a file is renamed without writing it again. */
-const NAMES = 'names';
+/**
+ * The names the player gave their files, apart from the files (a few bytes each, so that a file is renamed without writing it again). They are kept in the browser's local storage and not in
+ * the database: a new version of the database cannot be opened while another tab still has the old one open, and a name is not worth that.
+ */
+const NAMES_KEY = 'photo-puzzles/names';
 /** The order the photos are listed in; with it the keys come back in that order, without reading the pictures. */
 const BY_DATE = 'addedAt';
 /** How many photos are read from the store at once: the first few, so that the list starts to fill quickly, then more. */
@@ -62,10 +65,9 @@ const SERVER_FILES = 'serverFiles';
 
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB, 4);
+    const req = indexedDB.open(DB, 3);
     req.onupgradeneeded = () => {
       if (!req.result.objectStoreNames.contains(SERVER_FILES)) req.result.createObjectStore(SERVER_FILES, { keyPath: 'id' });
-      if (!req.result.objectStoreNames.contains(NAMES)) req.result.createObjectStore(NAMES, { keyPath: 'id' });
       const store = req.result.objectStoreNames.contains(STORE) ? req.transaction!.objectStore(STORE) : req.result.createObjectStore(STORE, { keyPath: 'id' });
       if (!store.indexNames.contains(BY_DATE)) store.createIndex(BY_DATE, 'addedAt');
     };
@@ -113,9 +115,14 @@ export class PhotoLibrary {
     try {
       this.db = await open();
       for (const r of await request<{ id: string; fileId: string }[]>(this.db, 'readonly', (s) => s.getAll(), SERVER_FILES)) this.serverFiles.set(r.id, r.fileId);
-      for (const r of await request<{ id: string; name: string }[]>(this.db, 'readonly', (s) => s.getAll(), NAMES)) this.names.set(r.id, r.name);
     } catch {
       this.db = this.db ?? null;
+    }
+    try {
+      const raw = JSON.parse(localStorage.getItem(NAMES_KEY) ?? '{}') as Record<string, unknown>;
+      for (const [id, name] of Object.entries(raw)) if (typeof name === 'string' && name) this.names.set(id, name);
+    } catch {
+      /* no names of their own */
     }
   }
 
@@ -203,14 +210,16 @@ export class PhotoLibrary {
     const clean = name.replace(/[\p{Cc}]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 100);
     if (!clean || !(await this.record(id))) return false;
     this.names.set(id, clean);
-    if (this.db) {
-      try {
-        await request(this.db, 'readwrite', (s) => s.put({ id, name: clean }), NAMES);
-      } catch {
-        // it is the new name for this visit
-      }
-    }
+    this.keepNames();
     return true;
+  }
+
+  private keepNames(): void {
+    try {
+      localStorage.setItem(NAMES_KEY, JSON.stringify(Object.fromEntries(this.names)));
+    } catch {
+      // they are the names for this visit
+    }
   }
 
   /** Remembers (or, with nothing, forgets) the id that the online server holds this photo under. */
@@ -312,7 +321,7 @@ export class PhotoLibrary {
     }
     this.memory = this.memory.filter((m) => m.id !== id);
     await this.setServerFile(id, undefined);
-    if (this.names.delete(id) && this.db) await request(this.db, 'readwrite', (s) => s.delete(id), NAMES).catch(() => undefined);
+    if (this.names.delete(id)) this.keepNames();
     if (this.db) {
       try {
         await request(this.db, 'readwrite', (s) => s.delete(id));
