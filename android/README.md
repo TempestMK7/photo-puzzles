@@ -30,6 +30,30 @@ A thin shell around the game: one `WebView` that shows the web build packed in `
 
 **Dev and real app side by side.** The app is built for the stage whose web build is in it (`web-stage.txt`, see *Ads*): a **dev** build is **`com.tempest.photopuzzles.dev`**, named **Dev PuzzleVidio**, and any other build is **`com.tempest.photopuzzles`**, **PuzzleVidio**. Different package ids are different apps, so both can be installed at once, each with its own storage (library, saved puzzles, sign-in), and a release build never replaces a dev one. The sign-in return address follows the package id (`<package id>://signed-in`: the page asks the shell for it with `PhotoPuzzlesNative.signInRedirect()`), so the two do not both answer to one address; the dev stage's user pool lists the dev app's (`DEV_APP_SIGN_IN_REDIRECTS` in `infra/lib/config.ts`) and the prod stage's the real one's. (A debug build is signed with the debug key and a release with the upload key, so those two could never be installed over each other anyway.)
 
+## Building in GitHub Actions
+
+**Actions > Android > Run workflow** (from `main`; `.github/workflows/android.yml`) builds the apps and leaves them as artifacts of the run (kept 14 days): `dev-app` (the debug APK of Dev PuzzleVidio) and `prod-app` (the signed `.aab` for the Play Console, and a signed `.apk`). Choose `both`, `dev` or `prod`. Nothing is published: install the APK, or upload the bundle in the Play Console by hand. From a terminal:
+
+```
+gh workflow run android.yml --ref main -f build=both
+gh run watch            # then:  gh run download <run id>
+```
+
+It signs in to AWS with the Deploy workflow's role (`AWS_DEPLOY_ROLE_ARN`) to read where each stage's server is. Set these once (none of the variables is secret, but they are kept out of the repository, as on a developer's machine):
+
+```
+gh variable set ADMOB_APP_ID --body 'ca-app-pub-XXXXXXXXXXXXXXXX~NNNNNNNNNN'
+gh variable set ADMOB_UNIT_DEV --body 'ca-app-pub-XXXXXXXXXXXXXXXX/NNNNNNNNNN'
+gh variable set ADMOB_UNIT_PROD --body 'ca-app-pub-XXXXXXXXXXXXXXXX/NNNNNNNNNN'
+gh variable set ADMOB_TEST_DEVICES --body '<id>,<id>'     # optional: your phones, which are shown test ads
+base64 -w0 path/to/upload.jks | gh secret set ANDROID_KEYSTORE_B64        # prod only: the upload key,
+gh secret set ANDROID_KEYSTORE_PASSWORD                                    # its passwords (each asks for the value)
+gh secret set ANDROID_KEY_ALIAS
+gh secret set ANDROID_KEY_PASSWORD
+```
+
+The Google sign-in button and the legal pages use the Deploy workflow's variables (`GOOGLE_CLIENT_ID`, `GOOGLE_SECRET_NAME`, `LEGAL_*`). The upload key is written to the runner for the run and deleted after it. The **version code** of every build is the run number plus 10 (the workflow passes `-PversionCode` and `-PversionName`), so each upload to the Play Console is higher than the one before; a build on your own machine is version 1 unless you pass them yourself.
+
 ## Ads
 
 - **Where they are:** only here. Steam, itch and the web page have no ad code. The page shows the "watch an ad" button only where `PhotoPuzzlesNative.showRewardedAd` exists, and (by the server's rules) only to an account that has no credits left (a free account's photo credits, a paid account's video credits), a few times a day; or, in a puzzle, for hints or a bomb (`kind` `'hint'` or `'bomb'`: 5 hints or 1 bomb, one ad every 20 to 30 minutes, the first 15 minutes after the account was made, whether or not the account has any left). The shell does not care which: it passes `kind` through.

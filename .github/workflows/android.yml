@@ -1,0 +1,155 @@
+name: Android
+
+# Builds the Android app: Actions > Android > Run workflow. Run by hand from main only; it signs in to AWS through OIDC (the same role as the Deploy workflow: it reads where a stage's server is
+# from the stacks), and nothing is published anywhere: the apps are left as artifacts of the run (Actions > the run > Artifacts), to be installed or uploaded to the Play Console by hand.
+#
+#   dev   "Dev PuzzleVidio" (com.tempest.photopuzzles.dev), a debug build (signed with the debug key), for the dev stage's server and the dev ad unit. Needs nothing but the variables below.
+#   prod  "PuzzleVidio" (com.tempest.photopuzzles), the signed bundle (.aab) for the Play Console and a signed .apk, for the prod stage's server and the prod ad unit.
+#
+# The repository needs these (Settings > Secrets and variables > Actions); android/README.md has the commands:
+#   variables  AWS_DEPLOY_ROLE_ARN (the Deploy workflow's), ADMOB_APP_ID, ADMOB_UNIT_DEV, ADMOB_UNIT_PROD; optional: ADMOB_TEST_DEVICES (your phones, comma-separated: they are shown test ads)
+#              and the Deploy workflow's GOOGLE_CLIENT_ID, GOOGLE_SECRET_NAME, LEGAL_OPERATOR, LEGAL_CONTACT, LEGAL_LAW
+#   secrets    (prod only) ANDROID_KEYSTORE_B64 (the upload keystore, base64), ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+# The version code of the app is the number of this run plus 10 (every upload to the Play Console needs a higher one than the one before).
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: Which app
+        type: choice
+        options: [both, dev, prod]
+        default: both
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: android-build
+
+jobs:
+  build:
+    name: Build ${{ matrix.stage }}
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        stage: ${{ fromJSON(inputs.build == 'both' && '["dev","prod"]' || format('["{0}"]', inputs.build)) }}
+    env:
+      STAGE: ${{ matrix.stage }}
+      AWS_REGION: us-east-1
+      VERSION_CODE_OFFSET: 10
+    steps:
+      - name: What is needed is there
+        env:
+          APP_ID: ${{ vars.ADMOB_APP_ID }}
+          UNIT: ${{ matrix.stage == 'prod' && vars.ADMOB_UNIT_PROD || vars.ADMOB_UNIT_DEV }}
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ROLE: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          missing=""
+          [ -n "$ROLE" ] || missing="$missing AWS_DEPLOY_ROLE_ARN"
+          [ -n "$APP_ID" ] || missing="$missing ADMOB_APP_ID"
+          [ -n "$UNIT" ] || missing="$missing ADMOB_UNIT_${STAGE^^}"
+          if [ "$STAGE" = prod ]; then
+            [ -n "$KEYSTORE" ] || missing="$missing ANDROID_KEYSTORE_B64"
+            [ -n "$KEY_ALIAS" ] || missing="$missing ANDROID_KEY_ALIAS"
+          fi
+          if [ -n "$missing" ]; then
+            echo "::error::Set these first (android/README.md says how):$missing"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - run: npm ci
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      # The ad ids and the phones that are shown test ads (none of it secret, but kept out of the repository, as on a developer's machine).
+      - name: The ids of the ads
+        env:
+          APP_ID: ${{ vars.ADMOB_APP_ID }}
+          UNIT_DEV: ${{ vars.ADMOB_UNIT_DEV }}
+          UNIT_PROD: ${{ vars.ADMOB_UNIT_PROD }}
+          TEST_DEVICES: ${{ vars.ADMOB_TEST_DEVICES }}
+        run: |
+          {
+            echo "admob.appId=$APP_ID"
+            echo "admob.rewardedUnit.dev=$UNIT_DEV"
+            echo "admob.rewardedUnit.prod=$UNIT_PROD"
+            echo "admob.testDevices=$TEST_DEVICES"
+          } > android/local.properties
+
+      # The key that the Play Console knows (the upload key); written for this run and taken away after it.
+      - name: The upload key
+        if: matrix.stage == 'prod'
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE" | base64 -d > android/upload.jks
+          {
+            echo "storeFile=upload.jks"
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > android/keystore.properties
+
+      # The game's own build for this stage goes into the app (where the stage's server and sign-in are comes from its stacks: scripts/android-web.mjs).
+      - name: Build the game for the app
+        env:
+          VITE_GOOGLE_SIGNIN: ${{ vars.GOOGLE_CLIENT_ID != '' && vars.GOOGLE_SECRET_NAME != '' && 'yes' || '' }}
+          LEGAL_OPERATOR: ${{ vars.LEGAL_OPERATOR }}
+          LEGAL_CONTACT: ${{ vars.LEGAL_CONTACT }}
+          LEGAL_LAW: ${{ vars.LEGAL_LAW }}
+        run: node scripts/android-web.mjs "$STAGE"
+
+      - name: Build the app
+        working-directory: android
+        run: |
+          code=$((GITHUB_RUN_NUMBER + VERSION_CODE_OFFSET))
+          args="-PversionCode=$code -PversionName=0.1.$GITHUB_RUN_NUMBER"
+          if [ "$STAGE" = prod ]; then
+            ./gradlew --no-daemon bundleRelease assembleRelease $args
+          else
+            ./gradlew --no-daemon assembleDebug $args
+          fi
+          echo "Version code $code (name 0.1.$GITHUB_RUN_NUMBER), commit $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Take the key away
+        if: always()
+        run: rm -f android/upload.jks android/keystore.properties android/local.properties
+
+      - name: The dev app
+        if: matrix.stage == 'dev'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-app
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+      - name: The prod app
+        if: matrix.stage == 'prod'
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-app
+          path: |
+            android/app/build/outputs/bundle/release/app-release.aab
+            android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 14
