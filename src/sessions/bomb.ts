@@ -39,8 +39,9 @@ interface Smoke {
   size: number;
 }
 
-/** The fire starts over this long after the landing, each circle at its own moment. */
-const BLAST_MS = 420;
+/** The fire is this many circles, one every `BURST_MS` from the landing. */
+const BURSTS = 20;
+const BURST_MS = 100;
 const FIRE_MIN_MS = 260;
 const FIRE_MAX_MS = 460;
 const SMOKE_MIN_MS = 500;
@@ -67,7 +68,7 @@ export class BombFx {
   /** The bomb begins to fall (it lands `FALL_MS` from `now`). */
   drop(plan: BombPlan, now: number): void {
     if (!this.enabled()) return;
-    this.bomb = { x: plan.x, y: plan.y, size: plan.unit * 1.1, at: now };
+    this.bomb = { x: plan.x, y: plan.y, size: plan.unit * 0.55, at: now };
   }
 
   /** The bomb lands: it is gone, and the explosion begins. */
@@ -76,23 +77,16 @@ export class BombFx {
     if (!this.enabled()) return;
     const { x, y, unit, area, lo, hi } = plan;
     this.flash = { x, y, size: unit * 2, at: now };
-    const total = area.reduce((n, r) => n + r.w * r.h, 0);
-    const count = Math.min(90, Math.max(10, Math.round((total / (unit * unit)) * 0.9)));
-    for (let i = 0; i < count; i++) {
-      // a place in the area that is to be cleared (a little beyond it too), chosen by the size of each piece's rectangle
-      let pick = Math.random() * total;
-      let r = area[area.length - 1];
-      for (const candidate of area) {
-        pick -= candidate.w * candidate.h;
-        if (pick <= 0) {
-          r = candidate;
-          break;
-        }
-      }
-      const slack = unit * 0.25;
-      const px = r ? between(r.x - slack, r.x + r.w + slack) : x + between(-unit, unit);
-      const py = r ? between(r.y - slack, r.y + r.h + slack) : y + between(-unit, unit);
-      const at = now + Math.random() * BLAST_MS;
+    // far enough out to reach the farthest corner of what is to be cleared (and never less than a cell or two)
+    let reach = unit * 1.5;
+    for (const r of area) for (const cx of [r.x, r.x + r.w]) for (const cy of [r.y, r.y + r.h]) reach = Math.max(reach, Math.hypot(cx - x, cy - y));
+    let angle = Math.random() * Math.PI * 2;
+    for (let i = 0; i < BURSTS; i++) {
+      if (i > 0) angle += between(Math.PI / 2, (Math.PI * 3) / 2);          // (each is 90 to 270 degrees round from the one before)
+      const dist = Math.random() * reach;
+      const px = x + Math.cos(angle) * dist;
+      const py = y + Math.sin(angle) * dist;
+      const at = now + i * BURST_MS;
       this.fire.push({ x: px, y: py, at, life: between(FIRE_MIN_MS, FIRE_MAX_MS), size: unit * between(lo, hi), colour: `hsl(${Math.round(between(0, 58))}, 100%, ${Math.round(between(48, 58))}%)` });
       this.smoke.push({
         x: px,

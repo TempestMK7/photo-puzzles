@@ -1,4 +1,5 @@
 import { nearPoint } from './help';
+import { prefillPatches } from './prefill';
 import { Rng } from './rng';
 
 export interface Cell {
@@ -28,7 +29,7 @@ export interface OverlapOptions {
   rows: number;
   /** Start some pieces turned. */
   turned: boolean;
-  /** Percent of the pieces that are already in place at the start. */
+  /** Percent of the board's cells that are filled in at the start: only overlap cells, never a piece's own, in patches (see `prefillPatches`). No piece is in place. */
   placed: number;
   /** Some pieces have a window cell. */
   windows: boolean;
@@ -42,8 +43,8 @@ export interface OverlapSetup {
   pieces: PieceDef[];
   /** Turn each piece starts off by (quarter turns clockwise from its home orientation). */
   rot: number[];
-  /** Pieces already in place at the start. */
-  placedAtStart: number[];
+  /** The cells (row by row) that show the picture from the start: overlap cells only. */
+  prefilled: number[];
   /** The stacks, bottom to top. */
   stacks: number[][];
 }
@@ -60,7 +61,8 @@ export function overlapGrid(total: number, width: number, height: number): { col
 /**
  * Lays the pieces over the grid and shuffles them. The cells are divided like a checkerboard: every other cell is a piece's own cell (its centre, which nothing else covers),
  * the others are overlap cells, each of which two or more pieces cover. Each piece is a centre cell and two to four of the overlap cells next to it, so it has three to five
- * cells; every overlap cell is covered by at least two pieces (the two it touches, for a corner). Then some pieces are put in place and the rest dealt to the stacks (three unless `o.stacks` says otherwise).
+ * cells; every overlap cell is covered by at least two pieces (the two it touches, for a corner). Then every piece is dealt to the stacks (three unless `o.stacks` says otherwise), and some of the overlap cells are filled in (`o.placed`; they come last, so that the same seed
+ * gives the same pieces whatever the share is).
  * Everything comes from the seed.
  */
 export function generateOverlap(rng: Rng, o: OverlapOptions): OverlapSetup {
@@ -105,14 +107,13 @@ export function generateOverlap(rng: Rng, o: OverlapOptions): OverlapSetup {
     [pieces[i], pieces[j]] = [pieces[j], pieces[i]];
   }
   pieces.forEach((p, i) => (p.id = i));
-  const placedCount = Math.min(pieces.length - 1, Math.round((pieces.length * Math.min(50, Math.max(0, o.placed))) / 100));
-  const rot = pieces.map((_, i) => (i < placedCount || !o.turned ? 0 : rng.below(4)));
+  const rot = pieces.map(() => (o.turned ? rng.below(4) : 0));
   // windows: an overlap cell that other pieces cover too, so it always gets revealed; `solid` counts the pieces that cover a cell and reveal it
   const cellsOf = (p: PieceDef): number[] => [p.cy * cols + p.cx, ...p.arms.map((d) => (p.cy + DIRS[d].y) * cols + p.cx + DIRS[d].x)];
   const solid = new Array<number>(cols * rows).fill(0);
   for (const p of pieces) for (const cell of cellsOf(p)) solid[cell]++;
   if (o.windows) {
-    for (let i = placedCount; i < pieces.length; i++) {
+    for (let i = 0; i < pieces.length; i++) {
       if (rng.below(3) !== 0) continue;
       const p = pieces[i];
       const cells = cellsOf(p);
@@ -125,9 +126,10 @@ export function generateOverlap(rng: Rng, o: OverlapOptions): OverlapSetup {
   const stackN = Math.max(1, Math.floor(o.stacks ?? STACKS));
   const stacks: number[][] = Array.from({ length: stackN }, () => []);
   let dealt = 0;
-  for (let i = placedCount; i < pieces.length; i++) stacks[dealt++ % stackN].push(i);
+  for (let i = 0; i < pieces.length; i++) stacks[dealt++ % stackN].push(i);
   for (const st of stacks) st.sort((a, b) => Number(pieces[a].marker >= 0) - Number(pieces[b].marker >= 0));        // pieces with a window lie on top, where they can be seen (the sort is stable)
-  return { cols, rows, pieces, rot, placedAtStart: pieces.slice(0, placedCount).map((p) => p.id), stacks };
+  const filled = Math.round((cols * rows * Math.min(50, Math.max(0, o.placed))) / 100);
+  return { cols, rows, pieces, rot, prefilled: prefillPatches(rng, cols, rows, (x, y) => !isCentre(x, y), filled), stacks };
 }
 
 export type DropResult = 'placed' | 'wrong';
@@ -161,7 +163,7 @@ export class OverlapGame {
     this.stacks = setup.stacks.map((s) => [...s]);
     this.revealed = new Array<boolean>(this.cols * this.rows).fill(false);
     this.done = new Array<boolean>(this.pieces.length).fill(false);
-    for (const id of setup.placedAtStart) this.reveal(id);
+    for (const cell of setup.prefilled) this.revealed[cell] = true;
   }
 
   /** Everything that changes while the puzzle is played, as plain data (the rest follows from the seed). */

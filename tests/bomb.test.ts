@@ -86,8 +86,8 @@ describe('BombFx, the bomb that falls and explodes', () => {
   it('keeps the smoke going after the fire, and then nothing is left', () => {
     const fx = new BombFx();
     fx.explode(plan(), 0);
-    expect(fx.draw(canvas().ctx, 800)).toBe(true);                              // (the fire has begun by 420 ms at the latest and lasts 460; smoke lasts a second from its start)
-    expect(fx.draw(canvas().ctx, 2000)).toBe(false);
+    expect(fx.draw(canvas().ctx, 800)).toBe(true);                              // (the last burst begins 1.9 s in)
+    expect(fx.draw(canvas().ctx, 4000)).toBe(false);
     expect(fx.active).toBe(false);
   });
 
@@ -111,19 +111,40 @@ describe('BombFx, the bomb that falls and explodes', () => {
     expect(fx.active).toBe(false);
   });
 
-  it('puts the fire in the area that the bomb clears (a little beyond it too)', () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0);
+  it('is smaller than a cell, about half of what it was', () => {
     const fx = new BombFx();
-    fx.explode(plan({ area: [{ x: 50, y: 60, w: 20, h: 20 }] }), 0);
+    fx.drop(plan({ unit: 10 }), 0);
     const c = canvas();
-    fx.draw(c.ctx, 100);
-    const fire = c.circles.filter((x) => /hsl/.test(x.colour));
-    expect(fire.length).toBeGreaterThan(0);
-    for (const x of fire) {
-      expect(x.x).toBeGreaterThanOrEqual(50 - 2.5 - 1e-6);
-      expect(x.y).toBeGreaterThanOrEqual(60 - 2.5 - 1e-6);
-      expect(x.x).toBeLessThanOrEqual(70 + 2.5 + 1e-6);
-      expect(x.y).toBeLessThanOrEqual(80 + 2.5 + 1e-6);
+    fx.draw(c.ctx, FALL_MS);
+    const body = c.circles.find((x) => x.colour === '#17120f')!;
+    expect(body.r * 2).toBeCloseTo(5.5);
+  });
+
+  it('plays twenty bursts of fire, a tenth of a second apart, each at an angle 90 to 270 degrees round from the one before and at a distance of its own', () => {
+    const fx = new BombFx();
+    const p = plan({ area: [{ x: 60, y: 60, w: 80, h: 80 }] });
+    fx.explode(p, 0);
+    const seen = new Map<string, { x: number; y: number; first: number }>();
+    for (let t = 0; t < 2400; t += 10) {
+      const c = canvas();
+      fx.draw(c.ctx, t);
+      for (const x of c.circles) {
+        if (!/hsl/.test(x.colour)) continue;
+        const key = x.colour + x.x.toFixed(4) + x.y.toFixed(4);
+        if (!seen.has(key)) seen.set(key, { x: x.x, y: x.y, first: t });
+      }
     }
+    const bursts = [...seen.values()].sort((a, b) => a.first - b.first);
+    expect(bursts).toHaveLength(20);
+    bursts.forEach((b, i) => expect(Math.abs(b.first - i * 100)).toBeLessThanOrEqual(10));
+    const angles = bursts.map((b) => Math.atan2(b.y - p.y, b.x - p.x));
+    const dists = bursts.map((b) => Math.hypot(b.x - p.x, b.y - p.y));
+    for (let i = 1; i < angles.length; i++) {
+      const turn = (((angles[i] - angles[i - 1]) * 180) / Math.PI + 360) % 360;
+      expect(turn).toBeGreaterThanOrEqual(90 - 1e-6);
+      expect(turn).toBeLessThanOrEqual(270 + 1e-6);
+    }
+    expect(new Set(dists.map((d) => d.toFixed(3))).size).toBeGreaterThan(10);          // (a distance of its own)
+    expect(Math.max(...dists)).toBeLessThanOrEqual(Math.hypot(100, 100) + 1e-6);       // (not past the farthest corner of what is cleared)
   });
 });

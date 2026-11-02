@@ -8,7 +8,7 @@ import { findKind, optionsOf } from '../src/core/kinds';
 const SETUPS: Record<BoardKind, RoomSetup> = {
   focus: { kind: 'focus', seed: 11, width: 400, height: 300, opts: { pieces: 50, irregular: 1 } },
   overlap: { kind: 'overlap', seed: 12, width: 400, height: 300, opts: { total: 100, stacks: 3, turned: 1, windows: 1, placed: 20 } },
-  strips: { kind: 'strips', seed: 13, width: 400, height: 300, opts: { cells: 100, length: 6, tabs: 4, placed: 20 } },
+  strips: { kind: 'strips', seed: 13, width: 400, height: 300, opts: { cells: 100, length: 6, tabs: 4 } },
 };
 
 const placedCount = (b: ReturnType<typeof buildBoard>): number =>
