@@ -49,7 +49,7 @@ describe('the admin page', () => {
     expect(targets).toContain(web![0]);
     const st = statementsOf(prod, /^AdminWebServiceRole|AdminWebDefaultPolicy/);
     const pool = st.filter((x) => actionsOf([x]).some((a) => a.startsWith('cognito-idp:')));
-    expect(pool.map((x) => actionsOf([x]).join())).toEqual(['cognito-idp:ListUsers']);
+    expect(pool.map((x) => actionsOf([x]).join())).toEqual(['cognito-idp:ListUsers,cognito-idp:ListUsersInGroup']);          // (the second shows which accounts are in the administrators' group)
     const logs = st.filter((x) => actionsOf([x]).some((a) => a.startsWith('logs:') && a !== 'logs:CreateLogStream' && a !== 'logs:PutLogEvents'));
     expect(logs.map((x) => actionsOf([x]).join()).sort()).toEqual(['logs:DescribeLogGroups', 'logs:FilterLogEvents']);
     const filter = logs.find((x) => actionsOf([x]).includes('logs:FilterLogEvents'))!;

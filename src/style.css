@@ -283,6 +283,7 @@ body.dragging .library::after {
 .dialog p { margin: 4px 0; }
 .dialog .best { color: var(--accent2); font-weight: 600; margin-bottom: 14px; }
 .dialog .buttons { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.dialog .buttons + .buttons { margin-top: 10px; }
 .zoom {
   position: absolute; right: 14px; bottom: max(14px, env(safe-area-inset-bottom)); display: flex; align-items: stretch; background: var(--panel); border: 1px solid var(--line);
   border-radius: 8px; overflow: hidden; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5); user-select: none;
