@@ -9,6 +9,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.window.OnBackInvokedDispatcher;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.WindowInsets;
@@ -75,6 +76,8 @@ public class MainActivity extends Activity {
         web.setBackgroundColor(BACKGROUND);
         root.addView(web, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
+        // from Android 13 on, Back goes through a callback of the activity (on 36 and later onBackPressed is not called at all); before that onBackPressed is what it calls
+        if (Build.VERSION.SDK_INT >= 33) getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::leave);
         // keep clear of the status and navigation bars
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             v.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(), insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
@@ -471,6 +474,10 @@ public class MainActivity extends Activity {
     /** Back leaves a puzzle (like Escape); on the main screen it closes the app. */
     @Override
     public void onBackPressed() {
+        leave();
+    }
+
+    private void leave() {
         web.evaluateJavascript(
             "(function(){var p=document.querySelector('.play');if(p&&!p.hidden){window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));return 'play';}return 'home';})()",
             value -> {

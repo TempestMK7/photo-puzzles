@@ -24,13 +24,13 @@ def admobTestDevices = (project.findProperty('admobTestDevices') ?: local.getPro
 
 android {
     namespace "com.tempest.photopuzzles"
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         // the dev build is an app of its own, so that it can sit beside the real one on a phone: its own package id (and so its own storage), name and sign-in return address
         applicationId webStage == 'dev' ? "com.tempest.photopuzzles.dev" : "com.tempest.photopuzzles"
         minSdk 24
-        targetSdk 35
+        targetSdk 36
         // the workflow (.github/workflows/android.yml) sets both: the version code is the run number plus 10, because every upload to the Play Console needs a higher one
         versionCode Integer.parseInt((project.findProperty("versionCode") ?: "1").toString())
         versionName (project.findProperty("versionName") ?: "0.1")
