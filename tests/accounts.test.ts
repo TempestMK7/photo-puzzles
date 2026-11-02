@@ -23,7 +23,7 @@ describe.each(stores)('accounts and credits on %s', (_name, store) => {
     it('is made free, with the starting photo credits and no video credits, the first time it is asked about', async () => {
       const w = world();
       expect(await w.store.getAccount('ann')).toBeUndefined();
-      expect(await w.service.summary(ann)).toEqual({ type: 'free', photo: 5, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 5, videoAdsLeft: 0, adPhoto: 5, adVideo: 1, hints: 10, bombs: 2, hintsInfinite: false, bombsInfinite: false, earnPerDay: 10, earnLeft: 10, earnInfinite: false });
+      expect(await w.service.summary(ann)).toEqual({ type: 'free', photo: 5, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 5, videoAdsLeft: 0, adPhoto: 5, adVideo: 1, hints: 10, bombs: 2, hintsInfinite: false, bombsInfinite: false, earnPerDay: 10, earnLeft: 10, earnInfinite: false, helpAdReady: true, helpAdIn: 0, helpAdHints: 5, helpAdBombs: 1, helpAdNoAd: false });
       expect(await w.store.getAccount('ann')).toMatchObject({ type: 'free', photo: 5, video: 0 });
       expect(await w.service.profile(ann)).toMatchObject({ ok: true, id: 'ann', account: { type: 'free', photo: 5 } });
     });

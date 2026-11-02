@@ -87,6 +87,12 @@ connection; solved puzzles ask for their hints with `POST /items/award` (the ser
 when starting it whether hints and bombs may be used (off unless ticked); each player then uses their own, as an operation of the room (`hint` and `bomb` of `BoardOp` and `JigsawOp`) that the server
 takes from the player's account and gives back if the room does not take it, and when the puzzle is solved the server gives every member with an account its hints. They do not change best times.
 
+**More hints and bombs from an ad.** The header of a puzzle that has hints and bombs also has a **Get more** button (`src/ui/morehelp.ts`). About every half an hour (the server makes the wait random, from 20 to 40
+minutes: `helpAdMs`, kept on the account as `helpAdAt`; the first one is ready at once) it lights up (a pulsing gold border and a star) and opens a window where the player chooses **5 hints** (`adHints`) or **1 bomb**
+(`adBombs`): a free account watches a rewarded ad for them in the Android or iOS app (the same flow as the credits: `POST /credits/ad/start`, the ad network's signed report, `kind` `hint` or `bomb`; the server shows no
+ad for nothing, so it refuses one that is not ready), and a **paid, family or admin account is just given them** for the press of the button (`POST /items/reward`), as often as a free account could watch. One wait
+for both, whichever was chosen. They are on top of what solved puzzles give (they do not use up or count against the daily limit on earned hints). On the web page, Steam and itch a free account has no ads, so it has no button.
+
 **Touch.** On a touch screen the dragging puzzles (Overlap, Strips, Jigsaw) hold a piece you pick up 76 px above your finger (it rises over a tenth of a second, and stays at least 24 px from the
 top of the screen) so that the finger does not hide it; a mouse or a pen holds it where it is, and the **Raise piece above touch point** setting switches it off. Every puzzle gives a small
 vibration at its key moments (the **Vibration** setting). Tile Swap: each piece you select (and the swap); Sliding Tiles and Rotascope: a piece

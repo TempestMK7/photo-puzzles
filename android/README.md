@@ -29,7 +29,7 @@ A thin shell around the game: one `WebView` that shows the web build packed in `
 
 ## Ads
 
-- **Where they are:** only here. Steam, itch and the web page have no ad code. The page shows the "watch an ad" button only where `PhotoPuzzlesNative.showRewardedAd` exists, and (by the server's rules) only to an account that has no credits left (a free account's photo credits, a paid account's video credits), a few times a day.
+- **Where they are:** only here. Steam, itch and the web page have no ad code. The page shows the "watch an ad" button only where `PhotoPuzzlesNative.showRewardedAd` exists, and (by the server's rules) only to an account that has no credits left (a free account's photo credits, a paid account's video credits), a few times a day; or, in a puzzle, for hints or a bomb (`kind` `'hint'` or `'bomb'`: 5 hints or 1 bomb, one ad about every half an hour, whether or not the account has any left). The shell does not care which: it passes `kind` through.
 - **How an ad goes:** the page asks the server first (`POST /credits/ad/start`), which says whether the account is owed credits and gives a one-time number. The page calls `showRewardedAd(kind, nonce)`; `Ads.java` shows the ad with the number as its custom data (**server-side verification**); AdMob then tells the server (`GET /credits/ad/callback`, signed) that the ad was watched, and the server gives the credits. The app only tells the page how the ad went (the window event `photopuzzles-ad`: `{ kind, rewarded, error }`). Nothing the page says can give credits.
 - **The ids.** Until there are real ones the app uses **Google's test ids** (test ads, which earn nothing). Put the real ones in `android/local.properties` (not kept in the repository) or on the command line:
   ```

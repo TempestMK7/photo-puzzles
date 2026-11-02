@@ -197,6 +197,17 @@ body.dragging .library::after {
 .play .helps button .n { margin-left: 4px; opacity: 0.75; font-variant-numeric: tabular-nums; }
 .play .helps button:disabled { opacity: 0.45; cursor: not-allowed; }
 .play canvas.board.helping { cursor: crosshair; }
+/* the button for more hints and bombs lights up (and says so with its star) when an ad for them, or the same without an ad, is ready */
+.play .helps button.more.glow { color: var(--text); border-color: #ffd84a; box-shadow: 0 0 0 0 rgba(255, 216, 74, 0.7); animation: more-pulse 1.8s ease-out infinite; }
+@keyframes more-pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 216, 74, 0.7); } 70% { box-shadow: 0 0 0 9px rgba(255, 216, 74, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 216, 74, 0); } }
+@media (prefers-reduced-motion: reduce) { .play .helps button.more.glow { animation: none; box-shadow: 0 0 0 3px rgba(255, 216, 74, 0.55); } }
+.stage .getmore { position: absolute; right: 12px; top: 10px; z-index: 7; width: min(300px, calc(100% - 24px)); padding: 10px 14px 12px; border-radius: 12px; background: var(--panel2); border: 1px solid var(--accent2); color: var(--text); font-size: 14px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.stage .getmore[hidden] { display: none; }
+.stage .getmore header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.stage .getmore h3 { margin: 0; font-size: 15px; }
+.stage .getmore .body { display: flex; flex-direction: column; gap: 8px; }
+.stage .getmore p { margin: 0; }
+.stage .getmore .dim { color: var(--dim); font-size: 12px; }
 /* the line over the board that says what the chosen hint or bomb will do */
 .stage .helpnote { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 6; max-width: calc(100% - 24px); padding: 6px 14px; border-radius: 16px; width: max-content; background: var(--panel2); border: 1px solid var(--accent2); color: var(--text); font-size: 13px; text-align: center; pointer-events: none; }
 .play .stats { display: flex; gap: 14px; font-variant-numeric: tabular-nums; color: var(--dim); }

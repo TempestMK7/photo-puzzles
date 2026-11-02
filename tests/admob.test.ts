@@ -119,7 +119,7 @@ describe.each(stores)('a rewarded ad, from the game to the credits, on %s', (_na
     (w.service as unknown as { d: { adCallbacks: AdCallbacks } }).d.adCallbacks = callbacks;
     return w;
   }
-  const start = (w: World, who = ann, kind: 'photo' | 'video' = 'photo') => w.service.adStart(who, { kind, platform: 'android' });
+  const start = (w: World, who = ann, kind: 'photo' | 'video' | 'hint' | 'bomb' = 'photo') => w.service.adStart(who, { kind, platform: 'android' });
   const reward = (w: World, nonce: string, tx: string, extra: Record<string, string | number> = {}) => w.service.adCallback(callback({ custom_data: nonce, transaction_id: tx, timestamp: w.clock.t, ...extra }));
   const credits = async (w: World, who = ann) => (await w.service.summary(who)).photo;
   const zero = (w: World, id = 'ann', c: { photo?: number; video?: number } = { photo: 0 }) => w.service.adminSetAccount(id, c);
@@ -132,6 +132,22 @@ describe.each(stores)('a rewarded ad, from the game to the credits, on %s', (_na
     expect(await w.service.adStart(ann, { kind: 'audio' as never, platform: 'ios' })).toEqual({ ok: false, error: 'bad-request' });
     expect(await w.service.adStart({ id: 'gx1', name: 'G', guest: true }, { kind: 'photo', platform: 'ios' })).toEqual({ ok: false, error: 'account-required' });
     expect(await start(w, ann, 'video')).toMatchObject({ ok: false, reason: 'plan' });                    // a free account gets nothing for a video ad
+  });
+
+  it('gives hints or a bomb, and starts the wait for the next ad, when AdMob says an ad for them was watched', async () => {
+    const w = worldWithAds();
+    const hints = await start(w, ann, 'hint');
+    if (!hints.ok) throw new Error(hints.error);
+    expect(await reward(w, hints.nonce, 'TX-H1')).toBe(true);
+    expect(await w.service.summary(ann)).toMatchObject({ hints: 15, bombs: 2, helpAdReady: false, photo: 5 });
+    expect(await reward(w, hints.nonce, 'TX-H1')).toBe(true);                                         // (AdMob asking again: no second grant)
+    expect((await w.service.summary(ann)).hints).toBe(15);
+    expect(await start(w, ann, 'bomb')).toMatchObject({ ok: false, reason: 'wait' });                  // (one every so often: no ad is shown for nothing)
+    w.clock.t += 41 * 60_000;
+    const bomb = await start(w, ann, 'bomb');
+    if (!bomb.ok) throw new Error(bomb.error);
+    expect(await reward(w, bomb.nonce, 'TX-H2')).toBe(true);
+    expect(await w.service.summary(ann)).toMatchObject({ hints: 15, bombs: 3 });
   });
 
   it('is refused when the server has no way to tell that an ad was watched, unless the operator takes the game’s word', async () => {

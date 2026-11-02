@@ -1,4 +1,4 @@
-import type { AdRequest, AdStartRequest, AwardRequest, CommandRequest, CreateRoomRequest, ItemRequest, JoinRequest, ApiError, PlaybackRequest, ReportRequest } from '../../src/online/protocol';
+import type { AdRequest, AdStartRequest, AwardRequest, RewardRequest, CommandRequest, CreateRoomRequest, ItemRequest, JoinRequest, ApiError, PlaybackRequest, ReportRequest } from '../../src/online/protocol';
 import type { RoomService } from './service';
 import { clientKey, type RateLimiter } from './ratelimit';
 import { stockSitesOf, type StockProviders } from './stock';
@@ -174,6 +174,10 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
     if (parts[0] === 'items' && parts[1] === 'use' && parts.length === 2 && req.method === 'POST') {
       const body = json<ItemRequest>(req);
       return body ? reply(await service.useItem(player, body)) : bad;
+    }
+    if (parts[0] === 'items' && parts[1] === 'reward' && parts.length === 2 && req.method === 'POST') {
+      const body = json<RewardRequest>(req);
+      return body ? reply(await service.rewardHelp(player, body)) : bad;
     }
     if (parts[0] === 'items' && parts[1] === 'award' && parts.length === 2 && req.method === 'POST') {
       const body = json<AwardRequest>(req);

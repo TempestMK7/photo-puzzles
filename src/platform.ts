@@ -1,9 +1,9 @@
-import type { AdPlatform } from './online/protocol';
+import type { AdKind, AdPlatform } from './online/protocol';
 
 /**
  * Where the game is running, for the one thing that depends on it: rewarded ads, which only the mobile apps may show (Steam and itch forbid them, and the web page has no ad network).
  *
- * - The mobile apps are a shell around the page that offers `window.PhotoPuzzlesNative`. For ads it adds `showRewardedAd(kind, nonce)` (`kind` is `'photo'` or `'video'`; `nonce` is the
+ * - The mobile apps are a shell around the page that offers `window.PhotoPuzzlesNative`. For ads it adds `showRewardedAd(kind, nonce)` (`kind` is `'photo'`, `'video'`, `'hint'` or `'bomb'`; `nonce` is the
  *   one-time number that the server gave for this ad, which the shell gives the ad network as the ad's custom data, so that the network's report to the server can be matched to the account),
  *   which starts an ad and returns at once; when the ad is over the shell fires the window event `photopuzzles-ad` with `detail` `{ kind, rewarded, error? }` (`rewarded`: the player watched it
  *   to the end; `error`: `no-ad` when there was none to show, `consent` when the player has not agreed to ads where the law asks). The credits themselves come from the ad network's
@@ -99,7 +99,7 @@ export function adPrivacy(host: Native | undefined = nativeHost()): (() => void)
 const AD_GIVE_UP_MS = 5 * 60_000;
 
 /** Shows a rewarded ad (in an app that can) and waits for the shell to say how it went. Nothing is rewarded when there is no ad to show. */
-export function watchAd(kind: 'photo' | 'video', nonce: string, host: Native | undefined = nativeHost(), target: Pick<Window, 'addEventListener' | 'removeEventListener'> | undefined = typeof window === 'undefined' ? undefined : window): Promise<AdResult> {
+export function watchAd(kind: AdKind, nonce: string, host: Native | undefined = nativeHost(), target: Pick<Window, 'addEventListener' | 'removeEventListener'> | undefined = typeof window === 'undefined' ? undefined : window): Promise<AdResult> {
   return new Promise((resolve) => {
     if (typeof host?.showRewardedAd !== 'function' || !target) return resolve({ rewarded: false });
     const done = (r: AdResult) => {

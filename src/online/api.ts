@@ -104,6 +104,11 @@ export class OnlineApi implements RoomApi {
     return this.call('POST', '/items/award', { size });
   }
 
+  /** A paid account takes the hints or the bomb that a free account watches an ad for (when they are ready). */
+  rewardHelp(item: 'hint' | 'bomb'): Promise<ItemResponse | Offline> {
+    return this.call('POST', '/items/reward', { item });
+  }
+
   /** The game is about to show a rewarded ad: asks whether the account is owed credits for one, and for the number that goes with the ad. */
   adStart(req: AdStartRequest): Promise<AdStartResponse | Offline> {
     return this.call('POST', '/credits/ad/start', req);

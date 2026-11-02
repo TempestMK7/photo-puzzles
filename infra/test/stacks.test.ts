@@ -307,6 +307,7 @@ describe('api', () => {
         ['POST /credits/ad/start', 'JWT'],
         ['POST /items/use', 'JWT'],              // hints and bombs: an account's (a guest has none)
         ['POST /items/award', 'JWT'],
+        ['POST /items/reward', 'JWT'],           // the same for an account that is not shown ads
         ['GET /credits/ad/callback', 'NONE'],    // the ad network's own call: signed, checked in the function
         ['GET /rooms', 'NONE'],                  // from here the function checks the token itself, a Cognito one or a guest's
         ['GET /rooms/{proxy+}', 'NONE'],

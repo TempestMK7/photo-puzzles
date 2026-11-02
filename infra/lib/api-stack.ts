@@ -171,6 +171,7 @@ export class ApiStack extends Stack {
     // hints and bombs: an account's too
     this.api.addRoutes({ path: '/items/use', methods: [POST], integration, authorizer: jwt });
     this.api.addRoutes({ path: '/items/award', methods: [POST], integration, authorizer: jwt });
+    this.api.addRoutes({ path: '/items/reward', methods: [POST], integration, authorizer: jwt });
     // the ad network's own call, when a rewarded ad was watched: no sign-in, it is signed (and only a signature from AdMob, for one of our ad units, is believed)
     this.api.addRoutes({ path: '/credits/ad/callback', methods: [GET], integration });
     this.api.addRoutes({ path: '/media/{id}', methods: [PUT], integration });
