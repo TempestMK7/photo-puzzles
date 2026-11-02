@@ -8,6 +8,7 @@
 // describe those stacks (set AWS_PROFILE, and on a machine whose HTTPS is intercepted AWS_CA_BUNDLE). LEGAL_OPERATOR, LEGAL_CONTACT and LEGAL_LAW (what the Deploy workflow gets from the
 // repository's variables) are passed on to the privacy page and the terms in the build if they are set.
 import { execFileSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -48,4 +49,6 @@ if (stage !== 'offline') {
 }
 
 execFileSync('npx', ['vite', 'build', '--outDir', 'android/app/src/main/assets/www', '--emptyOutDir'], { cwd: root, env, stdio: 'inherit', shell: process.platform === 'win32' });
+// which stage's AdMob ad unit the app is built with (android/app/build.gradle reads it)
+writeFileSync(resolve(root, 'android/web-stage.txt'), `${stage}\n`);
 console.log(`\nThe ${stage} build is in android/app/src/main/assets/www. Now build the app: see android/README.md.`);
