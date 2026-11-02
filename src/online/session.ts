@@ -1,7 +1,8 @@
 import type { Offline } from './api';
 import type { GuestAccount } from './guestAccount';
 import type { Account, PasswordAccount } from './identity';
-import { cleanName, GUEST_ACCOUNT, type AccountSummary, type ApiFailure, type MeResponse } from './protocol';
+import { cleanName, GUEST_ACCOUNT, type AccountSummary, type ApiFailure, type HelpItem, type ItemResponse, type MeResponse } from './protocol';
+import { SpendQueue } from './spends';
 
 const NAME_KEY = 'photo-puzzles/online/player-name';
 
@@ -11,7 +12,12 @@ export interface ProfileApi {
   setName(name: string): Promise<MeResponse | ApiFailure | Offline>;
   /** A new account takes the hints and bombs of the guest it was (`guest` is the guest's token). */
   carryGuest(guest: string): Promise<MeResponse | ApiFailure | Offline>;
+  /** Spends a hint or a bomb (`id` makes it count once, however often it is sent). */
+  useItem?(item: HelpItem, id: string): Promise<ItemResponse | Offline>;
 }
+
+/** How long after a spend could not be sent the game tries again, if nothing else has reminded it (the connection coming back, the page being shown). */
+const SPEND_RETRY_MS = 20_000;
 
 export type Kind = 'account' | 'guest' | 'none';
 
@@ -30,6 +36,13 @@ export class OnlineSession implements Account {
   /** What the server said the signed-in account has (its type and credits), as of the last time it was asked or told. */
   private standing: { id: string; summary: AccountSummary } | null = null;
   private listeners = new Set<() => void>();
+  /** The hints and bombs that were used and have not reached the server yet: the counters show what is held less these. */
+  private spends: SpendQueue;
+  private flushing = false;
+  private retry: ReturnType<typeof setTimeout> | null = null;
+  private derived: { from: AccountSummary; key: string; value: AccountSummary } | null = null;
+  /** Told when the server had no hint or bomb left for a spend that was counted here (the account it was told about had fewer). */
+  onSpendRefused: ((item: HelpItem) => void) | null = null;
   /** The guests whose hints and bombs have been offered to the account that they became (guest id > account id), so that it is done once a page. */
   private carried = new Set<string>();
   private saved: { name: string; chosen: boolean };
@@ -43,11 +56,13 @@ export class OnlineSession implements Account {
     private readonly store: Storage | null,
   ) {
     this.saved = this.load();
+    this.spends = new SpendQueue(store);
   }
 
   /** The requests that go to the server; made after the session, because they need its token. */
   attach(api: ProfileApi): void {
     this.api = api;
+    if (this.spends.size) void this.flushSpends();                    // (the spends of an earlier visit that could not be sent)
   }
 
   private load(): { name: string; chosen: boolean } {
@@ -126,7 +141,68 @@ export class OnlineSession implements Account {
    */
   summary(): AccountSummary {
     const who = this.account?.who() ?? this.guest.who();
-    return who && this.standing?.id === who.id ? this.standing.summary : GUEST_ACCOUNT;
+    const base = who && this.standing?.id === who.id ? this.standing.summary : GUEST_ACCOUNT;
+    const hints = this.spends.count('hint');
+    const bombs = this.spends.count('bomb');
+    if (!hints && !bombs) return base;
+    // (the same object while nothing changes: the displays tell by identity whether the account has said something new)
+    const key = `${hints}|${bombs}`;
+    if (this.derived?.from === base && this.derived.key === key) return this.derived.value;
+    const value = { ...base, hints: Math.max(0, base.hints - hints), bombs: Math.max(0, base.bombs - bombs) };
+    this.derived = { from: base, key, value };
+    return value;
+  }
+
+  /** A hint or bomb was used in a puzzle played alone: the counters show it at once, and the server is told when it can be (now, or when there is a connection again). */
+  spend(item: HelpItem): void {
+    this.spends.add(item);
+    this.changed();
+    void this.flushSpends();
+  }
+
+  /** A hint or bomb was used in a puzzle played with friends: the room takes it, and the counter is only brought down until the server says. */
+  countDown(item: HelpItem): void {
+    const s = this.standing;
+    if (!s) return;
+    const key = item === 'hint' ? 'hints' : 'bombs';
+    this.standing = { id: s.id, summary: { ...s.summary, [key]: Math.max(0, s.summary[key] - 1) } };
+    this.changed();
+  }
+
+  /** Sends the spends that are waiting, one after the other, until the server cannot be reached (they are kept, and tried again). */
+  async flushSpends(): Promise<void> {
+    if (this.flushing || !this.api?.useItem) return;
+    this.flushing = true;
+    try {
+      for (let next = this.spends.first(); next; next = this.spends.first()) {
+        const res = await this.api.useItem(next.item, next.id);
+        if (res.ok) {
+          this.spends.remove(next.id);
+          this.heard(res.account);
+          continue;
+        }
+        if (res.error === 'no-credits' || res.error === 'bad-request') {
+          this.spends.remove(next.id);
+          if ('account' in res && res.account) this.heard(res.account);
+          else this.changed();
+          if (res.error === 'no-credits') this.onSpendRefused?.(next.item);
+          continue;
+        }
+        break;                                                           // offline, or not now: it stays
+      }
+    } finally {
+      this.flushing = false;
+      if (this.retry) clearTimeout(this.retry);
+      this.retry = this.spends.size ? setTimeout(() => void this.flushSpends(), SPEND_RETRY_MS) : null;
+    }
+  }
+
+  /** What the server said of the player who is here now. */
+  private heard(summary: AccountSummary): void {
+    const who = this.account?.who() ?? this.guest.who();
+    if (!who) return;
+    this.standing = { id: who.id, summary };
+    this.changed();
   }
 
   /** The server has said where the player stands (after a puzzle was started, or an ad watched): the displays follow. */
@@ -188,6 +264,7 @@ export class OnlineSession implements Account {
       if (seen.ok && id) {
         this.standing = { id, summary: seen.account };
         this.changed();
+        if (this.spends.size) void this.flushSpends();
       }
       return;
     }
@@ -197,6 +274,7 @@ export class OnlineSession implements Account {
     this.profile = { id: who.id, name: res.name };
     this.standing = { id: who.id, summary: res.account };
     this.changed();
+    if (this.spends.size) void this.flushSpends();
     if (res.name !== null) return;
     // only the server is told: on this device the name stays what it was, so that it is not taken for a name that the player chose (a guest on the same device would be called by it)
     const given = await this.api.setName(this.name());

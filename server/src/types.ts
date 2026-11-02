@@ -114,6 +114,8 @@ export interface AccountRecord {
   hintsEarned?: number;
   /** When the next ad for hints or bombs can be had (a time of the server's clock); a time that has passed means now. Nothing (no ad has been had): `helpAdFirstMs` after `createdAt`. */
   helpAdAt?: number;
+  /** The ids of the last hints and bombs the game spent with an id (a spend it could not send at once is sent again later: each id counts once). */
+  spent?: string[];
   /** A guest's record: the hints and bombs were taken into an account (so that they are not taken twice). An account's: it has taken a guest's. */
   carried?: boolean;
   createdAt: number;

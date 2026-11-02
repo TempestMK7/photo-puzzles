@@ -80,6 +80,8 @@ async function main(): Promise<void> {
   const player = new OnlineSession(accountSource, new GuestAccount(base, storage()), storage());
   const api = base ? new OnlineApi(base, () => player.token(), () => player.signInLost()) : null;
   if (api) player.attach(api);
+  window.addEventListener('online', () => void player.flushSpends());                // (hints and bombs used with no connection are sent when there is one)
+  document.addEventListener('visibilitychange', () => !document.hidden && void player.flushSpends());
   const realtime: Realtime | null =
     cloud && api
       ? new IotRealtime({ endpoint: cloud.iotEndpoint, authorizer: cloud.iotAuthorizer }, player, async (room) => {

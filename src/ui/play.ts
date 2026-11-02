@@ -172,6 +172,7 @@ export class PlayScreen {
       }
     }
     deps.player?.onChange(() => this.refreshHelp());
+    if (deps.player) deps.player.onSpendRefused = (item) => this.session && this.flash(`The server had no ${item}s left for one that was used.`);
     this.canvas.addEventListener('pointerdown', (e) => this.pointerDown(e));
     this.canvas.addEventListener('pointermove', (e) => this.pointerMove(e));
     this.canvas.addEventListener('pointerup', (e) => this.pointerUp(e));
@@ -604,26 +605,16 @@ export class PlayScreen {
     }
     this.helpBusy = true;
     try {
-      // the number goes down at once, and the server's own count replaces it when it answers
-      const key = kind === 'hint' ? 'hints' : 'bombs';
-      player.setSummary({ ...a, [key]: a[key] - 1 });
+      // the counter goes down at once. Played alone, the spend is kept and sent to the server when it can be (now, or when there is a connection again); with friends the room takes it
+      // with the operation, and the cursor shows that the player waits for its answer, until it has come
+      if (this.online) player.countDown(kind);
+      else player.spend(kind);
       session.help(kind, p);
       this.arm(null);
       this.after();
       if (this.online) {
-        // the room takes it (the server counts) with the operation, and the cursor shows that the player waits for its answer, until it has come
         window.setTimeout(() => void player.refreshProfile(), 1500);
         this.waitFor(this.online.room.whenSent());
-      } else {
-        // played alone, the board does not wait for the server: it is asked to take one meanwhile, and says if it could not
-        void api.useItem(kind).then((res) => {
-          if (res.ok) {
-            player.setSummary(res.account);
-            return;
-          }
-          if ('account' in res && res.account) player.setSummary(res.account);
-          if (this.session === session) this.flash(res.error === 'no-credits' ? `The server had no ${kind}s left for that one.` : res.error === 'offline' ? 'Could not reach the server: that one was not counted.' : sayError(res.error));
-        });
       }
     } finally {
       this.helpBusy = false;

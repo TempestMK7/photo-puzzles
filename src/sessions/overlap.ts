@@ -199,7 +199,7 @@ export class OverlapSession implements PuzzleSession {
   }
 
   private maxZoom(): number {
-    return Math.max(this.fitZoom * 2, 4 * this.dpr);
+    return Math.max(this.fitZoom * 3, 4 * this.dpr);
   }
 
   view(cw: number, ch: number): View {
@@ -227,7 +227,10 @@ export class OverlapSession implements PuzzleSession {
     return this.cur;
   }
 
-  /** Keeps the board in view: the camera may go as far as a margin past the board's edge, and a board that is smaller than the view in one direction stays in the middle of it. */
+  /**
+   * Keeps the board in view: the camera may go as far as a margin past the board's edge. A board that is smaller than the view in one direction can be moved about in it in that direction
+   * (as far as the edges of the view, less the margin), and starts in the middle.
+   */
   private clampCentre(areaW: number, ch: number): void {
     const z = this.cam.zoom;
     const m = (MARGIN * this.dpr) / z;
@@ -235,7 +238,7 @@ export class OverlapSession implements PuzzleSession {
       const half = shown / (2 * z);
       const lo = half - m;
       const hi = size - half + m;
-      return lo > hi ? size / 2 : Math.min(hi, Math.max(lo, c));
+      return lo > hi ? Math.min(lo, Math.max(hi, c)) : Math.min(hi, Math.max(lo, c));
     };
     this.cam.cx = fit(this.cam.cx, this.cols * CELL, areaW);
     this.cam.cy = fit(this.cam.cy, this.rows * CELL, ch);
@@ -753,6 +756,7 @@ export class OverlapSession implements PuzzleSession {
         this.init.online?.send({ t: 'toStack', piece: h.id, stack: drawer });
         this.activeStack = drawer;
         buzz(this.init, 'drop');
+        playEffect('drop');                                     // (the piece is put down in a tray)
       } else if (box.cell) {
         if (g.drop(h.id, box.cell.x, box.cell.y) === 'placed') {
           this.ripples.add(g.cellsNow(h.id).map((c) => ({ x: (box.cell!.x + c.x) * CELL, y: (box.cell!.y + c.y) * CELL, w: CELL, h: CELL })), performance.now(), 0, rippleColor(this.init));
@@ -765,7 +769,10 @@ export class OverlapSession implements PuzzleSession {
           buzz(this.init, 'drop');
           playEffect('wrong');                                    // it does not go there: it is back on its stack
         }
-      } else buzz(this.init, 'drop');
+      } else {
+        buzz(this.init, 'drop');
+        playEffect('drop');                                     // (put down over nothing: it is back on its stack)
+      }
     }
     this.init.requestDraw();
   }
