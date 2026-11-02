@@ -17,6 +17,52 @@ export function cascadeStep(n: number): number {
   return Math.min(CASCADE_MS, CASCADE_MAX_MS / Math.max(1, n - 1));
 }
 
+/**
+ * The steps of a bomb, one after the other: the first now, each of the others `every` ms after the one before. A step is one piece put in its place, with its ripple and its bell. The
+ * board itself changes step by step, so that the pieces really are placed one at a time. If the player does anything else meanwhile (or another player's move comes in), what is left is
+ * done at once (`flush`, told `late`, so that it makes no light and no sound): the board has to be what the room's is before anything else is done to it.
+ */
+export class Cascade {
+  private waiting: { timer: ReturnType<typeof setTimeout>; run: (late: boolean) => void }[] = [];
+
+  /** Starts the steps. `step` is told the item, its place in the row, and whether it is being done late (see `flush`). The first runs before this returns. */
+  start<T>(items: readonly T[], every: number, step: (item: T, k: number, late: boolean) => void): void {
+    items.forEach((item, k) => {
+      if (k === 0) {
+        step(item, 0, false);
+        return;
+      }
+      const entry = {
+        timer: setTimeout(() => {
+          this.waiting = this.waiting.filter((w) => w !== entry);
+          step(item, k, false);
+        }, k * every),
+        run: (late: boolean) => step(item, k, late),
+      };
+      this.waiting.push(entry);
+    });
+  }
+
+  /** Steps that have not been done yet. */
+  get busy(): boolean {
+    return this.waiting.length > 0;
+  }
+
+  /** Does what is left at once, in order. */
+  flush(): void {
+    const left = this.waiting;
+    this.waiting = [];
+    for (const w of left) clearTimeout(w.timer);
+    for (const w of left) w.run(true);
+  }
+
+  /** Drops what is left (the puzzle is gone). */
+  cancel(): void {
+    for (const w of this.waiting) clearTimeout(w.timer);
+    this.waiting = [];
+  }
+}
+
 /** The colour of the ripple over a piece put in place by `by` (this player, if nobody is named): theirs in a puzzle played with friends, and none (the ripple's own) when played alone. */
 export function rippleColor(init: SessionInit, by?: string): string | undefined {
   const online = init.online;

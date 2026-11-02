@@ -74,3 +74,52 @@ describe('the colour of a ripple', () => {
     expect(rippleColor({} as SessionInit, 'ann')).toBeUndefined();
   });
 });
+
+describe('Cascade, the steps of a bomb', () => {
+  it('does the first step at once and the others every so often, in order', async () => {
+    vi.useFakeTimers();
+    const { Cascade } = await import('../src/sessions/feedback');
+    const c = new Cascade();
+    const done: string[] = [];
+    c.start(['a', 'b', 'c'], 200, (item, k, late) => done.push(`${item}${k}${late ? '!' : ''}`));
+    expect(done).toEqual(['a0']);
+    expect(c.busy).toBe(true);
+    vi.advanceTimersByTime(199);
+    expect(done).toEqual(['a0']);
+    vi.advanceTimersByTime(1);
+    expect(done).toEqual(['a0', 'b1']);
+    vi.advanceTimersByTime(200);
+    expect(done).toEqual(['a0', 'b1', 'c2']);
+    expect(c.busy).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it('does what is left at once, told that it is late, when flushed, and nothing again afterwards', async () => {
+    vi.useFakeTimers();
+    const { Cascade } = await import('../src/sessions/feedback');
+    const c = new Cascade();
+    const done: string[] = [];
+    c.start([1, 2, 3, 4], 200, (item, _k, late) => done.push(`${item}${late ? '!' : ''}`));
+    vi.advanceTimersByTime(250);
+    c.flush();
+    expect(done).toEqual(['1', '2', '3!', '4!']);
+    vi.advanceTimersByTime(5000);
+    expect(done).toHaveLength(4);
+    c.flush();
+    expect(done).toHaveLength(4);
+    vi.useRealTimers();
+  });
+
+  it('drops what is left when cancelled', async () => {
+    vi.useFakeTimers();
+    const { Cascade } = await import('../src/sessions/feedback');
+    const c = new Cascade();
+    const done: number[] = [];
+    c.start([1, 2, 3], 100, (item) => done.push(item));
+    c.cancel();
+    vi.advanceTimersByTime(1000);
+    expect(done).toEqual([1]);
+    expect(c.busy).toBe(false);
+    vi.useRealTimers();
+  });
+});

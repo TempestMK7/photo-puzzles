@@ -1,5 +1,6 @@
 import { slidingGrid, SlidingGame, type SlidingState } from '../core/sliding';
 import { beginFrame, drawSlice, type View } from '../render';
+import { playEffect } from '../sounds';
 import { buzz } from './feedback';
 import { Camera } from './camera';
 import { VideoLayer, videoGlAvailable } from './videoGl';
@@ -198,6 +199,7 @@ export class SlidingSession implements PuzzleSession {
     if (cell < 0) return;
     const moved = this.game.click(cell);
     if (moved.length) buzz(this.init, this.game.solved ? 'solved' : 'move');
+    if (moved.length && this.game.solved) playEffect('placed');                  // (the last move rings the bell too, before the end of the puzzle begins)
     if (moved.length && this.init.flag('animate')) {
       const now = performance.now();
       for (const m of moved) this.slides.set(m.piece, { from: m.from, to: m.to, start: now });

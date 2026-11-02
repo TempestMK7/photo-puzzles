@@ -162,7 +162,7 @@ export class FocusSession implements PuzzleSession {
         this.anims.set(i, { from: before[i], to, start: now + (sender === undefined ? 0 : wait.get(sender)!) });
       }
     }
-    if (!opts.sound || game.solved) return;                                                      // (the end of the puzzle has its own sound)
+    if (!opts.sound) return;                                                                     // (the last piece rings the bell too, before the end of the puzzle begins)
     if (bomb) {
       for (const piece of fresh) {
         playEffect('pickup', wait.get(piece)!);
