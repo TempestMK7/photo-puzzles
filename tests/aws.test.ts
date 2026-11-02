@@ -258,12 +258,13 @@ describe('the API function', () => {
   const claims = (sub: string, name?: string) => ({ sub, name, email: `${sub}@example.com` });
 
   it('takes the player from the claims of the token, with the e-mail to stand in for a name', () => {
-    expect(playerFrom({ sub: 'abc-123', name: ' Ann ', email: 'ann@example.com' })).toEqual({ id: 'abc-123', name: 'Ann' });
-    expect(playerFrom({ sub: 'abc-123', email: 'ann.lee@example.com' })).toEqual({ id: 'abc-123', name: 'ann.lee' });
+    expect(playerFrom({ sub: 'abc-123', name: ' Ann ', email: 'ann@example.com' })).toEqual({ id: 'abc-123', name: 'Ann', email: 'ann@example.com' });
+    expect(playerFrom({ sub: 'abc-123', email: 'ann.lee@example.com' })).toEqual({ id: 'abc-123', name: 'ann.lee', email: 'ann.lee@example.com' });
     expect(playerFrom({ sub: 'abc-123' })).toEqual({ id: 'abc-123', name: 'Player' });
     expect(playerFrom({ sub: 'x'.repeat(30), name: 'N'.repeat(40) })!.name).toHaveLength(24);
     // the administrators' group, as the token has it (a list) and as the gateway hands it over (a string)
     expect(playerFrom({ sub: 'abc-123', name: 'Ann', 'cognito:groups': ['admins'] })).toEqual({ id: 'abc-123', name: 'Ann', admin: true });
+    expect(playerFrom({ sub: 'abc-123', name: 'Ann', 'cognito:username': 'Google_77' })).toEqual({ id: 'abc-123', name: 'Ann', federated: true });          // (an outside sign-in)
     expect(playerFrom({ sub: 'abc-123', name: 'Ann', 'cognito:groups': '[admins]' })).toEqual({ id: 'abc-123', name: 'Ann', admin: true });
     expect(playerFrom({ sub: 'abc-123', name: 'Ann', 'cognito:groups': '[editors]' })).toEqual({ id: 'abc-123', name: 'Ann' });
     expect(playerFrom({})).toBeUndefined();

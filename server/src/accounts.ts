@@ -65,3 +65,6 @@ export function guestSummaryOf(account: AccountRecord, limits: Limits, now: numb
   const helpAdIn = Math.max(0, helpAdAtOf(account, limits) - now);
   return { ...GUEST_ACCOUNT, ...helpHeld(account, limits), helpAdReady: !helpAdIn, helpAdIn, helpAdHints: limits.adHints, helpAdBombs: limits.adBombs };
 }
+
+/** How long after the owner of an account pressed "Add Google" a first sign-in with Google and the same e-mail address is joined to the account. */
+export const LINK_INTENT_MS = 10 * 60 * 1000;

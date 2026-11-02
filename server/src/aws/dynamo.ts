@@ -19,6 +19,7 @@ export interface Sender {
  *   FILE#<id>     / USER#<player>   a player who may make a puzzle from the file (they joined a puzzle made from it)
  *   PLAYER#<id>   / FILE#<id>       a file the player sent
  *   FILES         / <ms>#<id>       every kept file, in the order they were sent (to list them). The last three have a `ttl` a little after the file's own, put forward each time the file is used
+ *   LINK#<email>  / INTENT          an account (made with a password) asked to add Google: who, until when (with a `ttl`; the sign-in function reads and deletes it)
  *   AD#<nonce>    / NONCE           what an ad was asked for, until it is watched (`body` is the record as JSON; with a `ttl`)
  *   ADTX#<id>     / TX              a reward that the ad network reported (with a `ttl`: the network may report one again for a while)
  *   REPORTS       / <ms>#<tag>      a report of a puzzle (with a `ttl`)
@@ -28,6 +29,8 @@ export interface Sender {
  */
 const roomKey = (id: string) => ({ pk: `ROOM#${id}`, sk: 'META' });
 const codeKey = (code: string) => ({ pk: `CODE#${code}`, sk: 'CODE' });
+/** What the owner of an account left when they asked to add an outside provider (the sign-in function reads and deletes it: server/src/aws/presignup.ts). */
+export const linkKey = (email: string) => ({ pk: `LINK#${email}`, sk: 'INTENT' });
 const accountKey = (player: string) => ({ pk: `PLAYER#${player}`, sk: 'ACCOUNT' });
 const memberKey = (player: string, room: string) => ({ pk: `PLAYER#${player}`, sk: `ROOM#${room}` });
 const fileItem = (id: string) => ({ pk: `FILE#${id}`, sk: 'FILE' });
@@ -212,6 +215,10 @@ export class DynamoStore implements Store {
       start = page.LastEvaluatedKey;
     } while (start);
     return rooms;
+  }
+
+  async putLinkIntent(email: string, playerId: string, expiresAt: number): Promise<void> {
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { ...linkKey(email), playerId, expiresAt, ttl: seconds(expiresAt) + 3600 } }));
   }
 
   async putAdNonce(nonce: AdNonce): Promise<void> {

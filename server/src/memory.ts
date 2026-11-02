@@ -52,6 +52,12 @@ export class MemoryStore implements Store {
     return [...this.rooms.values()].map((r) => structuredClone(r));
   }
 
+  readonly linkIntents = new Map<string, { playerId: string; expiresAt: number }>();
+
+  async putLinkIntent(email: string, playerId: string, expiresAt: number): Promise<void> {
+    this.linkIntents.set(email, { playerId, expiresAt });
+  }
+
   async putAdNonce(nonce: AdNonce): Promise<void> {
     this.nonces.set(nonce.nonce, { ...nonce });
   }

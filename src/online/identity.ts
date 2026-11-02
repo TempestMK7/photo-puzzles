@@ -14,6 +14,8 @@ export interface Account {
   passwords?: PasswordAccount;
   /** Goes to Google's sign-in page and comes back signed in: only an account whose user pool has Google has this. */
   signInWithGoogle?(returnHash?: string): Promise<void>;
+  /** The same, to add Google to the account that is signed in (after `OnlineApi.linkIntent`): it comes back signed in to the same account. */
+  linkWithGoogle?(returnHash?: string): Promise<void>;
   readonly hasGoogle?: boolean;
 }
 

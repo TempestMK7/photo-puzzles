@@ -1,7 +1,11 @@
-import { CfnOutput, Duration, RemovalPolicy, SecretValue, Stack, type StackProps } from 'aws-cdk-lib';
+import { Arn, CfnOutput, Duration, RemovalPolicy, SecretValue, Stack, type StackProps } from 'aws-cdk-lib';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import type * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import type { Construct } from 'constructs';
 import { ADMIN_GROUP, appSignInRedirects, MAIL_FROM_NAME, mailFrom, REGION, type Stage } from './config';
+import { functionDefaults, logGroup, repo } from './lambda';
 
 export interface AuthStackProps extends StackProps {
   stage: Stage;
@@ -12,6 +16,8 @@ export interface AuthStackProps extends StackProps {
   /** Send from Cognito's own sender instead (see `cognitoEmail` in config.ts). */
   cognitoEmail?: boolean;
   google?: { clientId: string; secretName: string };
+  /** The table (of the Data stack), where an account that is about to add Google leaves word of it for the sign-in function. */
+  table: dynamodb.ITable;
 }
 
 /**
@@ -47,6 +53,24 @@ export class AuthStack extends Stack {
       deletionProtection: prod,
       removalPolicy: prod ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
     });
+
+    // Before the pool makes an account for somebody who signed in with Google for the first time, this function looks for an account with the same e-mail address that was made with a password:
+    // the two are not to become separate accounts, so the sign-in is refused (with a message that says to sign in with the password and add Google from the profile) unless the owner of that
+    // account asked for it from their profile (server/src/aws/presignup.ts). It finds the pool from the event (the pool names the function, so the function cannot name the pool).
+    const preSignUp = new nodejs.NodejsFunction(this, 'PreSignUp', {
+      ...functionDefaults,
+      entry: repo('server/src/aws/presignup.ts'),
+      handler: 'handler',
+      memorySize: 256,
+      timeout: Duration.seconds(10),
+      logGroup: logGroup(this, 'PreSignUpLogs'),
+      environment: { ...functionDefaults.environment, TABLE_NAME: props.table.tableName },
+    });
+    props.table.grantReadWriteData(preSignUp);
+    preSignUp.addToRolePolicy(
+      new iam.PolicyStatement({ actions: ['cognito-idp:ListUsers', 'cognito-idp:AdminLinkProviderForUser'], resources: [Arn.format({ service: 'cognito-idp', resource: 'userpool', resourceName: '*' }, this)] }),
+    );
+    this.pool.addTrigger(cognito.UserPoolOperation.PRE_SIGN_UP, preSignUp);
 
     // Whoever is in this group may use the admin page (https://<the game's address>/admin): its token says so, and the admin routes of the API check it. Put an account in it by
     // hand: `aws cognito-idp admin-add-user-to-group --user-pool-id <id> --username <the e-mail address> --group-name admins` (docs/runbook.md).

@@ -87,11 +87,11 @@ export class SignInDialog {
   }
 
   /** The player came back from Google's page in the phone's browser (the app's own address, with the answer): signed in, or not. */
-  externalDone(signedIn: boolean): void {
+  externalDone(signedIn: boolean, message?: string): void {
     if (this.el.hidden) return;
     this.setBusy(false);
     if (signedIn) this.finish(true);
-    else this.say('Signing in with Google did not work. Try again.');
+    else this.say(message ?? 'Signing in with Google did not work. Try again.');
   }
 
   private finish(signedIn: boolean): void {

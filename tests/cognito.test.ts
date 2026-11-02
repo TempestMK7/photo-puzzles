@@ -173,7 +173,7 @@ describe('signing in', () => {
     const t = setup();
     expect(await t.account.completeSignIn(`${REDIRECT}#/join/12345~abc`)).toEqual({ handled: false, ok: false, hash: '' });
     await t.account.signIn('#/x');
-    expect(await t.account.completeSignIn(`${REDIRECT}?error=access_denied`)).toEqual({ handled: true, ok: false, hash: '#/x' });
+    expect(await t.account.completeSignIn(`${REDIRECT}?error=access_denied`)).toEqual({ handled: true, ok: false, hash: '#/x', message: 'Signing in with Google did not work. Please try again.' });
   });
 
   it('is not signed in when the sign-in service refuses the code', async () => {
@@ -416,5 +416,46 @@ describe('where the tokens are kept', () => {
     await t.account.completeSignIn(`${REDIRECT}?code=c&state=${new URL(t.went[0]).searchParams.get('state')}`);
     const again = new CognitoAccount({ host: HOST, clientId: 'client1' }, t.local, new MemoryStorage());
     expect(again.who()).toEqual({ id: 'u', name: 'Player' });
+  });
+});
+
+describe('adding Google to the account that is signed in', () => {
+  const stateOf = (t: { went: string[] }, n = 0) => new URL(t.went[n]).searchParams.get('state');
+
+  it('goes to Google\'s page like a sign-in with Google, and says that it is a link when it comes back with the account', async () => {
+    const x = setup({ reply: () => json({ id_token: jwt({ sub: 'u1', exp: 1_700_000_000 + 3600 }), refresh_token: 'r1' }) });
+    await x.account.linkWithGoogle('#/x');
+    expect(new URL(x.went[0]).searchParams.get('identity_provider')).toBe('Google');
+    const done = await x.account.completeSignIn(`${REDIRECT}?code=c&state=${stateOf(x)}`);
+    expect(done).toEqual({ handled: true, ok: true, hash: '#/x', linked: true });
+  });
+
+  it('is a plain sign-in when it was not asked for as a link', async () => {
+    const t = setup({ reply: () => json({ id_token: jwt({ sub: 'u1', exp: 1_700_000_000 + 3600 }), refresh_token: 'r1' }) });
+    await t.account.signIn('', 'Google');
+    const done = await t.account.completeSignIn(`${REDIRECT}?code=c&state=${stateOf(t)}`);
+    expect(done).toEqual({ handled: true, ok: true, hash: '' });
+  });
+
+  it('tries once more by itself when the sign-in service answers the first sign-in of a joined Google with its own error, and not a second time', async () => {
+    const t = setup();
+    await t.account.linkWithGoogle('#/x');
+    const said = 'Already found an entry for username Google_1234';
+    const first = await t.account.completeSignIn(`${REDIRECT}?error=invalid_request&error_description=${encodeURIComponent(said)}&state=${stateOf(t)}`);
+    expect(first).toEqual({ handled: true, ok: false, hash: '#/x', retrying: true });
+    expect(t.went).toHaveLength(2);                                      // (on its way to Google's page again)
+    expect(new URL(t.went[1]).searchParams.get('identity_provider')).toBe('Google');
+    const second = await t.account.completeSignIn(`${REDIRECT}?error=invalid_request&error_description=${encodeURIComponent(said)}&state=${stateOf(t, 1)}`);
+    expect(second).toMatchObject({ handled: true, ok: false, message: 'Google could not be added to your account. Please try again.' });
+    expect(t.went).toHaveLength(2);                                      // (once only)
+  });
+
+  it('says to sign in with the password first when the sign-in service refused a Google sign-in because of an account with that address', async () => {
+    const t = setup();
+    await t.account.signIn('', 'Google');
+    const said = 'PreSignUp failed with error An account with this e-mail address already exists. Sign in with your e-mail and password first, then add Google from your profile..';
+    const out = await t.account.completeSignIn(`${REDIRECT}?error=invalid_request&error_description=${encodeURIComponent(said)}&state=${stateOf(t)}`);
+    expect(out.ok).toBe(false);
+    expect(out.message).toBe('An account with this e-mail address already exists. Sign in with your e-mail and password first, then add Google from your profile.');
   });
 });

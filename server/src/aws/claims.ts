@@ -9,5 +9,8 @@ export function playerFrom(claims: Record<string, unknown> | undefined): Player 
   const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
   const name = (text(claims?.name) || text(claims?.email).split('@')[0] || 'Player').slice(0, 24);
   // a member of the administrators' group (the claim is a list in the token itself and a string like "[admins]" from the gateway)
-  return parseGroups(claims?.['cognito:groups']).includes(ADMIN_GROUP) ? { id, name, admin: true } : { id, name };
+  const email = text(claims?.email);
+  const federated = !!claims?.identities || text(claims?.['cognito:username']).includes('_');            // (an outside sign-in: "Google_<id>")
+  const player: Player = { id, name, ...(email ? { email } : {}), ...(federated ? { federated: true as const } : {}) };
+  return parseGroups(claims?.['cognito:groups']).includes(ADMIN_GROUP) ? { ...player, admin: true } : player;
 }
