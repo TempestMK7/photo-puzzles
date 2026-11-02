@@ -103,3 +103,35 @@ describe('sound effects', () => {
     expect(played).toHaveLength(2);
   });
 });
+
+describe('the volume of the effects', () => {
+  it('starts at half, and sets the volume of the file that is played (and of a second one over it) as asked', async () => {
+    const played: { src: string; volume: number }[] = [];
+    class FakeAudio {
+      currentTime = 0;
+      paused = true;
+      volume = 1;
+      preload = '';
+      constructor(readonly src: string) {}
+      play(): Promise<void> {
+        this.paused = false;
+        played.push({ src: this.src, volume: this.volume });
+        return Promise.resolve();
+      }
+    }
+    vi.stubGlobal('Audio', FakeAudio);
+    vi.resetModules();
+    const sounds = await import('../src/sounds');
+    expect(sounds.effectsVolume()).toBe(0.5);
+    sounds.playEffect('placed');
+    sounds.playEffect('placed');                                      // (the first is still sounding: a second player takes this one)
+    expect(played.map((p) => p.volume)).toEqual([0.5, 0.5]);
+    sounds.setEffectsVolume(0.2);
+    sounds.playEffect('pickup');
+    expect(played.at(-1)!.volume).toBe(0.2);
+    sounds.setEffectsVolume(7);
+    expect(sounds.effectsVolume()).toBe(1);                           // (100% is as loud as the files are)
+    sounds.setEffectsVolume(-1);
+    expect(sounds.effectsVolume()).toBe(0);
+  });
+});

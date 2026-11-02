@@ -7,7 +7,7 @@ import { makePattern } from './patterns';
 import { Ripples } from './ripple';
 import { beginFrame, drawSlice, type View } from '../render';
 import { playEffect } from '../sounds';
-import { buzz, cascadeStep, nearestFirst, rippleColor, startLift, type Lift } from './feedback';
+import { buzz, Cascade, cascadeStep, nearestFirst, rippleColor, startLift, type Lift } from './feedback';
 import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
@@ -70,7 +70,9 @@ export class OverlapSession implements PuzzleSession {
   private held: Held | null = null;
   private hoverStack = -1;
   private activeStack = 0;
-  private ripples = new Ripples();
+  private ripples = new Ripples(() => this.init.flag('animate'));
+  /** The pieces of a bomb, put in their places one after the other. */
+  private cascade = new Cascade();
   /** How many stacks the pieces wait in: more for a bigger puzzle. */
   private readonly stackN: number;
   private wrong: { cells: { x: number; y: number }[]; at: number } | null = null;
@@ -142,10 +144,12 @@ export class OverlapSession implements PuzzleSession {
   }
 
   dispose(): void {
+    this.cascade.cancel();
     this.layer?.dispose();
   }
 
   serialize(): unknown {
+    this.cascade.flush();                                            // (what a bomb has still to place is placed before the board is kept)
     return { layout: LAYOUT, game: this.game.snapshot(), activeStack: this.activeStack, cam: this.inited ? { ratio: this.cam.zoom / this.fitZoom, cx: this.cam.cx, cy: this.cam.cy } : this.pendingCam };
   }
 
@@ -665,6 +669,7 @@ export class OverlapSession implements PuzzleSession {
   }
 
   pointerDown(p: Pt, touch = false): void {
+    this.cascade.flush();
     const g = this.game;
     const s = this.screen(p);
     if (g.solved || !this.inPanel(s)) {                            // bare board: a drag moves the camera
@@ -761,7 +766,7 @@ export class OverlapSession implements PuzzleSession {
         if (g.drop(h.id, box.cell.x, box.cell.y) === 'placed') {
           this.ripples.add(g.cellsNow(h.id).map((c) => ({ x: (box.cell!.x + c.x) * CELL, y: (box.cell!.y + c.y) * CELL, w: CELL, h: CELL })), performance.now(), 0, rippleColor(this.init));
           buzz(this.init, g.solved ? 'solved' : 'placed');
-          if (!g.solved) playEffect('placed');                    // (the end of the puzzle has its own sound)
+          playEffect('placed');                                   // (the last piece rings the bell too, before the end of the puzzle begins)
           this.init.online?.send({ t: 'put', piece: h.id, x: box.cell.x, y: box.cell.y });          // (a piece that did not fit is not news to the others: it is back on its stack)
         } else {
           const cell = box.cell;
@@ -778,26 +783,32 @@ export class OverlapSession implements PuzzleSession {
   }
 
   /**
-   * Applies a hint or a bomb to the board: each piece it placed gets its ripple, in the colour of the player `by` who used it (this player, if nobody is named; and only theirs
-   * ring the bell). A bomb places its pieces one after the other, the nearest first.
+   * Applies a hint or a bomb to the board: each piece it places gets its ripple, in the colour of the player `by` who used it (this player, if nobody is named; and only theirs ring the
+   * bell). A bomb places its pieces one after the other, the nearest first, each at its own moment: the board changes a piece at a time.
    */
   private run(op: BoardOp, by?: string): boolean {
+    this.cascade.flush();
     const g = this.game;
-    const was = [...g.done];
-    if (!applyBoardOp(this.rules, op).ok) return false;
-    let fresh = g.done.flatMap((d, id) => (d && !was[id] ? [id] : []));
-    if (op.t === 'bomb') {
-      const cells = (id: number) => g.homeCells(id);
-      fresh = nearestFirst(fresh, op.x + 0.5, op.y + 0.5, (id) => ({ x: cells(id).reduce((n, c) => n + c.x + 0.5, 0) / cells(id).length, y: cells(id).reduce((n, c) => n + c.y + 0.5, 0) / cells(id).length }));
+    if (op.t === 'hint') return this.placeOne(op.piece, by, false);
+    if (op.t !== 'bomb') return false;
+    const cells = (id: number) => g.homeCells(id);
+    const hits = nearestFirst(g.bombHits(op.x, op.y), op.x + 0.5, op.y + 0.5, (id) => ({ x: cells(id).reduce((n, c) => n + c.x + 0.5, 0) / cells(id).length, y: cells(id).reduce((n, c) => n + c.y + 0.5, 0) / cells(id).length }));
+    if (!hits.length) return false;
+    this.cascade.start(hits, cascadeStep(hits.length), (id, _k, late) => void this.placeOne(id, by, late));
+    return true;
+  }
+
+  /** One piece is put in its place by a hint or a bomb: its ripple and (this player's own) its bell, unless it is being done late (see `Cascade`). */
+  private placeOne(id: number, by: string | undefined, late: boolean): boolean {
+    const g = this.game;
+    if (!applyBoardOp(this.rules, { t: 'hint', piece: id }).ok) return false;               // (it is home already: an earlier piece of the bomb, or another player, put it there)
+    if (!late) {
+      this.ripples.add(g.homeCells(id).map((c) => ({ x: c.x * CELL, y: c.y * CELL, w: CELL, h: CELL })), performance.now(), 0, rippleColor(this.init, by));
+      if (by === undefined) playEffect('placed');
     }
-    const step = op.t === 'bomb' ? cascadeStep(fresh.length) : 0;
-    const now = performance.now();
-    const color = rippleColor(this.init, by);
-    fresh.forEach((id, k) => {
-      this.ripples.add(g.homeCells(id).map((c) => ({ x: c.x * CELL, y: c.y * CELL, w: CELL, h: CELL })), now, k * step, color);
-      if (by === undefined && !g.solved) playEffect('placed', k * step);          // (the end of the puzzle has its own sound)
-    });
     this.afterOthers();
+    this.init.requestDraw();
+    this.init.progress?.();
     return true;
   }
 
@@ -888,6 +899,7 @@ export class OverlapSession implements PuzzleSession {
   applyEvent(ev: RoomEvent): void {
     const op = ev.op as BoardOp | undefined;
     if (!op) return;
+    this.cascade.flush();
     if (op.t === 'hint' || op.t === 'bomb') {
       this.run(op, ev.by);
       return;
@@ -902,6 +914,7 @@ export class OverlapSession implements PuzzleSession {
 
   /** Takes the room's board in place of this one. */
   resync(state: RoomState): void {
+    this.cascade.cancel();
     try {
       this.game.restore(state.game as OverlapState);
     } catch {

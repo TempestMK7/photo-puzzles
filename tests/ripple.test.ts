@@ -124,3 +124,16 @@ describe('Ripples', () => {
     expect(c.strokes).toHaveLength(3);
   });
 });
+
+describe('Ripples when the player has switched animations off', () => {
+  it('adds nothing, and draws nothing', () => {
+    let on = false;
+    const r = new Ripples(() => on);
+    r.add([{ x: 0, y: 0, w: 10, h: 10 }], 0);
+    const ctx = { save() {}, restore() {}, beginPath() {}, rect() {}, clip() {}, fillRect() {}, arc() {}, stroke() {}, set strokeStyle(_v: string) {}, set fillStyle(_v: string) {}, set globalAlpha(_v: number) {}, set lineWidth(_v: number) {} } as unknown as CanvasRenderingContext2D;
+    expect(r.draw(ctx, 10)).toBe(false);
+    on = true;
+    r.add([{ x: 0, y: 0, w: 10, h: 10 }], 0);
+    expect(r.draw(ctx, 10)).toBe(true);
+  });
+});

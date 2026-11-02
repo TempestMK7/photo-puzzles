@@ -11,7 +11,7 @@ import { parseInvite } from './online/protocol';
 import { WsRealtime, type Realtime } from './online/realtime';
 import { OnlineSession } from './online/session';
 import { SaveStore } from './store/saves';
-import { preloadEffects, setEffectsOn } from './sounds';
+import { preloadEffects, setEffectsOn, setEffectsVolume } from './sounds';
 import { listenForShared } from './store/shared';
 import type { PhotoEntry } from './store/photos';
 import { LibraryScreen } from './ui/library';
@@ -47,6 +47,7 @@ async function main(): Promise<void> {
   }
   const prefs = new Prefs(storage());
   setEffectsOn(prefs.data.sfx);
+  setEffectsVolume(prefs.data.sfxVolume);
   preloadEffects();
   const saves = new SaveStore();
   const photos = new PhotoLibrary((id) => saves.removeForPhoto(id));

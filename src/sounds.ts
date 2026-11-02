@@ -20,6 +20,17 @@ const listeners = new Set<() => void>();
 /** The effects that are waiting for their moment (see `playEffect`'s delay). */
 const waiting = new Set<ReturnType<typeof setTimeout>>();
 let on = true;
+/** How loud the effects are, from 0 to 1 of the volume the files have (the settings window's slider; it starts at half). */
+let volume = 0.5;
+
+export function effectsVolume(): number {
+  return volume;
+}
+
+export function setEffectsVolume(value: number): void {
+  volume = Math.min(1, Math.max(0, value));
+  for (const a of players.values()) a.volume = volume;
+}
 
 export function effectsOn(): boolean {
   return on;
@@ -71,6 +82,7 @@ export function playEffect(effect: Effect, delayMs = 0): void {
     let a = player(effect);
     if (!a) return;
     if (a.paused === false) a = new Audio(FILES[effect]);                  // (the browser has the file already)
+    a.volume = volume;
     a.currentTime = 0;
     void a.play().catch(() => undefined);
   } catch {

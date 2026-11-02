@@ -10,7 +10,7 @@ import { buildAtlas, buildMasks, buildSprite, snapshot, type Atlas, type Sprite 
 import { glAvailable, PieceRenderer, type GlGroup } from './jigsawGl';
 import { GroupRipple } from './ripple';
 import { playEffect } from '../sounds';
-import { cascadeStep, LIFT_CSS, LIFT_MS, nearestFirst, rippleColor } from './feedback';
+import { Cascade, cascadeStep, LIFT_CSS, LIFT_MS, nearestFirst, rippleColor } from './feedback';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const PAN_TAP = 3;
@@ -99,6 +99,8 @@ export class JigsawSession implements PuzzleSession {
   /** Joined groups that are not in the picture, each drawn as one image (see `buildSprite`), by group id; `null` when the group is too big for one. */
   private sprites = new Map<number, { count: number; first: number; sprite: Sprite | null }>();
   private wave = new GroupRipple();
+  /** The pieces of a bomb, put in the picture one after the other. */
+  private cascade = new Cascade();
   private waveGroup: GlGroup = { members: [], rot: 0, dx: 0, dy: 0 };
   private waveOut: { group: GlGroup; ks: number[]; rgb?: [number, number, number] } = { group: this.waveGroup, ks: [] };
   /** The pieces other players hold: where each really is on the board (`truth`), where its holder's hand put it last (`target`), and where it is drawn (`cur`, which follows the target). */
@@ -147,6 +149,7 @@ export class JigsawSession implements PuzzleSession {
   }
 
   serialize(): unknown {
+    this.cascade.flush();                                            // (what a bomb has still to place is placed before the board is kept)
     return { game: this.game.snapshot(), sel: this.sel, cam: this.inited ? { ratio: this.cam.zoom / this.fitZoom, cx: this.cam.cx, cy: this.cam.cy } : this.pendingCam };
   }
 
@@ -587,6 +590,7 @@ export class JigsawSession implements PuzzleSession {
   }
 
   pointerDown(p: Pt, touch = false): void {
+    this.cascade.flush();
     const tv = this.tv();
     if (tv) {
       const c = this.toCanvas(p);
@@ -620,7 +624,7 @@ export class JigsawSession implements PuzzleSession {
     const [px, py] = this.game.toSolved(grp, q.x - this.frameX, q.y - this.frameY);
     const dpr = window.devicePixelRatio || 1;
     const here = this.toCanvas(p);
-    this.drag = { gid, px, py, qx: q.x - this.frameX, qy: q.y - this.frameY, cx: here.x, cy: here.y, moved: false, lift: touch && this.init.flag('offset') ? (LIFT_CSS * dpr) / this.cam.zoom : 0, t0: performance.now(), k: touch && this.init.flag('offset') ? 0 : 1 };
+    this.drag = { gid, px, py, qx: q.x - this.frameX, qy: q.y - this.frameY, cx: here.x, cy: here.y, moved: false, lift: this.init.flag('offset') ? (LIFT_CSS * dpr) / this.cam.zoom : 0, t0: performance.now(), k: touch && this.init.flag('offset') ? 0 : 1 };
     this.buzz('grab');
     this.init.requestDraw();
   }
@@ -630,7 +634,7 @@ export class JigsawSession implements PuzzleSession {
     if (this.init.flag('haptics')) haptic(kind);
     if (kind === 'grab') playEffect('pickup');
     else if (kind === 'drop') playEffect('drop');
-    else if (kind === 'placed') playEffect('placed');                // (the end of the puzzle has its own sound)
+    else if (kind === 'placed' || kind === 'join' || kind === 'solved') playEffect('placed');          // (the bell rings for a piece put in its place, for two that joined, and for the last one, before the end of the puzzle begins)
   }
 
   /** Where the dragged group is held: at the pointer, or, for a finger, a little above it. It may go up past the top of the screen (a piece for the top edge of the board needs that), but not off the table. */
@@ -830,6 +834,7 @@ export class JigsawSession implements PuzzleSession {
    * The ripple glows in the colour of the player `by` who made it (this player, if nobody is named) when others are playing too.
    */
   private startWave(gid: number, from: ReadonlySet<number>, now: number, placed: boolean, by?: string, step = 0): void {
+    if (!this.init.flag('animate')) return;                                            // (the player has switched animations off: no light, only the sound)
     const grp = this.game.groups.get(gid);
     if (!grp || !from.size) return;
     const { cols, size } = this.layout_;
@@ -885,18 +890,26 @@ export class JigsawSession implements PuzzleSession {
   }
 
   /**
-   * A hint or a bomb, this player's or another's that the room has told of: the pieces it put in the picture light up (a ripple for each group of them), and a piece that was in hand and is
-   * in the picture now is let go of. False if nothing was placed.
+   * A hint or a bomb, this player's or another's that the room has told of: the pieces it puts in the picture light up (a ripple for each group of them), and a piece that was in hand and
+   * is in the picture now is let go of. A bomb puts its pieces in one after the other, the nearest first, each at its own moment. False if nothing was placed.
    */
   private helped(op: Extract<PieceOp, { t: 'hint' | 'bomb' }>, mine = true, by?: string): boolean {
+    this.cascade.flush();
+    if (op.t === 'hint') return this.placeOne(op.piece, mine, by, false, true);
+    const { cols, size } = this.layout_;
+    const hits = nearestFirst(this.game.bombHits(op.x, op.y), op.x, op.y, (i) => ({ x: ((i % cols) + 0.5) * size, y: (Math.floor(i / cols) + 0.5) * size }));
+    if (!hits.length) return false;
+    this.cascade.start(hits, cascadeStep(hits.length), (piece, k, late) => void this.placeOne(piece, mine, by, late, k === 0));
+    return true;
+  }
+
+  /** The group of one piece is put in the picture by a hint or a bomb: its light, and (this player's own) its bell, unless it is being done late (see `Cascade`). `first`: the buzz is given once for a bomb. */
+  private placeOne(piece: number, mine: boolean, by: string | undefined, late: boolean, first: boolean): boolean {
     const g = this.game;
     const was = Array.from({ length: g.count }, (_, i) => g.groups.get(g.groupOf[i])!.anchored);
-    applyOp(g, op);
-    let placed = was.flatMap((w, i) => (!w && g.groups.get(g.groupOf[i])!.anchored ? [i] : []));
+    applyOp(g, { t: 'hint', piece });
+    const placed = was.flatMap((w, i) => (!w && g.groups.get(g.groupOf[i])!.anchored ? [i] : []));
     if (!placed.length) return false;
-    const { cols, size } = this.layout_;
-    if (op.t === 'bomb') placed = nearestFirst(placed, op.x, op.y, (i) => ({ x: ((i % cols) + 0.5) * size, y: (Math.floor(i / cols) + 0.5) * size }));
-    const step = op.t === 'bomb' ? cascadeStep(placed.length) : 0;
     if (this.drag && g.groups.get(this.drag.gid)?.anchored !== false) {          // the piece in hand is in the picture (or part of a group that is): it is let go of
       this.drag = null;
       this.cancelHover();
@@ -905,15 +918,10 @@ export class JigsawSession implements PuzzleSession {
     const byGroup = new Map<number, Set<number>>();
     for (const i of placed) byGroup.set(g.groupOf[i], (byGroup.get(g.groupOf[i]) ?? new Set<number>()).add(i));
     const now = performance.now();
-    for (const [gid, from] of byGroup) this.startWave(gid, from, now, true, by, step);
+    if (!late) for (const [gid, from] of byGroup) this.startWave(gid, from, now, true, by);
     if (this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
-    if (mine) {
-      this.buzz(g.solved ? 'solved' : 'placed');
-      if (!g.solved) {
-        if (op.t === 'bomb') placed.forEach((_, k) => playEffect('placed', k * step));
-        else playEffect('placed');
-      }
-    }
+    if (mine && first && this.init.flag('haptics')) haptic(g.solved ? 'solved' : 'placed');
+    if (mine && !late) playEffect('placed');                                      // (the last piece rings it too, before the end of the puzzle begins)
     this.init.traysChanged?.();
     this.init.requestDraw();
     this.init.progress?.();
@@ -1068,6 +1076,7 @@ export class JigsawSession implements PuzzleSession {
   applyEvent(ev: RoomEvent): void {
     const op = ev.op as JigsawOp | undefined;
     if (!op) return;                                              // a piece let go without moving: nothing changed on the board
+    this.cascade.flush();
     if (op.t === 'trayAdd' || op.t === 'trayRemove') {          // a tray was made or taken away (by anyone: the room told us, in its own order)
       applyOp(this.game, op);
       this.trayListChanged();
@@ -1097,6 +1106,7 @@ export class JigsawSession implements PuzzleSession {
 
   /** Takes the room's board in place of this one. */
   resync(state: RoomState): void {
+    this.cascade.cancel();
     this.hands.clear();
     if (this.drag) {
       this.drag = null;
@@ -1161,6 +1171,7 @@ export class JigsawSession implements PuzzleSession {
   }
 
   dispose(): void {
+    this.cascade.cancel();
     this.cancelHover();
     this.gl?.dispose();
   }

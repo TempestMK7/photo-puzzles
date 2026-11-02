@@ -4,7 +4,7 @@ import type { RoomEvent, RoomState } from '../core/jigsawRoom';
 import { boxOf, makeStrips, MARGIN, type StripsGame, type StripsState } from '../core/strips';
 import { beginFrame, drawSlice, type View } from '../render';
 import { playEffect } from '../sounds';
-import { buzz, cascadeStep, nearestFirst, rippleColor, startLift, type Lift } from './feedback';
+import { buzz, Cascade, cascadeStep, nearestFirst, rippleColor, startLift, type Lift } from './feedback';
 import { Camera } from './camera';
 import { Ripples } from './ripple';
 import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
@@ -51,7 +51,9 @@ export class StripsSession implements PuzzleSession {
   private selected = -1;
   private drag: Drag | null = null;
   private lastView: View = { scale: 1, ox: 0, oy: 0 };
-  private ripples = new Ripples();
+  private ripples = new Ripples(() => this.init.flag('animate'));
+  /** The strips of a bomb, put home one after the other. */
+  private cascade = new Cascade();
   private tab = 0;
   private overTab = -1;
   private dwell = 0;
@@ -109,10 +111,12 @@ export class StripsSession implements PuzzleSession {
   }
 
   dispose(): void {
+    this.cascade.cancel();
     this.layer?.dispose();
   }
 
   serialize(): unknown {
+    this.cascade.flush();                                            // (what a bomb has still to place is placed before the board is kept)
     return { game: this.game.snapshot(), tab: this.tab };
   }
 
@@ -281,6 +285,7 @@ export class StripsSession implements PuzzleSession {
   // ---------------------------------------------------------------------------------------------------------------- input
 
   pointerDown(p: Pt, touch = false): void {
+    this.cascade.flush();
     const g = this.game;
     if (g.solved) return;
     const cx = Math.floor(p.x / S);
@@ -355,9 +360,13 @@ export class StripsSession implements PuzzleSession {
       this.game.moveToTab(d.id, this.overTab);
       this.tab = this.overTab;
       buzz(this.init, 'drop');
+      playEffect('drop');
     } else if (!d.moved) this.turn(d.id, true);                        // a tap turns the strip
     else if (this.game.lockIfHome(d.id)) this.locked(d.id);
-    else buzz(this.init, 'drop');
+    else {
+      buzz(this.init, 'drop');
+      playEffect('drop');                                            // (put down on the board, and not in its hole)
+    }
     if (d.moved) this.commit(d.id);                                    // (a tap has sent what it did)
     this.overTab = -1;
     this.init.requestDraw();
@@ -447,39 +456,44 @@ export class StripsSession implements PuzzleSession {
    * A strip has found its hole: the ripple (in the colour of the player `by` who put it there, this player if nobody is named), `delay` milliseconds from now, and (for this player's
    * own strip, not one that somebody else put there) the buzz and the sound. A bomb's strips ring `chime` without the buzz, which the bomb gave once.
    */
-  private locked(id: number, mine = true, delay = 0, by?: string, chime = mine): void {
+  private locked(id: number, mine = true, delay = 0, by?: string, chime = mine, quiet = false): void {
     const d = this.game.defs[id];
     const b = boxOf(d, 0);
-    this.ripples.add([{ x: d.hx * S, y: d.hy * S, w: b.w * S, h: b.h * S }], performance.now(), delay, rippleColor(this.init, by));
+    if (!quiet) this.ripples.add([{ x: d.hx * S, y: d.hy * S, w: b.w * S, h: b.h * S }], performance.now(), delay, rippleColor(this.init, by));
     if (this.selected === id) this.selected = -1;
     this.game.moves++;
     if (mine) buzz(this.init, this.game.solved ? 'solved' : 'placed');
-    if (chime && !this.game.solved) playEffect('placed', delay);       // (the end of the puzzle has its own sound)
+    if (chime && !quiet) playEffect('placed', delay);                  // (the last strip rings the bell too, before the end of the puzzle begins)
     this.nextTab();
   }
 
   /**
-   * Applies a hint or a bomb to the board: the strips it put home get their ripple (and a strip that was in hand is not any more). A bomb puts them home one after the other, the nearest
-   * first. Only this player's own hint or bomb rings the bell; `by` is the player who used it, if it is another's.
+   * Applies a hint or a bomb to the board: each strip it puts home gets its ripple (and a strip that was in hand is not any more). A bomb puts them home one after the other, the nearest
+   * first, each at its own moment: the board changes a strip at a time. Only this player's own hint or bomb rings the bell; `by` is the player who used it, if it is another's.
    */
   private run(op: BoardOp, by?: string): boolean {
+    this.cascade.flush();
     const g = this.game;
-    const was = g.state.map((s) => s.locked);
-    if (!applyBoardOp(this.rules, op).ok) return false;
-    let fresh = g.state.flatMap((s, id) => (s.locked && !was[id] ? [id] : []));
-    if (op.t === 'bomb') {
-      fresh = nearestFirst(fresh, op.x + 0.5, op.y + 0.5, (id) => {
-        const d = g.defs[id];
-        const b = boxOf(d, 0);
-        return { x: d.hx + b.w / 2, y: d.hy + b.h / 2 };
-      });
-    }
-    const step = op.t === 'bomb' ? cascadeStep(fresh.length) : 0;
-    fresh.forEach((id, k) => {
-      this.locked(id, false, k * step, by, by === undefined);
-      if (this.drag?.id === id) this.dragEnds();
+    if (op.t === 'hint') return this.placeOne(op.piece, by, false);
+    if (op.t !== 'bomb') return false;
+    const hits = nearestFirst(g.bombHits(op.x, op.y), op.x + 0.5, op.y + 0.5, (id) => {
+      const d = g.defs[id];
+      const b = boxOf(d, 0);
+      return { x: d.hx + b.w / 2, y: d.hy + b.h / 2 };
     });
+    if (!hits.length) return false;
+    this.cascade.start(hits, cascadeStep(hits.length), (id, _k, late) => void this.placeOne(id, by, late));
+    return true;
+  }
+
+  /** One strip is put home by a hint or a bomb: its ripple and (this player's own) bell, unless it is being done late (see `Cascade`). */
+  private placeOne(id: number, by: string | undefined, late: boolean): boolean {
+    if (!applyBoardOp(this.rules, { t: 'hint', piece: id }).ok) return false;               // (it is home already)
+    this.locked(id, false, 0, by, by === undefined, late);
+    if (this.drag?.id === id) this.dragEnds();
     this.afterOthers();
+    this.init.requestDraw();
+    this.init.progress?.();
     return true;
   }
 
@@ -560,6 +574,7 @@ export class StripsSession implements PuzzleSession {
   /** Another player's operation (the room checked it and put it in order): a strip put down, which may have found its hole. */
   applyEvent(ev: RoomEvent): void {
     const op = ev.op as BoardOp | undefined;
+    this.cascade.flush();
     if (op?.t === 'hint' || op?.t === 'bomb') {
       this.run(op, ev.by);
       return;
@@ -576,6 +591,7 @@ export class StripsSession implements PuzzleSession {
 
   /** Takes the room's board in place of this one. */
   resync(state: RoomState): void {
+    this.cascade.cancel();
     try {
       this.game.restore(state.game as StripsState);
     } catch {

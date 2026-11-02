@@ -1,6 +1,6 @@
 import { GENERAL, generalValue } from '../core/kinds';
 import type { Prefs } from '../core/prefs';
-import { effectsOn, setEffectsOn } from '../sounds';
+import { effectsOn, effectsVolume, playEffect, setEffectsOn, setEffectsVolume } from '../sounds';
 import { h } from './dom';
 
 /** Opens the settings window over whatever screen is showing; `changed` is called after each change, so that the screen can look at the settings again. */
@@ -46,6 +46,31 @@ export function openSettings(prefs: Prefs, changed: () => void = () => {}): void
           setEffectsOn(!muted);
           prefs.data.sfx = !muted;
         }),
+        h(
+          'label',
+          { class: 'field' },
+          h('span', {}, 'Sound effects volume ', h('output', {}, `${Math.round(effectsVolume() * 100)}%`)),
+          h('input', {
+            type: 'range',
+            min: 0,
+            max: 100,
+            step: 5,
+            value: Math.round(effectsVolume() * 100),
+            'aria-label': 'Sound effects volume',
+            // (100% is as loud as the effects can be, and they start at 50%)
+            oninput: (ev: Event) => {
+              const v = Number((ev.target as HTMLInputElement).value);
+              setEffectsVolume(v / 100);
+              prefs.data.sfxVolume = v / 100;
+              const out = (ev.target as HTMLElement).parentElement?.querySelector('output');
+              if (out) out.textContent = `${v}%`;
+            },
+            onchange: () => {
+              prefs.save();
+              playEffect('pickup');                                // (so that it can be heard)
+            },
+          }),
+        ),
         ...GENERAL.map((o) =>
           check(o.label, generalValue(prefs.data.settings, o.key) !== 0, (on) => {
             prefs.data.settings[`all.${o.key}`] = on ? 1 : 0;

@@ -1,5 +1,6 @@
 import { RotascopeGame, type RotascopeState } from '../core/rotascope';
 import { beginFrame, type View } from '../render';
+import { playEffect } from '../sounds';
 import { buzz } from './feedback';
 import { Camera } from './camera';
 import { VideoLayer, videoGlAvailable } from './videoGl';
@@ -344,6 +345,7 @@ export class RotascopeSession implements PuzzleSession {
     const from = this.extent(cell);
     const m = this.game.click(cell);
     if (m) buzz(this.init, this.game.solved ? 'solved' : 'move');
+    if (m && this.game.solved) playEffect('placed');                              // (the last move rings the bell too, before the end of the puzzle begins)
     if (m && this.init.flag('animate')) this.slides.set(m.piece, { from, to: this.extent(m.to), start: performance.now() });
     this.init.requestDraw();
   }

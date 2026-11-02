@@ -134,6 +134,16 @@ describe('prefs', () => {
     expect(new Prefs(memoryStorage({ 'photo-puzzles/v1': JSON.stringify({ sfx: 'no' }) })).data.sfx).toBe(true);
   });
 
+  it('remembers the volume of the effects, which starts at half, and ignores one that is not a number from 0 to 1', () => {
+    const st = memoryStorage();
+    const p = new Prefs(st);
+    expect(p.data.sfxVolume).toBe(0.5);
+    p.data.sfxVolume = 0.8;
+    p.save();
+    expect(new Prefs(st).data.sfxVolume).toBe(0.8);
+    for (const bad of ['loud', 2, -1, null]) expect(new Prefs(memoryStorage({ 'photo-puzzles/v1': JSON.stringify({ sfxVolume: bad }) })).data.sfxVolume).toBe(0.5);
+  });
+
   it('ignores damaged storage and types that cannot be played', () => {
     expect(new Prefs(memoryStorage({ 'photo-puzzles/v1': '{nope' })).data.kind).toBe('focus');
     expect(new Prefs(memoryStorage({ 'photo-puzzles/v1': JSON.stringify({ kind: 'nonsense' }) })).data.kind).toBe('focus');
