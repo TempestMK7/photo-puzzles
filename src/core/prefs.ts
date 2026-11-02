@@ -18,6 +18,8 @@ export interface PrefsData {
   sfxVolume: number;
   /** How Local Files is listed: in the order the files were added, or by name. */
   sort: 'added' | 'name';
+  /** Which of the local files are listed: the ones the player added, the ones that came from the stock library, or both; and photos, videos, or both. */
+  filter: { source: 'all' | 'mine' | 'stock'; type: 'all' | 'photo' | 'video' };
 }
 
 /** The part of the Storage interface that is used (so tests can pass a plain object). */
@@ -32,7 +34,7 @@ export class Prefs {
   data: PrefsData;
 
   constructor(private readonly storage: StorageLike | null) {
-    this.data = { seed: randomSeedText(), kind: 'focus', photo: '', settings: {}, best: {}, muted: false, sfx: true, sfxVolume: 0.5, sort: 'added' };
+    this.data = { seed: randomSeedText(), kind: 'focus', photo: '', settings: {}, best: {}, muted: false, sfx: true, sfxVolume: 0.5, sort: 'added', filter: { source: 'all', type: 'all' } };
     this.load();
   }
 
@@ -51,6 +53,9 @@ export class Prefs {
       if (typeof raw.sfx === 'boolean') this.data.sfx = raw.sfx;
       if (typeof raw.sfxVolume === 'number' && raw.sfxVolume >= 0 && raw.sfxVolume <= 1) this.data.sfxVolume = raw.sfxVolume;
       if (raw.sort === 'added' || raw.sort === 'name') this.data.sort = raw.sort;
+      const f = raw.filter as { source?: unknown; type?: unknown } | undefined;
+      if (f && (f.source === 'all' || f.source === 'mine' || f.source === 'stock')) this.data.filter.source = f.source;
+      if (f && (f.type === 'all' || f.type === 'photo' || f.type === 'video')) this.data.filter.type = f.type;
     } catch {
       // damaged or unavailable storage: start from the defaults
     }
