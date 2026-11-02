@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Effect } from '../src/sounds';
 
-const EFFECTS: Effect[] = ['solved', 'placed', 'select', 'pickup', 'drop', 'wrong'];
+const EFFECTS: Effect[] = ['solved', 'placed', 'select', 'pickup', 'drop', 'rotate', 'wrong'];
 
 /** A stand-in for the browser's Audio that notes which files were started, and a fresh copy of the module (which keeps its players). */
 async function load() {

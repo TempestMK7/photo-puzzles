@@ -436,6 +436,7 @@ export class StripsSession implements PuzzleSession {
   /** Turns a strip a quarter. A tap has buzzed when it pressed, so it only buzzes again if the strip locks; the other ways of turning (right button, R, a second finger) buzz. */
   private turn(id: number, tap = false): void {
     const inHand = this.drag?.id === id;
+    playEffect('rotate');
     if (this.game.rotate(id)) {
       this.locked(id);
       this.commit(id);

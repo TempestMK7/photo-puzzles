@@ -345,6 +345,7 @@ export class RotascopeSession implements PuzzleSession {
     const from = this.extent(cell);
     const m = this.game.click(cell);
     if (m) buzz(this.init, this.game.solved ? 'solved' : 'move');
+    if (m) playEffect('rotate');                                                  // (a ring is turned)
     if (m && this.game.solved) playEffect('placed');                              // (the last move rings the bell too, before the end of the puzzle begins)
     if (m && this.init.flag('animate')) this.slides.set(m.piece, { from, to: this.extent(m.to), start: performance.now() });
     this.init.requestDraw();

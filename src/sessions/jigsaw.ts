@@ -652,6 +652,7 @@ export class JigsawSession implements PuzzleSession {
     if (this.init.flag('haptics')) haptic(kind);
     if (kind === 'grab') playEffect('pickup');
     else if (kind === 'drop') playEffect('drop');
+    else if (kind === 'turn') playEffect('rotate');
     else if (kind === 'placed' || kind === 'join' || kind === 'solved') playEffect('placed');          // (the bell rings for a piece put in its place, for two that joined, and for the last one, before the end of the puzzle begins)
   }
 
