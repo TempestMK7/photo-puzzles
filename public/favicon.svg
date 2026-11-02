@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- The app icon: a jigsaw piece with a film camera in it, drawn in code like the rest of the art (the Android icon, android/app/src/main/res/mipmap-anydpi*, is the same drawing). -->
+  <rect width="48" height="48" rx="9" fill="#2d1e15" />
+  <g transform="translate(24 24) scale(1.45) translate(-24 -24.25)">
+    <path fill="#ffd84a" d="M12,14h8.5a3.5,3.5 0 1,1 7,0h8.5v8.5a3.5,3.5 0 1,0 0,7v8.5h-8.5a3.5,3.5 0 1,0 -7,0h-8.5z" />
+    <rect x="15" y="19.5" width="16.5" height="13" rx="1.8" fill="#2d1e15" />
+    <circle cx="23.25" cy="26" r="4.8" fill="#ffd84a" />
+    <circle cx="23.25" cy="26" r="2.7" fill="#2d1e15" />
+    <circle cx="29" cy="22.4" r="1.1" fill="#e0452c" />
+  </g>
+</svg>
