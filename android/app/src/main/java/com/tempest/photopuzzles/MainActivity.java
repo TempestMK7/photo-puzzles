@@ -183,10 +183,10 @@ public class MainActivity extends Activity {
         collectSignIn(intent);                  // (the page is told when the app is shown again: see onResume)
     }
 
-    /** Notes the address that the sign-in service sent the player back with (the app's own made-up address: com.tempest.photopuzzles://signed-in?code=...). True if this is one. */
+    /** Notes the address that the sign-in service sent the player back with (the app's own made-up address: <package id>://signed-in?code=...). True if this is one. */
     private boolean collectSignIn(Intent intent) {
         Uri data = intent == null ? null : intent.getData();
-        if (data == null || !Intent.ACTION_VIEW.equals(intent.getAction()) || !"com.tempest.photopuzzles".equals(data.getScheme()) || !"signed-in".equals(data.getHost())) return false;
+        if (data == null || !Intent.ACTION_VIEW.equals(intent.getAction()) || !BuildConfig.APPLICATION_ID.equals(data.getScheme()) || !"signed-in".equals(data.getHost())) return false;
         synchronized (sharedLock) {
             signInPending = data.toString();
         }
@@ -338,7 +338,7 @@ public class MainActivity extends Activity {
 
         /**
          * Opens a page of the sign-in service in the phone's browser (a Chrome Custom Tab, which Google accepts and its page in an app's web view is not), where the player signs in,
-         * for instance with Google; the service then sends them back to com.tempest.photopuzzles://signed-in, which brings them here (see takeSignIn). Only the sign-in service's own
+         * for instance with Google; the service then sends them back to <package id>://signed-in (see signInRedirect), which brings them here (see takeSignIn). Only the sign-in service's own
          * pages: the page of another site is not opened.
          */
         @JavascriptInterface
@@ -355,6 +355,12 @@ public class MainActivity extends Activity {
                     }
                 }
             });
+        }
+
+        /** The address that the sign-in service has to send the player back to: the app's own, which is its package id (the dev app is another app, with another one), so that the page asks for it and does not assume. */
+        @JavascriptInterface
+        public String signInRedirect() {
+            return BuildConfig.APPLICATION_ID + "://signed-in";
         }
 
         /** The address that the sign-in service sent the player back to the app with, once (an empty string if there is none). */

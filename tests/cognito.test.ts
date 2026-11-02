@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { CognitoAccount, inAdminGroup, pictureOf, type CognitoEnv } from '../src/online/cognito';
-import { APP_SIGN_IN_REDIRECT } from '../src/platform';
+import { APP_SIGN_IN_REDIRECT, appSignInRedirect } from '../src/platform';
 
 class MemoryStorage implements Storage {
   private m = new Map<string, string>();
@@ -54,6 +54,15 @@ describe('signing in through the phone’s browser (the Android app: Google does
     const listed = /APP_SIGN_IN_REDIRECTS = \[([^\]]*)\]/.exec(readFileSync('infra/lib/config.ts', 'utf8'))?.[1];
     expect(listed?.split(',').map((a) => a.trim().replace(/^'|'$/g, ''))).toEqual([APP_SIGN_IN_REDIRECT]);
     expect(APP_SIGN_IN_REDIRECT).toBe('com.tempest.photopuzzles://signed-in');
+    const dev = /\bDEV_APP_SIGN_IN_REDIRECTS = \[([^\]]*)\]/.exec(readFileSync('infra/lib/config.ts', 'utf8'))?.[1];
+    expect(dev?.trim().replace(/^'|'$/g, '')).toBe('com.tempest.photopuzzles.dev://signed-in');                // (what the dev app asks its shell for: its package id)
+  });
+
+  it('is the address that the app’s shell says it wants, if it says one of the right kind, and the real app’s otherwise', () => {
+    expect(appSignInRedirect({ signInRedirect: () => 'com.tempest.photopuzzles.dev://signed-in' })).toBe('com.tempest.photopuzzles.dev://signed-in');
+    expect(appSignInRedirect({})).toBe(APP_SIGN_IN_REDIRECT);                                                    // (an older shell does not say)
+    expect(appSignInRedirect({ signInRedirect: () => 'https://evil.example/' })).toBe(APP_SIGN_IN_REDIRECT);       // (and only an address of this kind is taken)
+    expect(appSignInRedirect({ signInRedirect: () => { throw new Error('no'); } })).toBe(APP_SIGN_IN_REDIRECT);
   });
 
   it('opens Google\u2019s sign-in with the app\u2019s own address to come back to, and keeps what it needs on the device (the app may be closed meanwhile)', async () => {

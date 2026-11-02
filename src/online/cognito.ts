@@ -1,5 +1,5 @@
 import { ADMIN_GROUP } from './adminProtocol';
-import { APP_SIGN_IN_REDIRECT, browserSignIn, openSignIn } from '../platform';
+import { appSignInRedirect, browserSignIn, openSignIn } from '../platform';
 import type { Account, AuthError, AuthResult, PasswordAccount } from './identity';
 
 /** Where the sign-in pages of the user pool are (`https://<prefix>.auth.<region>.amazoncognito.com`) and which app client the game is. */
@@ -31,7 +31,7 @@ const browserEnv = (): CognitoEnv => {
     fetch: (...a) => fetch(...a),
     now: () => Date.now(),
     go: (url) => (external ? openSignIn(url) : window.location.assign(url)),
-    redirect: () => (external ? APP_SIGN_IN_REDIRECT : `${window.location.origin}/`),
+    redirect: () => (external ? appSignInRedirect() : `${window.location.origin}/`),
     external,
   };
 };

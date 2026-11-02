@@ -27,12 +27,13 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId "com.tempest.photopuzzles"
+        // the dev build is an app of its own, so that it can sit beside the real one on a phone: its own package id (and so its own storage), name and sign-in return address
+        applicationId webStage == 'dev' ? "com.tempest.photopuzzles.dev" : "com.tempest.photopuzzles"
         minSdk 24
         targetSdk 35
         versionCode 1
         versionName "0.1"
-        manifestPlaceholders = [admobAppId: admobAppId]
+        manifestPlaceholders = [admobAppId: admobAppId, appLabel: webStage == 'dev' ? 'Dev PuzzleVidio' : 'PuzzleVidio']
         buildConfigField 'String', 'ADMOB_REWARDED_UNIT', "\"${admobRewardedUnit}\""
         buildConfigField 'String', 'ADMOB_TEST_DEVICES', "\"${admobTestDevices}\""
     }
