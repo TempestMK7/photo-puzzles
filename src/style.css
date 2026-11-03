@@ -257,7 +257,17 @@ body.dragging .library::after {
 @media (max-width: 640px) {
   .play .bar { flex-wrap: wrap; gap: 6px 8px; }
   .play .title { display: none; }
-  .play .stats { margin-left: auto; }
+}
+/* the buttons of the play screen: Rotate and Show Photo, then the player's own (hints, bombs, Inventory, Settings, the last in the corner) */
+.play .bar .view-group { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.play .bar .tool-group { margin-left: 0; }
+/* a phone: Photos on the left and the player's buttons on the right, and under them the count and the clock on the left and the buttons for the board on the right */
+@media (max-width: 640px) {
+  .play .bar { display: grid; grid-template-columns: auto 1fr; grid-template-areas: 'back tools' 'stats view'; align-items: center; }
+  .play .bar .back { grid-area: back; justify-self: start; }
+  .play .bar .tool-group { grid-area: tools; justify-self: end; }
+  .play .bar .stats { grid-area: stats; }
+  .play .bar .view-group { grid-area: view; justify-self: end; margin-left: 0; }
 }
 .play main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-bottom: env(safe-area-inset-bottom); }
 .stage { flex: 1; min-height: 0; position: relative; }
