@@ -21,6 +21,11 @@ export function aiMark(label = false): HTMLElement {
   return m;
 }
 
+/** A small "V" in the corner of a thumbnail of a video. */
+export function videoMark(): HTMLElement {
+  return h('span', { class: 'vmark', title: 'Video', 'aria-label': 'Video' }, 'V');
+}
+
 const link = (site: StockSite, href: string, ...children: (Node | string)[]): HTMLElement =>
   h('a', { href: stockUrl(site, href) ?? STOCK_HOMES[site], target: '_blank', rel: 'noopener noreferrer' }, ...children);
 

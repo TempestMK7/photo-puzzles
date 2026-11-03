@@ -11,7 +11,7 @@ import type { PhotoEntry, PhotoLibrary } from '../store/photos';
 import { appVersion, versionLabel } from '../version';
 import { h, svg } from './dom';
 import { FILTER_ICON, KIND_ICONS } from './icons';
-import { aiMark, attribution, creditLine, siteMark } from './stocksite';
+import { aiMark, attribution, creditLine, siteMark, videoMark } from './stocksite';
 import { AddFilesDialog } from './addfiles';
 import { settingsButton } from './settings';
 
@@ -450,7 +450,7 @@ export class LibraryScreen {
         ondblclick: () => (this.removing === 'no' ? this.play() : undefined),
       },
       h('span', { class: 'chk', 'aria-hidden': 'true' }),
-      h('span', { class: 'thumb' }, this.thumbFor(e), e.credit ? siteMark(e.credit.source, 14) : null, e.credit?.ai ? aiMark() : null),
+      h('span', { class: 'thumb' }, this.thumbFor(e), e.credit ? siteMark(e.credit.source, 14) : null, e.credit?.ai ? aiMark() : null, e.video ? videoMark() : null),
       h('span', { class: 'txt' }, h('span', { class: 'n' }, e.name), h('span', { class: 'b' }, text)),
     );
     this.items.set(e.id, li);
@@ -495,7 +495,7 @@ export class LibraryScreen {
     this.nameEl.textContent = shown?.name ?? (this.tab === 'stock' ? (this.stock.busy ? 'Searching…' : 'Nothing to show') : this.loading ? 'Loading photos…' : this.deps.stockBase ? 'No photos yet. Add some, or try Stock Files' : 'No photos yet. Add some below');
     this.creditEl.replaceChildren(...(shown?.credit ? [creditLine(shown.credit, shown.video)] : []));
     const best = e ? this.recordFor(e) : undefined;
-    this.bestEl.textContent = stock && !e ? 'Added to your library when you play it' : e ? (best !== undefined ? `Best time ${formatTime(best)}` : 'Not solved yet') : '';
+    this.bestEl.textContent = e ? (best !== undefined ? `Best time ${formatTime(best)}` : 'Not solved yet') : '';
     this.blurbEl.textContent = this.kind.blurb;
     this.playBtn.disabled = !shown || !!this.stockAbort;
     this.addStockBtn.hidden = this.tab !== 'stock';
@@ -911,7 +911,7 @@ export class LibraryScreen {
           onclick: () => this.chooseStock(i.id),
           ondblclick: () => void this.playStock(),
         },
-        h('span', { class: 'thumb' }, h('img', { src: i.thumb, alt: '', width: 56, height: 56, loading: 'lazy', referrerPolicy: 'no-referrer' }), siteMark(i.source, 14), i.ai ? aiMark() : null),
+        h('span', { class: 'thumb' }, h('img', { src: i.thumb, alt: '', width: 56, height: 56, loading: 'lazy', referrerPolicy: 'no-referrer' }), siteMark(i.source, 14), i.ai ? aiMark() : null, video ? videoMark() : null),
         h('span', { class: 'txt' }, h('span', { class: 'n' }, i.title), h('span', { class: 'b' }, (video ? `Video ${formatTime(i.duration * 1000)} · ` : '') + (have ? 'In your library' : `by ${i.by}`))),
       );
     });
