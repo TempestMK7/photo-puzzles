@@ -29,7 +29,7 @@ A thin shell around the game: one `WebView` that shows the web build packed in `
    ```
    On a machine whose HTTPS is intercepted by a root certificate that only the operating system knows (so that Gradle cannot download), run Gradle with `JAVA_TOOL_OPTIONS=-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT` (Windows) in its environment, or put the same flag in `org.gradle.jvmargs` in `~/.gradle/gradle.properties`. It is not in the project's `gradle.properties` because the JVM refuses it on other systems.
 
-**Dev and real app side by side.** The app is built for the stage whose web build is in it (`web-stage.txt`, see *Ads*): a **dev** build is **`com.tempest.photopuzzles.dev`**, named **Dev PuzzleVidio**, and any other build is **`com.tempest.photopuzzles`**, **PuzzleVidio**. Different package ids are different apps, so both can be installed at once, each with its own storage (library, saved puzzles, sign-in), and a release build never replaces a dev one. The sign-in return address follows the package id (`<package id>://signed-in`: the page asks the shell for it with `PhotoPuzzlesNative.signInRedirect()`), so the two do not both answer to one address; the dev stage's user pool lists the dev app's (`DEV_APP_SIGN_IN_REDIRECTS` in `infra/lib/config.ts`) and the prod stage's the real one's. (A debug build is signed with the debug key and a release with the upload key, so those two could never be installed over each other anyway.)
+**Dev and real app side by side.** The app is built for the stage whose web build is in it (`web-stage.txt`, see *Ads*): a **dev** build is **`com.tempest.photopuzzles.dev`**, named **Dev PuzzleVidio**, and any other build is **`com.tempest.photopuzzles`**, **PuzzleVidio**. Different package ids are different apps, so both can be installed at once, each with its own storage (library, saved puzzles, sign-in), and a release build never replaces a dev one. The sign-in return address follows the package id (`<package id>://signed-in`: the page asks the shell for it with `PhotoPuzzlesNative.signInRedirect()`), so the two do not both answer to one address; the dev stage's user pool lists the dev app's (`DEV_APP_SIGN_IN_REDIRECTS` in `infra/lib/config.ts`) and the prod stage's the real one's. (A debug build is signed with `android/dev.keystore` and a release with the upload key, so those two could never be installed over each other anyway.)
 
 ## Building in GitHub Actions
 
@@ -74,7 +74,9 @@ The Google sign-in button and the legal pages use the Deploy workflow's variable
 
 ## Release signing
 
-Without a key of its own the release build is signed with the debug key (private builds, which then install on any device). For the store make a keystore **outside the repository** and describe it in `android/keystore.properties` (not kept): `storeFile`, `storePassword`, `keyAlias`, `keyPassword`. The build uses it when that file is there.
+**The dev key:** every debug build (the dev app, on any machine and in the workflow) is signed with `android/dev.keystore`, which is kept in the repository on purpose (alias `dev`, password `android`; it signs nothing but the dev app): a phone only installs an update signed with the key of the version it has, so one key everywhere lets each new dev build go over the last. A phone that has a dev build signed with some other key (an older one, made with a machine's own debug key) has to remove it once.
+
+Without a key of its own the release build is signed with the dev key (private builds, which then install on any device). For the store make a keystore **outside the repository** and describe it in `android/keystore.properties` (not kept): `storeFile`, `storePassword`, `keyAlias`, `keyPassword`. The build uses it when that file is there.
 
 ## Signing in
 

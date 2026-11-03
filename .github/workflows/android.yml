@@ -6,7 +6,7 @@ name: Android
 # An upload is always of a release: give the tag (v1.2.0, a commit of main). The Release workflow does all this when a tag is created (the AWS role trusts runs of main only, so this one is started
 # on main, and it builds the code of the tag).
 #
-#   dev   "Dev PuzzleVidio" (com.tempest.photopuzzles.dev), a debug build (signed with the debug key), for the dev stage's server and the dev ad unit. Needs nothing but the variables below.
+#   dev   "Dev PuzzleVidio" (com.tempest.photopuzzles.dev), a debug build (signed with the dev key, android/dev.keystore, kept in the repository so that every dev build installs over the last), for the dev stage's server and the dev ad unit. Needs nothing but the variables below.
 #   prod  "PuzzleVidio" (com.tempest.photopuzzles), the signed bundle (.aab) for the Play Console and a signed .apk, for the prod stage's server and the prod ad unit.
 #
 # The repository needs these (Settings > Secrets and variables > Actions); android/README.md has the commands:
