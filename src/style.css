@@ -133,6 +133,7 @@ input[type='email'], input[type='password'] { text-transform: none; letter-spaci
 .thumb .pmark { position: absolute; right: -4px; bottom: -4px; display: flex; }
 .thumb .aimark { position: absolute; left: -4px; bottom: -4px; }
 .aimark { display: inline-flex; flex: none; align-items: center; padding: 0 5px; border-radius: 999px; font-size: 10px; font-weight: 700; line-height: 14px; letter-spacing: 0.03em; color: #fff; background: #6b4aa8; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55); }
+.thumb .vmark { position: absolute; right: -4px; top: -4px; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; font-size: 10px; font-weight: 700; line-height: 1; color: #1b1210; background: var(--accent2); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55); }
 .aimark.long { font-size: 11px; padding: 0 7px; }
 .pmark { display: inline-flex; flex: none; }
 .pmark svg { display: block; border-radius: 4px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55); }
@@ -206,12 +207,11 @@ body.dragging .library::after {
   .photos { height: auto; }
   .preview { flex: none; }
   .frame { flex: none; height: clamp(160px, min(60vw, 45vh), 380px); }
-  /* a row of items 84px wide (the thumbnail and its name, both inside the frame of the chosen one; the "by..." line has no room and the name is cut to what is inside the item) */
-  .plist { flex: none; height: 104px; display: flex; overflow-x: auto; overflow-y: hidden; }
-  .item { flex-direction: column; gap: 4px; width: 84px; flex: none; text-align: center; position: relative; }
+  /* a row of thumbnails alone (no names: the marks on a thumbnail say what it is, and the name of the chosen one is under the picture) */
+  .plist { flex: none; height: 80px; display: flex; overflow-x: auto; overflow-y: hidden; }
+  .item { box-sizing: border-box; width: 72px; flex: none; justify-content: center; position: relative; }
   .item .chk { position: absolute; top: 4px; left: 4px; z-index: 1; }
-  .item .txt, .item .n { max-width: 70px; }
-  .item .b { display: none; }
+  .item .txt { display: none; }
   /* the settings one under the other, as wide as the screen but not wider than is easy to use, with Play at the end */
   .side { flex-direction: column; align-items: stretch; gap: 12px; overflow: visible; width: 100%; max-width: 560px; align-self: center; }
   .side .spacer { display: none; }
