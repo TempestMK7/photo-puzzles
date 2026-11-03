@@ -206,10 +206,12 @@ body.dragging .library::after {
   .photos { height: auto; }
   .preview { flex: none; }
   .frame { flex: none; height: clamp(160px, min(60vw, 45vh), 380px); }
-  .plist { flex: none; height: 96px; display: flex; overflow-x: auto; overflow-y: hidden; }
-  .item { flex-direction: column; width: 84px; flex: none; text-align: center; position: relative; }
+  /* a row of items 84px wide (the thumbnail and its name, both inside the frame of the chosen one; the "by..." line has no room and the name is cut to what is inside the item) */
+  .plist { flex: none; height: 104px; display: flex; overflow-x: auto; overflow-y: hidden; }
+  .item { flex-direction: column; gap: 4px; width: 84px; flex: none; text-align: center; position: relative; }
   .item .chk { position: absolute; top: 4px; left: 4px; z-index: 1; }
-  .item .n { max-width: 76px; }
+  .item .txt, .item .n { max-width: 70px; }
+  .item .b { display: none; }
   /* the settings one under the other, as wide as the screen but not wider than is easy to use, with Play at the end */
   .side { flex-direction: column; align-items: stretch; gap: 12px; overflow: visible; width: 100%; max-width: 560px; align-self: center; }
   .side .spacer { display: none; }
