@@ -23,6 +23,7 @@ interface Native {
   showRewardedAd?: (kind: string, nonce: string) => void;
   privacyOptionsRequired?: () => boolean;
   showPrivacyOptions?: () => void;
+  unlockAchievements?: (idsJson: string) => void;
 }
 
 const nativeHost = (): Native | undefined => (typeof window === 'undefined' ? undefined : (window as unknown as { PhotoPuzzlesNative?: Native }).PhotoPuzzlesNative);
@@ -73,6 +74,19 @@ export function takeSignIn(host: Native | undefined = nativeHost()): string {
     return typeof url === 'string' ? url : '';
   } catch {
     return '';
+  }
+}
+
+/**
+ * Tells the shell which achievements are unlocked (their ids, `src/core/achievements.ts`), for the platform's own service (Google Play Games). Nothing where the shell has none. The game
+ * tells it all that are unlocked when it starts and then each new one: the service takes an unlock it has already as nothing, so one that could not be sent goes the next time.
+ */
+export function tellAchievements(ids: readonly string[], host: Native | undefined = nativeHost()): void {
+  if (!ids.length || typeof host?.unlockAchievements !== 'function') return;
+  try {
+    host.unlockAchievements(JSON.stringify(ids));
+  } catch {
+    /* the shell could not take them: the next start tells again */
   }
 }
 
