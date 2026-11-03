@@ -47,6 +47,7 @@ gh variable set ADMOB_APP_ID --body 'ca-app-pub-XXXXXXXXXXXXXXXX~NNNNNNNNNN'
 gh variable set ADMOB_UNIT_DEV --body 'ca-app-pub-XXXXXXXXXXXXXXXX/NNNNNNNNNN'
 gh variable set ADMOB_UNIT_PROD --body 'ca-app-pub-XXXXXXXXXXXXXXXX/NNNNNNNNNN'
 gh variable set ADMOB_TEST_DEVICES --body '<id>,<id>'     # optional: your phones, which are shown test ads
+gh secret set PLAY_SERVICE_ACCOUNT_JSON < path/to/service-account.json   # only to upload to the Play Console (see Uploading to the Play Console)
 base64 -w0 path/to/upload.jks | gh secret set ANDROID_KEYSTORE_B64        # prod only: the upload key,
 gh secret set ANDROID_KEYSTORE_PASSWORD                                    # its passwords (each asks for the value)
 gh secret set ANDROID_KEY_ALIAS
@@ -90,3 +91,13 @@ Signing out of a Google account also ends the browser's session through the same
 ## Achievements (Google Play Games)
 
 The page keeps the achievements and calls `PhotoPuzzlesNative.unlockAchievements(idsJson)` (a JSON array of our ids) with everything unlocked when it starts and with each new unlock; `Games.java` passes them to Play Games (the v2 SDK signs the player in by itself; unlocking twice is harmless, so one that could not be sent goes the next time). The dev app (`GAMES_ENABLED` false) does nothing, because its package id is not registered. A new achievement: add it to `src/core/achievements.ts`, create it in the Play Console, add its `achievement_*` string to `games-ids.xml` and, if the name differs from our id, a line to `NAMES` in `Games.java` (`tests/playGames.test.ts` checks that every achievement has one). In the Play Console the app needs a credential per signing certificate (upload key and Play app signing key) and, until published, testers.
+
+## Uploading to the Play Console
+
+Actions > Android > Run workflow with **Upload** ticked (and the prod app built) sends the signed bundle to the **internal testing** track; the testers get it from the Play Store. Production is promoted by hand in the Play Console, so a run can never reach real users. It needs once:
+
+1. Google Cloud (the project that has the Google Play Android Developer API enabled): IAM & Admin > Service Accounts > create one (no project roles needed) > Keys > Add key > JSON.
+2. Play Console > Users and permissions > Invite new users: the service account's e-mail, with access to this app only and the permissions to release to testing tracks (and to view app information).
+3. `gh secret set PLAY_SERVICE_ACCOUNT_JSON < the-key.json`, then delete the downloaded key file. The key is a password: it is never committed.
+
+The workflow's action (`r0adkll/upload-google-play`) is pinned to a commit. A new permission in the Play Console can take some minutes to reach the API; a "caller does not have permission" error in the first run is usually that.
