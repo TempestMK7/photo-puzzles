@@ -1,7 +1,8 @@
 name: Android
 
 # Builds the Android app: Actions > Android > Run workflow. Run by hand from main only; it signs in to AWS through OIDC (the same role as the Deploy workflow: it reads where a stage's server is
-# from the stacks), and nothing is published anywhere: the apps are left as artifacts of the run (Actions > the run > Artifacts), to be installed or uploaded to the Play Console by hand.
+# from the stacks), and nothing is published unless "Upload" is ticked: the apps are left as artifacts of the run (Actions > the run > Artifacts), to be installed or uploaded to the Play Console by hand. With "Upload" ticked the prod
+# bundle is also sent to the Play Console's **internal testing** track (never to production: that is promoted by hand there).
 #
 #   dev   "Dev PuzzleVidio" (com.tempest.photopuzzles.dev), a debug build (signed with the debug key), for the dev stage's server and the dev ad unit. Needs nothing but the variables below.
 #   prod  "PuzzleVidio" (com.tempest.photopuzzles), the signed bundle (.aab) for the Play Console and a signed .apk, for the prod stage's server and the prod ad unit.
@@ -10,6 +11,7 @@ name: Android
 #   variables  AWS_DEPLOY_ROLE_ARN (the Deploy workflow's), ADMOB_APP_ID, ADMOB_UNIT_DEV, ADMOB_UNIT_PROD; optional: ADMOB_TEST_DEVICES (your phones, comma-separated: they are shown test ads)
 #              and the Deploy workflow's GOOGLE_CLIENT_ID, GOOGLE_SECRET_NAME, LEGAL_OPERATOR, LEGAL_CONTACT, LEGAL_LAW; ANDROID_REGISTRATION (prod: the Play Console's package name registration, put in the app's assets)
 #   secrets    (prod only) ANDROID_KEYSTORE_B64 (the upload keystore, base64), ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+#              (to upload) PLAY_SERVICE_ACCOUNT_JSON: the key of the service account that may release this app in the Play Console
 # The version code of the app is the number of this run plus 10 (every upload to the Play Console needs a higher one than the one before).
 on:
   workflow_dispatch:
@@ -19,6 +21,10 @@ on:
         type: choice
         options: [both, dev, prod]
         default: both
+      upload:
+        description: Upload the prod bundle to the Play Console's internal testing track
+        type: boolean
+        default: false
 
 permissions:
   id-token: write
@@ -48,6 +54,8 @@ jobs:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_B64 }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ROLE: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          PLAY_KEY: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          UPLOAD: ${{ inputs.upload }}
         run: |
           missing=""
           [ -n "$ROLE" ] || missing="$missing AWS_DEPLOY_ROLE_ARN"
@@ -56,6 +64,7 @@ jobs:
           if [ "$STAGE" = prod ]; then
             [ -n "$KEYSTORE" ] || missing="$missing ANDROID_KEYSTORE_B64"
             [ -n "$KEY_ALIAS" ] || missing="$missing ANDROID_KEY_ALIAS"
+            if [ "$UPLOAD" = true ]; then [ -n "$PLAY_KEY" ] || missing="$missing PLAY_SERVICE_ACCOUNT_JSON"; fi
           fi
           if [ -n "$missing" ]; then
             echo "::error::Set these first (android/README.md says how):$missing"
@@ -164,3 +173,14 @@ jobs:
             android/app/build/outputs/bundle/release/app-release.aab
             android/app/build/outputs/apk/release/app-release.apk
           retention-days: 14
+      # The bundle goes to the internal testing track only (testers get it from the Play Store within minutes); production is promoted by hand in the Play Console. The action is pinned to a commit (v1.1.3).
+      - name: Upload to the Play Console (internal testing)
+        if: matrix.stage == 'prod' && inputs.upload
+        uses: r0adkll/upload-google-play@935ef9c68bb393a8e6116b1575626a7f5be3a7fb
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.tempest.photopuzzles
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          track: internal
+          status: completed
+          releaseName: 0.1.${{ github.run_number }}
