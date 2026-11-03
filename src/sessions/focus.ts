@@ -280,6 +280,10 @@ export class FocusSession implements PuzzleSession {
     this.cam.endPan();
   }
 
+  moves(): number {
+    return this.game.swaps;
+  }
+
   status(): string {
     const n = this.game.swaps;
     return `${n} ${n === 1 ? 'swap' : 'swaps'}`;

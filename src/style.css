@@ -452,8 +452,12 @@ button.link:hover:not(:disabled) { background: none; color: var(--text); }
   .library > .bar .tool-group { margin-left: auto; }
   .library > .bar .online-group { order: 1; flex: 1 0 100%; margin-left: 0; flex-wrap: wrap; }
   .library > .bar .online-group .progress-btn { margin-left: 0; }
-  .library > .bar .tool-group .label { display: none; }
   .library > .bar button.settings-btn, .library > .bar button.inventory-btn { padding: 7px 10px; font-size: 16px; }
+}
+/* the buttons of the account show only their icons when there is little room (a phone, upright or on its side) */
+@media (max-width: 820px) {
+  .bar .tool-group .label { display: none; }
+  .bar .tool-group button.settings-btn, .bar .tool-group button.inventory-btn { padding: 7px 10px; font-size: 16px; }
 }
 /* the Settings and the Inventory buttons are alike: the same text and the same border (the screens' own rules for a toggle must not change them) */
 .bar button.settings-btn, .bar button.inventory-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; font-size: 13px; font-weight: 600; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 999px; }
@@ -495,3 +499,18 @@ canvas.confetti { position: fixed; inset: 0; width: 100%; height: 100%; pointer-
 .achievement-toast b { color: #ffd84a; }
 @media (prefers-reduced-motion: no-preference) { .achievement-toast:not([hidden]) { animation: toast-in 0.25s ease-out; } }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, -12px); } }
+
+/* ---------------------------------------------------------------- best times */
+.besttimes-dialog .card { max-height: min(640px, 100%); }
+.tabs { flex: none; display: flex; gap: 6px; padding: 8px 12px; overflow-x: auto; border-bottom: 1px solid var(--line); }
+.tabs .tab { flex: 1 0 auto; display: flex; align-items: center; justify-content: center; padding: 6px 10px; color: var(--dim); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.tabs .tab .icon { display: flex; }
+.tabs .tab .icon svg { width: 30px; height: 30px; }
+.tabs .tab.on { color: var(--text); border-color: var(--accent2); background: #4a2a18; box-shadow: 0 0 0 1px var(--accent2) inset; }
+.besttimes { overflow-y: auto; }
+.besttimes .bt { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); }
+.besttimes .bt.done { border-color: var(--accent2); }
+.besttimes .bt .size { flex: none; width: 52px; font-weight: 700; font-size: 17px; text-align: center; color: var(--accent2); }
+.besttimes .bt .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.besttimes .bt .txt .dim { font-size: 13px; overflow-wrap: anywhere; }
+.besttimes .bt .txt b { font-variant-numeric: tabular-nums; }

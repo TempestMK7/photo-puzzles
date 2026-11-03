@@ -565,6 +565,10 @@ export class StripsSession implements PuzzleSession {
     }, DWELL_MS);
   }
 
+  moves(): number {
+    return this.game.moves;
+  }
+
   status(): string {
     return `${this.game.lockedCount} / ${this.game.total} placed`;
   }

@@ -1,4 +1,5 @@
 import { sizeIndexOf } from '../core/achievements';
+import { sizeLabels } from '../core/besttimes';
 import type { HelpKind } from '../core/help';
 import { findKind, generalValue, optionsOf, puzzleSeedText, recordKey, SIZE, type KindDef, type KindId } from '../core/kinds';
 import { formatTime, type Prefs } from '../core/prefs';
@@ -17,6 +18,7 @@ import { openVideo, type PhotoEntry, type PhotoLibrary, type PlaySource } from '
 import type { SaveRecord, SaveStore } from '../store/saves';
 import { cancelEffects, playEffect } from '../sounds';
 import type { AchievementStore } from '../store/achievements';
+import type { BestTimeStore } from '../store/besttimes';
 import { Autosave } from '../store/autosave';
 import { launchConfetti } from './confetti';
 import { h, svg } from './dom';
@@ -45,6 +47,8 @@ export interface PlayDeps {
   inventory?: () => HTMLButtonElement;
   /** The achievements: told when a hint or a bomb is used and when a puzzle is solved. */
   achievements?: AchievementStore;
+  /** The best time of each kind and size: a puzzle played alone is entered when it is solved. */
+  bestTimes?: BestTimeStore;
 }
 
 /** What a session of this kind is given to start from the room's board (what `serialize` makes when a puzzle is saved: see each session). */
@@ -1346,20 +1350,24 @@ export class PlayScreen {
     void this.deps.saves.remove(this.saveKey);
     const { prefs } = this.deps;
     const key = recordKey(this.kind, entry.id, prefs.data.settings);
-    const isBest = prefs.recordTime(key, this.elapsed);
-    this.deps.achievements?.record({ type: 'solved', kind: this.kind.id, size: sizeIndexOf(this.kind, optionsOf(prefs.data.settings, this.kind)), video: entry.video, online: false });
+    prefs.recordTime(key, this.elapsed);                         // the best of this file (the main screen's list shows it)
+    const size = sizeIndexOf(this.kind, optionsOf(prefs.data.settings, this.kind));
+    const times = this.deps.bestTimes;
+    const isBest = times?.record(this.kind.id, size, { ms: this.elapsed, moves: this.session.moves?.(), file: entry.name, video: entry.video, at: Date.now() }) ?? false;
+    const label = `${this.kind.name} ${sizeLabels(this.kind)[size]?.name ?? ''}`.trim();
+    this.deps.achievements?.record({ type: 'solved', kind: this.kind.id, size, video: entry.video, online: false });
     const award = this.awardSolved();
     // after the last move has finished showing (and the server has said what the puzzle gave, if it does so quickly)
-    window.setTimeout(() => void Promise.race([award, new Promise<number>((r) => window.setTimeout(() => r(0), 800))]).then((n) => this.showDialog(isBest, prefs.bestTime(key) ?? this.elapsed, n)), 700);
+    window.setTimeout(() => void Promise.race([award, new Promise<number>((r) => window.setTimeout(() => r(0), 800))]).then((n) => this.showDialog(isBest, times?.get(this.kind.id, size)?.ms ?? this.elapsed, label, n)), 700);
   }
 
-  private showDialog(isBest: boolean, best: number, earned = 0): void {
+  private showDialog(isBest: boolean, best: number, label: string, earned = 0): void {
     if (!this.session) return;
     this.celebrate();
     this.dialogEl.replaceChildren(
       h('h2', {}, 'Solved!'),
       h('p', {}, `Time ${formatTime(this.elapsed)} · ${this.session.status()}`),
-      h('p', { class: 'best' }, isBest ? 'New best time!' : `Best time ${formatTime(best)}`),
+      h('p', { class: 'best' }, isBest ? `New best time for ${label}!` : `Best ${label} time ${formatTime(best)}`),
       ...this.earnLines(earned),
       h(
         'div',

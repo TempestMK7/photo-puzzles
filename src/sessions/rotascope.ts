@@ -429,6 +429,10 @@ export class RotascopeSession implements PuzzleSession {
     this.cam.endPan();
   }
 
+  moves(): number {
+    return this.game.moves;
+  }
+
   status(): string {
     const n = this.game.moves;
     return `${n} ${n === 1 ? 'move' : 'moves'}`;

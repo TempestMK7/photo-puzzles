@@ -84,6 +84,8 @@ export interface PuzzleSession {
   dispose?(): void;
   /** The progress text for the header ("3 swaps", "5 / 12 placed"). */
   status(): string;
+  /** The player's moves so far, for a puzzle that counts them (kept with the best time). */
+  moves?(): number;
   readonly solved: boolean;
   /** A setting changed (a display switch). */
   settingsChanged(): void;
