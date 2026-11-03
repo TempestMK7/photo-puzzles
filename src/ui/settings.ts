@@ -87,5 +87,5 @@ export function openSettings(prefs: Prefs, changed: () => void = () => {}): void
 
 /** The header button that opens the settings window. */
 export function settingsButton(prefs: Prefs, changed?: () => void): HTMLButtonElement {
-  return h('button', { type: 'button', class: 'toggle settings-btn', title: 'Settings', 'aria-label': 'Settings', onclick: () => openSettings(prefs, changed) }, '⚙ Settings');
+  return h('button', { type: 'button', class: 'toggle settings-btn', title: 'Settings', 'aria-label': 'Settings', onclick: () => openSettings(prefs, changed) }, h('span', { 'aria-hidden': 'true' }, '⚙'), h('span', { class: 'label' }, 'Settings'));
 }

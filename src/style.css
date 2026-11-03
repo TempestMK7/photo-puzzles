@@ -445,6 +445,14 @@ button.link:hover:not(:disabled) { background: none; color: var(--text); }
 .bar .online-group .friends { margin-left: 0; }
 .bar .online-group + .progress-btn { margin-left: 0; }
 .bar .tool-group { display: flex; align-items: center; gap: 8px; }
+/* a phone held upright: the title and the account (Settings, Inventory, the badge, the last in the corner) on the first line, the two buttons under them (and on to a third line if they do not fit together); the buttons of the account are only icons when there is little room */
+@media (max-width: 520px) {
+  .library > .bar .tool-group { margin-left: auto; }
+  .library > .bar .online-group { order: 1; flex: 1 0 100%; margin-left: 0; flex-wrap: wrap; }
+  .library > .bar .online-group .progress-btn { margin-left: 0; }
+  .library > .bar .tool-group .label { display: none; }
+  .library > .bar button.settings-btn, .library > .bar button.inventory-btn { padding: 7px 10px; font-size: 16px; }
+}
 /* the Settings and the Inventory buttons are alike: the same text and the same border (the screens' own rules for a toggle must not change them) */
 .bar button.settings-btn, .bar button.inventory-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; font-size: 13px; font-weight: 600; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 999px; }
 .bar button.inventory-btn.glow { border-color: #ffd84a; }
