@@ -12,6 +12,8 @@ import { WsRealtime, type Realtime } from './online/realtime';
 import { OnlineSession } from './online/session';
 import { SaveStore } from './store/saves';
 import { AchievementStore } from './store/achievements';
+import { BestTimeStore } from './store/besttimes';
+import { BestTimesUi } from './ui/besttimes';
 import { AchievementsUi } from './ui/achievements';
 import { preloadEffects, setEffectsOn, setEffectsVolume } from './sounds';
 import { listenForShared } from './store/shared';
@@ -100,11 +102,14 @@ async function main(): Promise<void> {
   const inventory = api ? new InventoryUi({ identity: player, api, signIn: () => signIn() }) : null;
   const achievements = new AchievementStore(storage());
   const achievementsUi = new AchievementsUi(achievements);
+  const bestTimes = new BestTimeStore(storage());
+  const bestTimesUi = new BestTimesUi(bestTimes);
   // the platform's own achievements (Google Play Games in the Android app): everything unlocked now, and each unlock as it comes
   tellAchievements(achievements.unlockedIds());
   achievements.onUnlock((list) => tellAchievements(list.map((a) => a.id)));
   const play = new PlayScreen({
     achievements,
+    bestTimes,
     prefs,
     photos,
     saves,
@@ -169,6 +174,7 @@ async function main(): Promise<void> {
     badge: profile?.badge,
     inventory: inventory?.button(),
     achievements: achievementsUi.button(),
+    bestTimes: bestTimesUi.button(),
     stockBase: base || undefined,
     onPlay: (entry) => {
       library.hide();
@@ -181,7 +187,7 @@ async function main(): Promise<void> {
   root.append(library.el, play.el);
   if (panel) root.append(panel.el);
   if (inventory) root.append(inventory.dialog);
-  root.append(achievementsUi.dialog, achievementsUi.toast);
+  root.append(achievementsUi.dialog, achievementsUi.toast, bestTimesUi.dialog);
   if (profile) root.append(profile.el);
   if (signInDialog) root.append(signInDialog.el);
   // in an app that signs in through the phone's browser, the player comes back to the app (the sign-in service sent them to the app's own address, with the answer): the shell says so
