@@ -97,7 +97,7 @@ input[type='email'], input[type='password'] { text-transform: none; letter-spaci
 .pfoot { flex: none; display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; border-top: 1px solid var(--line); background: var(--panel2); }
 .pfoot button { flex: 1 1 0; padding: 8px 6px; white-space: nowrap; }
 .pfoot input.link { flex: 1 1 100%; min-width: 0; padding: 8px; }
-/* Add Local Files: the file browser, a box for a link, and a line for each download */
+/* Add Files: the file browser, a box for a link, and a line for each download */
 .add-dialog .body { display: flex; flex-direction: column; gap: 10px; padding: 12px 16px 16px; overflow-y: auto; }
 .add-dialog p { margin: 0; line-height: 1.45; }
 .add-dialog .or { color: var(--dim); font-size: 13px; }
