@@ -44,6 +44,14 @@ android {
         buildConfig true
     }
     signingConfigs {
+        // the debug (dev) build is signed with the key kept in the repository (android/dev.keystore, with the password `android`: it is no secret, it only has to be the same on every machine and in the
+        // workflow, so that a phone installs each new dev build over the one before; Android refuses an update signed with another key)
+        debug {
+            storeFile rootProject.file('dev.keystore')
+            storePassword 'android'
+            keyAlias 'dev'
+            keyPassword 'android'
+        }
         // for the store: the key and its passwords are in android/keystore.properties, which is not kept in the repository (storeFile, storePassword, keyAlias, keyPassword)
         if (keystoreFile.exists()) {
             release {

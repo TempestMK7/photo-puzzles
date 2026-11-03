@@ -23,6 +23,8 @@ secrets/
 # Store signing and service files (Android / iOS / Steam / itch.io)
 *.jks
 *.keystore
+# (the dev app's key is no secret: see android/app/build.gradle)
+!android/dev.keystore
 keystore.properties
 google-services.json
 GoogleService-Info.plist
