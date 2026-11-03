@@ -153,6 +153,7 @@ jobs:
       # The game's own build for this stage goes into the app (where the stage's server and sign-in are comes from its stacks: scripts/android-web.mjs).
       - name: Build the game for the app
         env:
+          VITE_RELEASE: ${{ inputs.tag }}
           VITE_GOOGLE_SIGNIN: ${{ vars.GOOGLE_CLIENT_ID != '' && vars.GOOGLE_SECRET_NAME != '' && 'yes' || '' }}
           LEGAL_OPERATOR: ${{ vars.LEGAL_OPERATOR }}
           LEGAL_CONTACT: ${{ vars.LEGAL_CONTACT }}

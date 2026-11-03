@@ -48,9 +48,9 @@ export default defineConfig({
     target: 'es2022',
     rollupOptions: { input: { main: fileURLToPath(new URL('./index.html', import.meta.url)), privacy: fileURLToPath(new URL('./privacy.html', import.meta.url)), terms: fileURLToPath(new URL('./terms.html', import.meta.url)) } },
   },
-  // which build this is, shown on the main screen (src/version.ts); the deploy workflow gives the run number and the stage
+  // which build this is, shown on the main screen (src/version.ts); the deploy workflow gives the run number, the stage and, for a release, its tag (v1.2.0: the version is then 1.2.0)
   define: {
-    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_VERSION__: JSON.stringify((process.env.VITE_RELEASE ?? '').replace(/^v/, '') || pkg.version),
     __APP_BUILD__: JSON.stringify(process.env.VITE_BUILD ?? ''),
     __APP_COMMIT__: JSON.stringify(commit()),
     __APP_STAGE__: JSON.stringify(process.env.VITE_STAGE ?? 'local'),

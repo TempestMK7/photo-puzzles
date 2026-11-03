@@ -152,6 +152,7 @@ jobs:
         env:
           VITE_BUILD: ${{ github.run_number }}
           VITE_STAGE: ${{ env.STAGE }}
+          VITE_RELEASE: ${{ inputs.tag }}
           LEGAL_OPERATOR: ${{ vars.LEGAL_OPERATOR }}
           LEGAL_CONTACT: ${{ vars.LEGAL_CONTACT }}
           LEGAL_LAW: ${{ vars.LEGAL_LAW }}
