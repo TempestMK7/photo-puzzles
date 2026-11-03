@@ -225,14 +225,15 @@ body.dragging .library::after {
 
 /* ---------------------------------------------------------------- play screen */
 .play { height: 100%; display: flex; flex-direction: column; }
-.play .title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.play .title { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .tabs { display: flex; gap: 6px; padding: 6px 14px 0; overflow-x: auto; background: var(--panel2); border-bottom: 1px solid var(--line); }
 .tab { display: flex; align-items: baseline; gap: 6px; min-width: 52px; justify-content: center; padding: 6px 12px; border-radius: 8px 8px 0 0; background: var(--panel); border-color: var(--line); border-bottom: none; color: var(--dim); }
 .tab .tn { font-weight: 700; }
 .tab .tc { font-size: 11px; min-width: 1ch; }
 .tab.on { background: #4a2a18; color: var(--text); border-color: var(--accent2); }
 .tab.empty { opacity: 0.5; }
-.play button.toggle { padding: 5px 10px; font-size: 13px; color: var(--dim); background: var(--panel2); }
+.play button.toggle { padding: 5px 12px; font-size: 13px; font-weight: 600; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 999px; }
+.play button.toggle:hover:not(:disabled) { background: var(--panel2); border-color: var(--accent2); }
 .play button.toggle.on { color: var(--text); border-color: var(--accent2); }
 .play .helps { display: inline-flex; gap: 6px; }
 .play .helps button { display: inline-flex; align-items: center; gap: 5px; }
@@ -469,7 +470,7 @@ button.link:hover:not(:disabled) { background: none; color: var(--text); }
 /* the buttons of the account show only their icons when there is little room (a phone, upright or on its side) */
 @media (max-width: 820px) {
   .bar .tool-group .label { display: none; }
-  .bar .tool-group button.settings-btn, .bar .tool-group button.inventory-btn { padding: 7px 10px; font-size: 16px; }
+  .bar .tool-group button.settings-btn, .bar .tool-group button.inventory-btn, .play .bar .tool-group button.toggle { padding: 7px 10px; font-size: 16px; }
 }
 /* the Settings and the Inventory buttons are alike: the same text and the same border (the screens' own rules for a toggle must not change them) */
 .bar button.settings-btn, .bar button.inventory-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; font-size: 13px; font-weight: 600; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 999px; }
