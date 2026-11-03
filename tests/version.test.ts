@@ -11,10 +11,10 @@ describe('the version of the build', () => {
     expect(typeof v.commit).toBe('string');
   });
 
-  it('says it in a short line: the version, the build number and the commit of a deploy, and the stage unless it is the real one', () => {
-    expect(versionLabel({ version: '0.3.0', build: '57', commit: 'a1b2c3d', stage: 'dev', built: '' })).toBe('v0.3.0 · build 57 · a1b2c3d · dev');
-    expect(versionLabel({ version: '0.3.0', build: '58', commit: 'a1b2c3d', stage: 'prod', built: '' })).toBe('v0.3.0 · build 58 · a1b2c3d');
-    expect(versionLabel({ version: '0.3.0', build: '', commit: 'a1b2c3d+', stage: 'local', built: '' })).toBe('v0.3.0 · a1b2c3d+ · local');
+  it('says it in a short line: the version and the build number, and the stage unless it is the real one (the commit is not in it)', () => {
+    expect(versionLabel({ version: '0.3.0', build: '57', commit: 'a1b2c3d', stage: 'dev', built: '' })).toBe('v0.3.0 · build 57 · dev');
+    expect(versionLabel({ version: '0.3.0', build: '58', commit: 'a1b2c3d', stage: 'prod', built: '' })).toBe('v0.3.0 · build 58');
+    expect(versionLabel({ version: '0.3.0', build: '', commit: 'a1b2c3d+', stage: 'local', built: '' })).toBe('v0.3.0 · local');
     expect(versionLabel({ version: '0.3.0', build: '', commit: '', stage: '', built: '' })).toBe('v0.3.0');
   });
 });

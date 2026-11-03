@@ -217,7 +217,7 @@ export class LibraryScreen {
       ),
       h(
         'footer',
-        { class: 'version', title: `Built ${appVersion().built}` },
+        { class: 'version', title: `Built ${appVersion().built}${appVersion().commit ? ` from ${appVersion().commit}` : ''}` },
         h('span', { class: 'legal' }, h('a', { href: 'privacy.html' }, 'Privacy'), ' · ', h('a', { href: 'terms.html' }, 'Terms')),
         h('span', {}, versionLabel()),
       ),
