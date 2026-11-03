@@ -34,7 +34,7 @@ describe('the list', () => {
 describe('applyEvent', () => {
   it('unlocks the first solve once', () => {
     const s = emptyAchievements();
-    expect(ids(applyEvent(s, solved(), 5))).toEqual(['first_solve']);
+    expect(ids(applyEvent(s, solved(), 5))).toEqual(['first_solve', 'first_jigsaw']);
     expect(s.unlocked.first_solve).toBe(5);
     expect(ids(applyEvent(s, solved(), 6))).toEqual([]);
     expect(s.counts.solved).toBe(2);
@@ -58,6 +58,15 @@ describe('applyEvent', () => {
     for (let i = 0; i < 8; i++) applyEvent(s, { type: 'help', help: 'bomb' }, 5);
     expect(s.unlocked.bombs_10).toBeUndefined();
     expect(ids(applyEvent(s, { type: 'help', help: 'bomb' }, 6))).toEqual(['bombs_10']);
+  });
+
+  it('gives a first achievement for each kind, whatever the size', () => {
+    const s = emptyAchievements();
+    for (const k of KINDS.filter((x) => x.available)) {
+      expect(ids(applyEvent(s, solved({ kind: k.id, size: 0 }), 1))).toContain(`first_${k.id}`);
+      expect(ids(applyEvent(s, solved({ kind: k.id, size: 0 }), 2))).not.toContain(`first_${k.id}`);
+    }
+    expect(Object.keys(s.unlocked).filter((id) => id.startsWith('first_') && id !== 'first_solve').length).toBe(KINDS.filter((x) => x.available).length);
   });
 
   it('gives a Large achievement for each kind only at size L or bigger', () => {
@@ -108,7 +117,7 @@ describe('AchievementStore', () => {
     a.record(solved(), 10);
     a.record({ type: 'help', help: 'hint' }, 11);
     const b = new AchievementStore(mem);
-    expect(b.unlockedIds().sort()).toEqual(['first_solve', 'use_hint']);
+    expect(b.unlockedIds().sort()).toEqual(['first_jigsaw', 'first_solve', 'use_hint']);
     expect(b.state.counts).toEqual({ hints: 1, bombs: 0, solved: 1 });
   });
 

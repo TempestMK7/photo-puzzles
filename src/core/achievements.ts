@@ -39,6 +39,14 @@ export const LARGE = 2;
 
 const onSolved = (f: (e: Extract<GameEvent, { type: 'solved' }>) => boolean) => (e: GameEvent) => e.type === 'solved' && f(e);
 
+/** The first puzzle solved of each kind. */
+const firstOfEach: AchievementDef[] = KINDS.filter((k) => k.available).map((k) => ({
+  id: `first_${k.id}`,
+  name: `First ${k.name}`,
+  description: `Solve a ${k.name} puzzle.`,
+  when: onSolved((e) => e.kind === k.id),
+}));
+
 /** A puzzle of each kind, Large or bigger. */
 const largeOfEach: AchievementDef[] = KINDS.filter((k) => k.available && k.sizes).map((k) => ({
   id: `large_${k.id}`,
@@ -58,6 +66,7 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'use_bomb', name: 'Fire in the Hole', description: 'Use a bomb.', counter: { name: 'bombs', target: 1 } },
   { id: 'hints_50', name: 'Hint Addict', description: 'Use 50 hints.', counter: { name: 'hints', target: 50 } },
   { id: 'bombs_10', name: 'Demolition Crew', description: 'Use 10 bombs.', counter: { name: 'bombs', target: 10 } },
+  ...firstOfEach,
   ...largeOfEach,
 ];
 
