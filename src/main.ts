@@ -11,6 +11,8 @@ import { parseInvite } from './online/protocol';
 import { WsRealtime, type Realtime } from './online/realtime';
 import { OnlineSession } from './online/session';
 import { SaveStore } from './store/saves';
+import { AchievementStore } from './store/achievements';
+import { AchievementsUi } from './ui/achievements';
 import { preloadEffects, setEffectsOn, setEffectsVolume } from './sounds';
 import { listenForShared } from './store/shared';
 import type { PhotoEntry } from './store/photos';
@@ -96,7 +98,10 @@ async function main(): Promise<void> {
         : null;
   // the inventory (credits, hints, bombs): its dialog explains each and, in the mobile apps, plays the ads for them; its button is on the main screen and the play screen
   const inventory = api ? new InventoryUi({ identity: player, api, signIn: () => signIn() }) : null;
+  const achievements = new AchievementStore(storage());
+  const achievementsUi = new AchievementsUi(achievements);
   const play = new PlayScreen({
+    achievements,
     prefs,
     photos,
     saves,
@@ -160,6 +165,7 @@ async function main(): Promise<void> {
     onOnline: panel ? () => panel.open() : undefined,
     badge: profile?.badge,
     inventory: inventory?.button(),
+    achievements: achievementsUi.button(),
     stockBase: base || undefined,
     onPlay: (entry) => {
       library.hide();
@@ -172,6 +178,7 @@ async function main(): Promise<void> {
   root.append(library.el, play.el);
   if (panel) root.append(panel.el);
   if (inventory) root.append(inventory.dialog);
+  root.append(achievementsUi.dialog, achievementsUi.toast);
   if (profile) root.append(profile.el);
   if (signInDialog) root.append(signInDialog.el);
   // in an app that signs in through the phone's browser, the player comes back to the app (the sign-in service sent them to the app's own address, with the answer): the shell says so

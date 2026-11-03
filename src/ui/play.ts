@@ -1,3 +1,4 @@
+import { sizeIndexOf } from '../core/achievements';
 import type { HelpKind } from '../core/help';
 import { findKind, generalValue, optionsOf, puzzleSeedText, recordKey, SIZE, type KindDef, type KindId } from '../core/kinds';
 import { formatTime, type Prefs } from '../core/prefs';
@@ -15,6 +16,7 @@ import type { OnlineHooks } from '../sessions/types';
 import { openVideo, type PhotoEntry, type PhotoLibrary, type PlaySource } from '../store/photos';
 import type { SaveRecord, SaveStore } from '../store/saves';
 import { cancelEffects, playEffect } from '../sounds';
+import type { AchievementStore } from '../store/achievements';
 import { Autosave } from '../store/autosave';
 import { launchConfetti } from './confetti';
 import { h, svg } from './dom';
@@ -41,6 +43,8 @@ export interface PlayDeps {
   player?: OnlineSession;
   /** Makes a button for the inventory (credits, hints, bombs), for the top bar of this screen. */
   inventory?: () => HTMLButtonElement;
+  /** The achievements: told when a hint or a bomb is used and when a puzzle is solved. */
+  achievements?: AchievementStore;
 }
 
 /** What a session of this kind is given to start from the room's board (what `serialize` makes when a puzzle is saved: see each session). */
@@ -612,6 +616,7 @@ export class PlayScreen {
       if (this.online) player.countDown(kind);
       else player.spend(kind);
       session.help(kind, p);
+      this.deps.achievements?.record({ type: 'help', help: kind });
       this.arm(null);
       this.after();
       if (this.online) {
@@ -831,6 +836,8 @@ export class PlayScreen {
     const o = this.online;
     if (!o || o.shown) return;
     o.shown = true;
+    const d = o.room.descriptor;
+    this.deps.achievements?.record({ type: 'solved', kind: this.kind.id, size: sizeIndexOf(this.kind, d.settings.opts), video: d.media.type === 'video', online: true, once: d.id });
     const player = this.deps.player;
     // the server gave the hints to everyone with an account (as many as each may earn today) before it said that the puzzle was solved: what this player was given is what their count grew by
     const before = player?.summary().hints ?? 0;
@@ -1340,6 +1347,7 @@ export class PlayScreen {
     const { prefs } = this.deps;
     const key = recordKey(this.kind, entry.id, prefs.data.settings);
     const isBest = prefs.recordTime(key, this.elapsed);
+    this.deps.achievements?.record({ type: 'solved', kind: this.kind.id, size: sizeIndexOf(this.kind, optionsOf(prefs.data.settings, this.kind)), video: entry.video, online: false });
     const award = this.awardSolved();
     // after the last move has finished showing (and the server has said what the puzzle gave, if it does so quickly)
     window.setTimeout(() => void Promise.race([award, new Promise<number>((r) => window.setTimeout(() => r(0), 800))]).then((n) => this.showDialog(isBest, prefs.bestTime(key) ?? this.elapsed, n)), 700);

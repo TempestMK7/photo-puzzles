@@ -27,6 +27,8 @@ export interface LibraryDeps {
   badge?: HTMLElement;
   /** The button of the inventory (credits, hints, bombs), after the title (only in a build that has online play). */
   inventory?: HTMLElement;
+  /** The button of the achievements, after the inventory's. */
+  achievements?: HTMLElement;
   /** The address of the game's server, which has the stock library: without one the "Stock Files" tab is not offered. */
   stockBase?: string;
 }
@@ -190,7 +192,7 @@ export class LibraryScreen {
           ...(deps.onOnline ? [h('button', { type: 'button', class: 'progress-btn friends', title: 'Play a Jigsaw, Tile Swap, Overlap or Strips together over the internet', onclick: () => deps.onOnline!() }, 'Play with friends')] : []),
           this.progressBtn,
         ),
-        h('div', { class: 'tool-group' }, settingsButton(deps.prefs), ...(deps.inventory ? [deps.inventory] : []), ...(deps.badge ? [deps.badge] : [])),
+        h('div', { class: 'tool-group' }, settingsButton(deps.prefs), ...(deps.inventory ? [deps.inventory] : []), ...(deps.achievements ? [deps.achievements] : []), ...(deps.badge ? [deps.badge] : [])),
       ),
       this.kindsEl,
       h(
