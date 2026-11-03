@@ -19,7 +19,7 @@ import type { PhotoEntry } from './store/photos';
 import { LibraryScreen } from './ui/library';
 import { OnlinePanel } from './ui/online';
 import { PlayScreen } from './ui/play';
-import { browserSignIn, takeSignIn } from './platform';
+import { browserSignIn, takeSignIn, tellAchievements } from './platform';
 import { InventoryUi } from './ui/inventory';
 import { DELETE_HASH, ProfileDialog, takeAccountDeletedNotice } from './ui/profile';
 import { SignInDialog } from './ui/signin';
@@ -100,6 +100,9 @@ async function main(): Promise<void> {
   const inventory = api ? new InventoryUi({ identity: player, api, signIn: () => signIn() }) : null;
   const achievements = new AchievementStore(storage());
   const achievementsUi = new AchievementsUi(achievements);
+  // the platform's own achievements (Google Play Games in the Android app): everything unlocked now, and each unlock as it comes
+  tellAchievements(achievements.unlockedIds());
+  achievements.onUnlock((list) => tellAchievements(list.map((a) => a.id)));
   const play = new PlayScreen({
     achievements,
     prefs,

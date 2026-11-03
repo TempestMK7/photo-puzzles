@@ -55,6 +55,7 @@ public class MainActivity extends Activity {
 
     private WebView web;
     private Ads ads;
+    private Games games;
     private ValueCallback<Uri[]> chooser;
 
     /** What other apps shared with this one: the files by number (the page reads them from /shared/<number>/<name>), and the list the page has not taken yet. */
@@ -168,6 +169,7 @@ public class MainActivity extends Activity {
                 web.evaluateJavascript("window.dispatchEvent(new Event('photopuzzles-ads-ready'))", null);
             }
         });
+        games = new Games(this, BuildConfig.GAMES_ENABLED);
         web.addJavascriptInterface(new Bridge(), "PhotoPuzzlesNative");
         // started from "Share > PuzzleVidio": the page takes what was shared when it has started (not again when the system makes this activity anew)
         if (state == null) {
@@ -383,6 +385,19 @@ public class MainActivity extends Activity {
         }
 
         /** The player is looking at the credits: the app finds out about the consent for ads (nothing is shown) and gets an ad ready; the page is told with the window event photopuzzles-ads-ready. Nothing talks to Google before this. */
+        /** The achievements that are unlocked, as a JSON array of the page's ids (all of them each time the game starts, and the new ones as they come): passed on to Google Play Games. */
+        @JavascriptInterface
+        public void unlockAchievements(String idsJson) {
+            try {
+                JSONArray a = new JSONArray(idsJson);
+                List<String> ids = new ArrayList<>();
+                for (int i = 0; i < a.length(); i++) ids.add(a.getString(i));
+                games.unlock(ids);
+            } catch (org.json.JSONException e) {
+                /* not a list: nothing to unlock */
+            }
+        }
+
         @JavascriptInterface
         public void prepareAds() {
             ads.prepare();

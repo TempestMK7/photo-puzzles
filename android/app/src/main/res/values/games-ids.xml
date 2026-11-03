@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google Play Games Services ids (Play Console > Play Games Services > Configuration; "Get resources"). They are in every APK, so they are not secret. The page's achievement ids are mapped to these in Games.java. -->
+<resources>
+  <string name="app_id" translatable="false">734385011977</string>
+  <string name="package_name" translatable="false">com.tempest.photopuzzles</string>
+  <string name="achievement_first_puzzle" translatable="false">CgkIifqH5q8VEAIQAg</string>
+  <string name="achievement_first_video" translatable="false">CgkIifqH5q8VEAIQAw</string>
+  <string name="achievement_solve_with_friends" translatable="false">CgkIifqH5q8VEAIQBA</string>
+  <string name="achievement_use_a_hint" translatable="false">CgkIifqH5q8VEAIQBQ</string>
+  <string name="achievement_use_a_bomb" translatable="false">CgkIifqH5q8VEAIQBg</string>
+  <string name="achievement_first_tile_swap" translatable="false">CgkIifqH5q8VEAIQBw</string>
+  <string name="achievement_first_overlap" translatable="false">CgkIifqH5q8VEAIQCA</string>
+  <string name="achievement_first_strips" translatable="false">CgkIifqH5q8VEAIQCQ</string>
+  <string name="achievement_first_jigsaw" translatable="false">CgkIifqH5q8VEAIQCg</string>
+  <string name="achievement_first_slide" translatable="false">CgkIifqH5q8VEAIQCw</string>
+  <string name="achievement_first_rotascope" translatable="false">CgkIifqH5q8VEAIQDA</string>
+  <string name="achievement_puzzle_adept" translatable="false">CgkIifqH5q8VEAIQDQ</string>
+  <string name="achievement_puzzle_master" translatable="false">CgkIifqH5q8VEAIQDg</string>
+  <string name="achievement_puzzle_legend" translatable="false">CgkIifqH5q8VEAIQDw</string>
+  <string name="achievement_light_up_the_sky" translatable="false">CgkIifqH5q8VEAIQEA</string>
+  <string name="achievement_carpet_bomber" translatable="false">CgkIifqH5q8VEAIQEQ</string>
+  <string name="achievement_large_tile_swap" translatable="false">CgkIifqH5q8VEAIQEg</string>
+  <string name="achievement_large_overlap" translatable="false">CgkIifqH5q8VEAIQEw</string>
+  <string name="achievement_large_strips" translatable="false">CgkIifqH5q8VEAIQFA</string>
+  <string name="achievement_large_jigsaw" translatable="false">CgkIifqH5q8VEAIQFQ</string>
+  <string name="achievement_large_slide" translatable="false">CgkIifqH5q8VEAIQFg</string>
+  <string name="achievement_large_rotascope" translatable="false">CgkIifqH5q8VEAIQFw</string>
+</resources>

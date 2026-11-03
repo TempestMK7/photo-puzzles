@@ -37,6 +37,8 @@ android {
         manifestPlaceholders = [admobAppId: admobAppId, appLabel: webStage == 'dev' ? 'Dev PuzzleVidio' : 'PuzzleVidio']
         buildConfigField 'String', 'ADMOB_REWARDED_UNIT', "\"${admobRewardedUnit}\""
         buildConfigField 'String', 'ADMOB_TEST_DEVICES', "\"${admobTestDevices}\""
+        // Play Games achievements are for the real app only: the dev app's package id is not registered in the Play Console
+        buildConfigField 'boolean', 'GAMES_ENABLED', webStage == 'dev' ? 'false' : 'true'
     }
     buildFeatures {
         buildConfig true
@@ -76,6 +78,8 @@ dependencies {
     implementation 'com.google.android.ump:user-messaging-platform:4.0.0'
     // the phone's browser, opened inside the app: where signing in with Google happens (Google does not let its page open in an app's web view)
     implementation 'androidx.browser:browser:1.8.0'
+    // achievements (Google Play Games Services)
+    implementation 'com.google.android.gms:play-services-games-v2:21.0.0'
 }
 
 // A release build must not carry the test ids: its ads would earn nothing. (-PallowTestAds for a private build that is only to be looked at.)

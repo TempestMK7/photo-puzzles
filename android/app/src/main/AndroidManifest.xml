@@ -21,6 +21,9 @@
         <!-- AdMob's id for this app (android/README.md says where it comes from; Google's test id is used until there is one) -->
         <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="${admobAppId}" />
 
+        <!-- Play Games Services' id for this game (res/values/games-ids.xml); the dev app does not start the service -->
+        <meta-data android:name="com.google.android.gms.games.APP_ID" android:value="@string/app_id" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

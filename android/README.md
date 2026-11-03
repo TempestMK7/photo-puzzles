@@ -6,6 +6,7 @@ A thin shell around the game: one `WebView` that shows the web build packed in `
 |---|---|
 | `app/src/main/java/com/tempest/photopuzzles/MainActivity.java` | the WebView, the file picker, what other apps share, haptics, and `window.PhotoPuzzlesNative` (what the page can ask of the app) |
 | `app/src/main/java/com/tempest/photopuzzles/Ads.java` | AdMob rewarded ads and Google's consent form (UMP) |
+| `app/src/main/java/com/tempest/photopuzzles/Games.java` | Google Play Games achievements: maps our achievement ids to the Console's (`res/values/games-ids.xml`, which holds Google's ids; they are not secret) |
 | `app/build.gradle` | the ids of AdMob, release signing, the guard against a release with test ads |
 
 `app/src/main/assets/www` is **not kept in the repository** (it is the web build, copied in).
@@ -85,3 +86,7 @@ Signing out of a Google account also ends the browser's session through the same
 ## What the page may reach
 
 `MainActivity` refuses every request that is not to the app's own address, https, or a `blob:`/`data:` picture, and opens a link to another site in the browser instead of in the WebView (which has the app's bridge, and must only ever show the game's own page). The server lets the app's pages call it (`https://appassets.androidplatform.net` is one of the origins in `infra/lib/config.ts`: the API and the picture storage; it is not a return address for the sign-in page, and Google sign-in does not work inside an app's web view, so the app has e-mail and password only).
+
+## Achievements (Google Play Games)
+
+The page keeps the achievements and calls `PhotoPuzzlesNative.unlockAchievements(idsJson)` (a JSON array of our ids) with everything unlocked when it starts and with each new unlock; `Games.java` passes them to Play Games (the v2 SDK signs the player in by itself; unlocking twice is harmless, so one that could not be sent goes the next time). The dev app (`GAMES_ENABLED` false) does nothing, because its package id is not registered. A new achievement: add it to `src/core/achievements.ts`, create it in the Play Console, add its `achievement_*` string to `games-ids.xml` and, if the name differs from our id, a line to `NAMES` in `Games.java` (`tests/playGames.test.ts` checks that every achievement has one). In the Play Console the app needs a credential per signing certificate (upload key and Play app signing key) and, until published, testers.
