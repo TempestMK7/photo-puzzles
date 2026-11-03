@@ -2,7 +2,9 @@ name: Android
 
 # Builds the Android app: Actions > Android > Run workflow. Run by hand from main only; it signs in to AWS through OIDC (the same role as the Deploy workflow: it reads where a stage's server is
 # from the stacks), and nothing is published unless "Upload" is ticked: the apps are left as artifacts of the run (Actions > the run > Artifacts), to be installed or uploaded to the Play Console by hand. With "Upload" ticked the prod
-# bundle is also sent to the Play Console's **internal testing** track (never to production: that is promoted by hand there).
+# bundle is also sent to a testing track of the Play Console (the repository variable PLAY_TRACK, `alpha` (the first closed testing track) when not set; never production: that is promoted by hand there).
+# An upload is always of a release: give the tag (v1.2.0, a commit of main). The Release workflow does all this when a tag is created (the AWS role trusts runs of main only, so this one is started
+# on main, and it builds the code of the tag).
 #
 #   dev   "Dev PuzzleVidio" (com.tempest.photopuzzles.dev), a debug build (signed with the debug key), for the dev stage's server and the dev ad unit. Needs nothing but the variables below.
 #   prod  "PuzzleVidio" (com.tempest.photopuzzles), the signed bundle (.aab) for the Play Console and a signed .apk, for the prod stage's server and the prod ad unit.
@@ -21,8 +23,12 @@ on:
         type: choice
         options: [both, dev, prod]
         default: both
+      tag:
+        description: 'A release (a tag such as v1.2.0) to build instead of main; required to upload'
+        type: string
+        default: ''
       upload:
-        description: Upload the prod bundle to the Play Console's internal testing track
+        description: Upload the prod bundle to the Play Console's testing track (needs a tag)
         type: boolean
         default: false
 
@@ -56,8 +62,10 @@ jobs:
           ROLE: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           PLAY_KEY: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           UPLOAD: ${{ inputs.upload }}
+          TAG: ${{ inputs.tag }}
         run: |
           missing=""
+          if [ "$UPLOAD" = true ] && [ -z "$TAG" ]; then echo "::error::An upload is of a release: give its tag (for example v1.2.0)."; exit 1; fi
           [ -n "$ROLE" ] || missing="$missing AWS_DEPLOY_ROLE_ARN"
           [ -n "$APP_ID" ] || missing="$missing ADMOB_APP_ID"
           [ -n "$UNIT" ] || missing="$missing ADMOB_UNIT_${STAGE^^}"
@@ -72,6 +80,16 @@ jobs:
           fi
 
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || '' }}
+          fetch-depth: 0
+      - name: The tag is a state of main
+        if: inputs.tag != ''
+        run: |
+          git fetch --quiet origin main
+          git merge-base --is-ancestor HEAD origin/main || { echo "::error::Tag $TAG is not a commit of main: only a state of main can be released."; exit 1; }
+        env:
+          TAG: ${{ inputs.tag }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -139,19 +157,23 @@ jobs:
           LEGAL_OPERATOR: ${{ vars.LEGAL_OPERATOR }}
           LEGAL_CONTACT: ${{ vars.LEGAL_CONTACT }}
           LEGAL_LAW: ${{ vars.LEGAL_LAW }}
-        run: node scripts/android-web.mjs "$STAGE"
+        run: VITE_COMMIT=$(git rev-parse HEAD) node scripts/android-web.mjs "$STAGE"
 
       - name: Build the app
         working-directory: android
+        env:
+          TAG: ${{ inputs.tag }}
         run: |
           code=$((GITHUB_RUN_NUMBER + VERSION_CODE_OFFSET))
-          args="-PversionCode=$code -PversionName=0.1.$GITHUB_RUN_NUMBER"
+          name="${TAG:+${TAG#v}}"
+          name="${name:-0.1.$GITHUB_RUN_NUMBER}"
+          args="-PversionCode=$code -PversionName=$name"
           if [ "$STAGE" = prod ]; then
             ./gradlew --no-daemon bundleRelease assembleRelease $args
           else
             ./gradlew --no-daemon assembleDebug $args
           fi
-          echo "Version code $code (name 0.1.$GITHUB_RUN_NUMBER), commit $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Version code $code (name $name), commit $(git rev-parse HEAD)${TAG:+, release $TAG}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Take the key away
         if: always()
@@ -173,14 +195,14 @@ jobs:
             android/app/build/outputs/bundle/release/app-release.aab
             android/app/build/outputs/apk/release/app-release.apk
           retention-days: 14
-      # The bundle goes to the internal testing track only (testers get it from the Play Store within minutes); production is promoted by hand in the Play Console. The action is pinned to a commit (v1.1.3).
-      - name: Upload to the Play Console (internal testing)
+      # The bundle goes to a testing track only (Play reviews it; the testers get it from the Play Store); production is promoted by hand in the Play Console. The action is pinned to a commit (v1.1.3).
+      - name: Upload to the Play Console (testing track)
         if: matrix.stage == 'prod' && inputs.upload
         uses: r0adkll/upload-google-play@935ef9c68bb393a8e6116b1575626a7f5be3a7fb
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: com.tempest.photopuzzles
           releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
-          track: internal
+          track: ${{ vars.PLAY_TRACK || 'alpha' }}
           status: completed
-          releaseName: 0.1.${{ github.run_number }}
+          releaseName: ${{ inputs.tag }}

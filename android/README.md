@@ -94,7 +94,7 @@ The page keeps the achievements and calls `PhotoPuzzlesNative.unlockAchievements
 
 ## Uploading to the Play Console
 
-Actions > Android > Run workflow with **Upload** ticked (and the prod app built) sends the signed bundle to the **internal testing** track; the testers get it from the Play Store. Production is promoted by hand in the Play Console, so a run can never reach real users. It needs once:
+Creating a release tag (`v1.2.0`, on a commit of main) starts it by itself (the **Release** workflow; `docs/runbook.md`, *Releasing*): the signed bundle built from the tag goes to the testing track named by the repository variable `PLAY_TRACK` (`alpha`, the first closed testing track, when it is not set; `gh variable set PLAY_TRACK --body <track>` for another one), where Play reviews it. By hand: Actions > Android > Run workflow with the tag and **Upload** ticked (prod). Production is promoted by hand in the Play Console, so a run can never reach real users. It needs once:
 
 1. Google Cloud (the project that has the Google Play Android Developer API enabled): IAM & Admin > Service Accounts > create one (no project roles needed) > Keys > Add key > JSON.
 2. Play Console > Users and permissions > Invite new users: the service account's e-mail, with access to this app only and the permissions to release to testing tracks (and to view app information).

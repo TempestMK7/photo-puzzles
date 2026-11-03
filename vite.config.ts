@@ -7,9 +7,9 @@ import { LEGAL_FILES, renderLegal } from './src/legal/html';
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
 
-/** The commit the build is made from: what the deploy says (GITHUB_SHA), else git, with a '+' if the files differ from it (a build made on a machine). */
+/** The commit the build is made from: what the deploy says (VITE_COMMIT: the commit of the tag it builds; GITHUB_SHA is the commit that started the run, which is main's for a release), else git, with a '+' if the files differ from it (a build made on a machine). */
 function commit(): string {
-  const given = process.env.GITHUB_SHA ?? process.env.VITE_COMMIT;
+  const given = process.env.VITE_COMMIT ?? process.env.GITHUB_SHA;
   if (given) return given.slice(0, 7);
   try {
     const sha = execSync('git rev-parse --short=7 HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
