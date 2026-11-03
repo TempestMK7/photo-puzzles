@@ -12,9 +12,9 @@ import { appVersion, versionLabel } from '../version';
 import { h, svg } from './dom';
 import { FILTER_ICON, KIND_ICONS } from './icons';
 
-/** The reroll button: a die. */
-const DICE =
-  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><circle cx="8.5" cy="8.5" r="1" fill="currentColor"/><circle cx="15.5" cy="8.5" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="8.5" cy="15.5" r="1" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1" fill="currentColor"/></svg>';
+/** The reroll button: the refresh symbol (two arrows chasing each other round a circle). */
+const REFRESH =
+  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 0-14-5.3L4 9"/><path d="M4 4v5h5"/><path d="M4 12a8 8 0 0 0 14 5.3L20 15"/><path d="M20 20v-5h-5"/></svg>';
 import { aiMark, attribution, creditLine, siteMark, videoMark } from './stocksite';
 import { AddFilesDialog } from './addfiles';
 import { settingsButton } from './settings';
@@ -105,8 +105,6 @@ export class LibraryScreen {
   private nameRow = h('div', { class: 'pnamerow' }, this.nameEl, this.renameBtn);
   /** Who made the picture, for one from the stock library. */
   private creditEl = h('div', { class: 'pcreditbox' });
-  private bestEl = h('div', { class: 'pbest' });
-  private blurbEl = h('p', { class: 'blurb' });
   private optionsEl = h('div', { class: 'options' });
   private seedInput = h('input', { type: 'text', class: 'seed', maxLength: 12, spellcheck: false, 'aria-label': 'Seed' });
   private noteEl = h('div', { class: 'note', 'aria-live': 'polite' });
@@ -198,18 +196,18 @@ export class LibraryScreen {
           ...(deps.onOnline ? [h('button', { type: 'button', class: 'progress-btn friends', title: 'Play a Jigsaw, Tile Swap, Overlap or Strips together over the internet', onclick: () => deps.onOnline!() }, 'Play with friends')] : []),
           this.progressBtn,
         ),
-        h('div', { class: 'tool-group' }, settingsButton(deps.prefs), ...(deps.inventory ? [deps.inventory] : []), ...(deps.achievements ? [deps.achievements] : []), ...(deps.bestTimes ? [deps.bestTimes] : []), ...(deps.badge ? [deps.badge] : [])),
+        h('div', { class: 'tool-group' }, ...(deps.inventory ? [deps.inventory] : []), ...(deps.achievements ? [deps.achievements] : []), ...(deps.bestTimes ? [deps.bestTimes] : []), settingsButton(deps.prefs), ...(deps.badge ? [deps.badge] : [])),
       ),
       this.kindsEl,
       h(
         'div',
         { class: 'main' },
         h('aside', { class: 'photos' }, this.tabsEl, this.stockBar, this.sortBar, this.listEl, this.stockListEl, this.photoNoteEl, this.footEl),
-        h('section', { class: 'preview' }, h('div', { class: 'frame' }, this.previewImg, this.previewVideo), this.nameRow, this.creditEl, this.bestEl, this.blurbEl),
+        h('section', { class: 'preview' }, h('div', { class: 'frame' }, this.previewImg, this.previewVideo), this.nameRow, this.creditEl),
         h(
           'aside',
           { class: 'side' },
-          h('div', { class: 'field seedrow' }, h('label', {}, h('span', {}, 'Seed'), this.seedInput), h('button', { type: 'button', class: 'reroll', title: 'Reroll the seed', 'aria-label': 'Reroll the seed', onclick: () => this.reroll() }, svg(DICE, 'ico'))),
+          h('div', { class: 'field seedrow' }, h('label', {}, h('span', {}, 'Seed'), this.seedInput), h('button', { type: 'button', class: 'reroll', title: 'Reroll the seed', 'aria-label': 'Reroll the seed', onclick: () => this.reroll() }, svg(REFRESH, 'ico'))),
           this.optionsEl,
           h('div', { class: 'spacer' }),
           this.noteEl,
@@ -430,7 +428,7 @@ export class LibraryScreen {
   private itemFor(e: PhotoEntry): HTMLElement {
     const best = this.recordFor(e);
     const cls = 'item' + (e.id === this.deps.prefs.data.photo ? ' on' : '') + (best !== undefined ? ' done' : '') + (e.video ? ' video' : '') + (this.marked.has(e.id) ? ' marked' : '');
-    const text = (e.video ? `Video ${formatTime(e.duration * 1000)} · ` : '') + (best !== undefined ? `Best ${formatTime(best)}` : 'Not solved');
+    const text = (e.video ? `Video ${formatTime(e.duration * 1000)}` : '');
     const kept = this.items.get(e.id);
     if (kept) {
       if (kept.className !== cls) kept.className = cls;
@@ -496,9 +494,6 @@ export class LibraryScreen {
     this.renameBtn.hidden = this.tab === 'stock' || !e;
     this.nameEl.textContent = shown?.name ?? (this.tab === 'stock' ? (this.stock.busy ? 'Searching…' : 'Nothing to show') : this.loading ? 'Loading photos…' : this.deps.stockBase ? 'No photos yet. Add some, or try Stock Files' : 'No photos yet. Add some below');
     this.creditEl.replaceChildren(...(shown?.credit ? [creditLine(shown.credit, shown.video)] : []));
-    const best = e ? this.recordFor(e) : undefined;
-    this.bestEl.textContent = e ? (best !== undefined ? `Best time ${formatTime(best)}` : 'Not solved yet') : '';
-    this.blurbEl.textContent = this.kind.blurb;
     this.playBtn.disabled = !shown || !!this.stockAbort;
     this.addStockBtn.hidden = this.tab !== 'stock';
     this.addStockBtn.disabled = !stock || !!e || !!this.stockAbort;

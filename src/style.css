@@ -171,8 +171,6 @@ button.danger:hover:not(:disabled) { background: #983028; }
 }
 .frame img, .frame video { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
 .pname { font-weight: 600; font-size: 16px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pbest { color: var(--dim); font-size: 13px; }
-.blurb { margin: 0; color: var(--dim); font-size: 13px; text-align: center; }
 
 .side { min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow-y: auto; }
 .options { display: flex; flex-direction: column; gap: 14px; }
@@ -180,7 +178,7 @@ button.danger:hover:not(:disabled) { background: #983028; }
 .field.seedrow { flex-direction: row; align-items: center; gap: 8px; }
 .field.seedrow label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
 .field.seedrow input { flex: 1; min-width: 0; }
-.field.seedrow .reroll { flex: none; display: inline-flex; align-items: center; justify-content: center; padding: 6px 8px; }
+.field.seedrow .reroll { flex: none; display: inline-flex; align-items: center; justify-content: center; align-self: stretch; padding: 0 8px; }
 .field .optnote { font-size: 12px; line-height: 1.35; color: var(--dim); }
 .side .row button { flex: 1; padding-left: 6px; padding-right: 6px; }
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--dim); }
@@ -223,7 +221,6 @@ body.dragging .library::after {
   .side > *, .side .note { flex: none; }
   .side .row button { padding-top: 9px; padding-bottom: 9px; }
   .side .primary { padding: 14px; }
-  .blurb { display: none; }
 }
 
 /* ---------------------------------------------------------------- play screen */
@@ -448,10 +445,10 @@ button.link:hover:not(:disabled) { background: none; color: var(--text); }
 .online .avatar.guest { color: var(--dim); }
 
 /* ---------------------------------------------------------------- the credits go with Play with friends; sorting Local Files */
-.bar .online-group { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-.bar .online-group .friends { margin-left: 0; }
+.bar .online-group { margin-left: 8px; display: flex; align-items: center; gap: 8px; }
+.bar .online-group .friends, .bar .online-group .progress-btn { margin-left: 0; }
 .bar .online-group + .progress-btn { margin-left: 0; }
-.bar .tool-group { display: flex; align-items: center; gap: 8px; }
+.bar .tool-group { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 /* a phone held upright: the title and the account (Settings, Inventory, the badge, the last in the corner) on the first line, the two buttons under them (and on to a third line if they do not fit together); the buttons of the account are only icons when there is little room */
 @media (max-width: 520px) {
   .library > .bar .tool-group { margin-left: auto; }
