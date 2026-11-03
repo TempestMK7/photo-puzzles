@@ -116,7 +116,7 @@ export class LibraryScreen {
   private removing: 'no' | 'choose' | 'sure' = 'no';
   private marked = new Set<string>();
   private fileInput = h('input', { type: 'file', accept: 'image/*,video/*,.webm,.mp4,.m4v,.mov,.mkv', multiple: true, hidden: true, onchange: () => this.filesChosen() });
-  /** Add Local Files: from the file browser, or from links (which are downloaded while the window stays open). */
+  /** Add Files: from the file browser, or from links (which are downloaded while the window stays open). */
   private addDialog = new AddFilesDialog({ browse: () => this.fileInput.click(), download: (url, onStatus, signal) => fetchLink(url, onStatus, signal), add: (file) => this.addFiles([file]) });
   /** The question of a puzzle that matches one in progress: continue it or start a new one. */
   private matchEl = h('div', { class: 'inprogress', role: 'dialog', 'aria-label': 'A puzzle like this is in progress', hidden: true });
@@ -666,7 +666,7 @@ export class LibraryScreen {
     return this.queued(() => this.addNow(files));
   }
 
-  /** A link that was dropped or pasted: the Add Local Files window opens and downloads it (and shows how it is going). */
+  /** A link that was dropped or pasted: the Add Files window opens and downloads it (and shows how it is going). */
   addLink(text: string): void {
     this.addDialog.open();
     this.addDialog.addLink(text);
@@ -1108,8 +1108,8 @@ export class LibraryScreen {
     const btn = (label: string, onclick: () => void, extra: Record<string, unknown> = {}) => h('button', { type: 'button', onclick, ...extra }, label);
     if (this.removing === 'no') {
       this.footEl.replaceChildren(
-        btn('Add Local Files', () => this.addDialog.open(), { title: 'Add photos and videos from this device or from a link' }),
-        btn('Remove Local Files', () => this.setRemoving('choose'), { disabled: mine.length === 0, title: mine.length ? 'Choose photos and videos to remove' : 'There are no files to remove' }),
+        btn('Add Files', () => this.addDialog.open(), { title: 'Add photos and videos from this device or from a link' }),
+        btn('Remove Files', () => this.setRemoving('choose'), { disabled: mine.length === 0, title: mine.length ? 'Choose photos and videos to remove' : 'There are no files to remove' }),
       );
     } else if (this.removing === 'choose') {
       this.footEl.replaceChildren(

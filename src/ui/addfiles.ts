@@ -21,7 +21,7 @@ interface Job {
 }
 
 /**
- * The window that Add Local Files opens: add files from the system's file browser (which closes the window), or paste a link and add from that. A link does not close the window: each
+ * The window that Add Files opens: add files from the system's file browser (which closes the window), or paste a link and add from that. A link does not close the window: each
  * one gets a line with how its download stands, and the player can start the next while the others go on.
  */
 export class AddFilesDialog {
@@ -44,15 +44,15 @@ export class AddFilesDialog {
   constructor(private readonly deps: AddFilesDeps) {
     this.el = h(
       'div',
-      { class: 'inprogress add-dialog', role: 'dialog', 'aria-label': 'Add Local Files', hidden: true, onclick: (e: Event) => (e.target === this.el ? this.close() : undefined) },
+      { class: 'inprogress add-dialog', role: 'dialog', 'aria-label': 'Add Files', hidden: true, onclick: (e: Event) => (e.target === this.el ? this.close() : undefined) },
       h(
         'div',
         { class: 'card' },
-        h('header', {}, h('h2', {}, 'Add Local Files'), h('button', { type: 'button', class: 'close', onclick: () => this.close() }, 'Close')),
+        h('header', {}, h('h2', {}, 'Add Files'), h('button', { type: 'button', class: 'close', onclick: () => this.close() }, 'Close')),
         h(
           'div',
           { class: 'body' },
-          h('button', { type: 'button', class: 'primary', onclick: () => this.browse() }, 'Add From File Browser'),
+          h('button', { type: 'button', class: 'primary', onclick: () => this.browse() }, 'Add From My Device'),
           h('p', { class: 'or' }, 'or paste a link to a photo or video:'),
           h('div', { class: 'linkrow' }, this.input, h('button', { type: 'button', onclick: () => this.addLink(this.input.value) }, 'Add From Link')),
           this.note,
