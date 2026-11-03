@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { bestKey, recordBest, sizeLabels, type BestTime, type BestTimes } from '../src/core/besttimes';
-import { findKind, KINDS } from '../src/core/kinds';
+import { countsForBestTimes, findKind, KINDS } from '../src/core/kinds';
 import { BestTimeStore } from '../src/store/besttimes';
 
 const entry = (over: Partial<BestTime> = {}): BestTime => ({ ms: 60_000, file: 'dog.jpg', video: false, at: 1000, ...over });
@@ -68,5 +68,21 @@ describe('BestTimeStore', () => {
     expect(s.get('focus', 0)!.moves).toBeUndefined();
     mem.setItem('photo-puzzles/besttimes/v1', 'nope');
     expect(new BestTimeStore(mem).data).toEqual({});
+  });
+});
+
+describe('what counts for best times', () => {
+  it('leaves out a puzzle that starts with pieces placed', () => {
+    expect(countsForBestTimes({ pieces: 200, placed: 0 })).toBe(true);
+    expect(countsForBestTimes({ pieces: 200 })).toBe(true);
+    expect(countsForBestTimes({ total: 100, placed: 5 })).toBe(false);
+  });
+
+  it('says so on the options that place pieces, and the size descriptions leave out the trays, strip length and tabs', () => {
+    for (const id of ['jigsaw', 'overlap'] as const) expect(findKind(id)!.options.find((o) => o.key === 'placed')!.note).toMatch(/best times/);
+    const ov = findKind('overlap')!;
+    expect(ov.sizes!.describe(ov.sizes!.values[2])).toBe('about 200 cells');
+    const st = findKind('strips')!;
+    expect(st.sizes!.describe(st.sizes!.values[1])).toBe('about 100 cells');
   });
 });

@@ -11,6 +11,10 @@ import type { PhotoEntry, PhotoLibrary } from '../store/photos';
 import { appVersion, versionLabel } from '../version';
 import { h, svg } from './dom';
 import { FILTER_ICON, KIND_ICONS } from './icons';
+
+/** The reroll button: a die. */
+const DICE =
+  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><circle cx="8.5" cy="8.5" r="1" fill="currentColor"/><circle cx="15.5" cy="8.5" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="8.5" cy="15.5" r="1" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1" fill="currentColor"/></svg>';
 import { aiMark, attribution, creditLine, siteMark, videoMark } from './stocksite';
 import { AddFilesDialog } from './addfiles';
 import { settingsButton } from './settings';
@@ -205,13 +209,7 @@ export class LibraryScreen {
         h(
           'aside',
           { class: 'side' },
-          h('label', { class: 'field' }, h('span', {}, 'Seed'), this.seedInput),
-          h(
-            'div',
-            { class: 'row' },
-            h('button', { type: 'button', onclick: () => this.reroll() }, 'Reroll'),
-            h('button', { type: 'button', onclick: () => void this.copySeed() }, 'Copy'),
-          ),
+          h('div', { class: 'field seedrow' }, h('label', {}, h('span', {}, 'Seed'), this.seedInput), h('button', { type: 'button', class: 'reroll', title: 'Reroll the seed', 'aria-label': 'Reroll the seed', onclick: () => this.reroll() }, svg(DICE, 'ico'))),
           this.optionsEl,
           h('div', { class: 'spacer' }),
           this.noteEl,
@@ -550,6 +548,7 @@ export class LibraryScreen {
             oninput: (ev: Event) => (out.value = say(Number((ev.target as HTMLInputElement).value))),
             onchange: (ev: Event) => this.setOption(key, Number((ev.target as HTMLInputElement).value)),
           }),
+          o.note ? h('small', { class: 'optnote' }, o.note) : null,
         );
       }),
     );
@@ -606,15 +605,6 @@ export class LibraryScreen {
     this.deps.prefs.data.seed = randomSeedText();
     this.seedInput.value = this.deps.prefs.data.seed;
     this.deps.prefs.save();
-  }
-
-  private async copySeed(): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(this.deps.prefs.data.seed);
-      this.note('Seed copied');
-    } catch {
-      this.note('Could not copy');
-    }
   }
 
   private play(): void {
