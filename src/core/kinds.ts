@@ -18,6 +18,8 @@ export interface OptionDef {
   tiers?: string[];
   /** Added after puzzles were already being recorded and saved: at its default it stays out of the record key (and the difficulty in words), so what was kept before still matches. */
   later?: boolean;
+  /** A line under the option on the main screen. */
+  note?: string;
 }
 
 export type KindId = 'focus' | 'overlap' | 'strips' | 'jigsaw' | 'sliding' | 'rotascope';
@@ -105,9 +107,9 @@ export const KINDS: readonly KindDef[] = [
       sizeOption(5),
       { key: 'turned', label: 'Turned pieces', min: 0, max: 1, def: 1, toggle: true },
       { key: 'windows', label: 'Window pieces', min: 0, max: 1, def: 1, toggle: true },
-      { key: 'placed', label: 'Cells filled in at the start (%)', min: 0, max: 50, def: 0, step: 5 },
+      { key: 'placed', label: 'Cells filled in at the start (%)', min: 0, max: 50, def: 0, step: 5, note: 'A puzzle that starts with pieces placed does not count towards best times.' },
     ],
-    sizes: sizesOf(['total', 'stacks'], [[50, 3], [100, 4], [200, 5], [500, 6], [1000, 7]], (v) => `about ${v.total} cells, ${v.stacks} trays`),
+    sizes: sizesOf(['total', 'stacks'], [[50, 3], [100, 4], [200, 5], [500, 6], [1000, 7]], (v) => `about ${v.total} cells`),
   },
   {
     id: 'strips',
@@ -117,7 +119,7 @@ export const KINDS: readonly KindDef[] = [
     options: [
       sizeOption(5),
     ],
-    sizes: sizesOf(['cells', 'length', 'tabs'], [[50, 4, 4], [100, 6, 6], [200, 8, 8], [500, 10, 10], [1000, 12, 12]], (v) => `about ${v.cells} cells, strips up to ${v.length}, ${v.tabs} tabs`),
+    sizes: sizesOf(['cells', 'length', 'tabs'], [[50, 4, 4], [100, 6, 6], [200, 8, 8], [500, 10, 10], [1000, 12, 12]], (v) => `about ${v.cells} cells`),
   },
   {
     id: 'jigsaw',
@@ -126,7 +128,7 @@ export const KINDS: readonly KindDef[] = [
     available: true,
     options: [
       sizeOption(6),
-      { key: 'placed', label: 'Placed at the start (%)', min: 0, max: 80, def: 0, step: 5, later: true },
+      { key: 'placed', label: 'Placed at the start (%)', min: 0, max: 80, def: 0, step: 5, later: true, note: 'A puzzle that starts with pieces placed does not count towards best times.' },
       { key: 'edges', label: 'Edge pieces start in the picture area', min: 0, max: 1, def: 0, toggle: true, later: true },
       { key: 'turning', label: 'Turned pieces', min: 0, max: 1, def: 0, toggle: true },
       { key: 'snap', label: 'Joining pieces', min: 0, max: 2, def: 0, choices: ['Snap while dragging', 'Snap when held together', 'Snap on release'] },
@@ -184,6 +186,11 @@ export function recordKey(kind: KindDef, photoId: string, settings: Settings): s
   const opts = optionsOf(settings, kind);
   const difficulty = kind.options.filter((o) => !o.display && !(o.later && opts[o.key] === o.def)).map((o) => o.key).sort();
   return [kind.id, photoId, ...difficulty.map((k) => `${k}=${opts[k]}`)].join('|');
+}
+
+/** Whether a puzzle with these options may enter the best times: not one that starts with pieces already in place (Jigsaw and Overlap can). */
+export function countsForBestTimes(opts: Record<string, number>): boolean {
+  return !(opts.placed > 0);
 }
 
 /** The difficulty options a recordKey holds ("cells=7|turned=1"), as settings, so that a saved puzzle can be set up again. */
