@@ -1,8 +1,9 @@
 name: Deploy
 
 # Dev is deployed by itself: every change that is merged into main is tested and then put on dev.puzzlevid.io (a change that only touches documents is not).
-# Production is deployed by hand only: Actions > Deploy > Run workflow, choose "prod" and type the word prod in the box (so that it cannot be a slip). Either one can also be run by hand
-# for dev. It runs from main only, and signs in to AWS through OIDC (no stored keys).
+# Production is deployed by hand only, and only a release: Actions > Deploy > Run workflow (from main), choose "prod", give the release's tag (v1.2.0: a tag of a commit of main, see the Release
+# workflow) and type the word prod in the box (so that it cannot be a slip). Dev can also be run by hand, with or without a tag. The workflow runs from main (the AWS role trusts main only) and
+# signs in to AWS through OIDC (no stored keys); the code it deploys is the tag's.
 # The repository needs these variables (Settings > Secrets and variables > Actions > Variables); see infra/README.md:
 #   AWS_DEPLOY_ROLE_ARN  the role that the Ops stack made
 #   HOSTED_ZONE_ID       the hosted zone of the domain
@@ -23,6 +24,10 @@ on:
         type: choice
         options: [dev, prod]
         default: dev
+      tag:
+        description: 'The release to deploy (a tag such as v1.2.0). Required for prod; dev without one deploys main'
+        type: string
+        default: ''
       confirm:
         description: 'For prod only: type the word prod'
         type: string
@@ -47,12 +52,28 @@ jobs:
         run: |
           echo "::error::To deploy production, type the word prod in the box 'For prod only'."
           exit 1
+      - name: Production is a release
+        if: inputs.stage == 'prod' && inputs.tag == ''
+        run: |
+          echo "::error::Production deploys a release: give its tag (for example v1.2.0) in the box 'The release to deploy'."
+          exit 1
       - name: The privacy policy needs somewhere to write to
         if: inputs.stage == 'prod' && vars.LEGAL_CONTACT == ''
         run: |
           echo "::error::Set the repository variable LEGAL_CONTACT (an e-mail address) before deploying prod: the privacy policy and the terms say where to write."
           exit 1
       - uses: actions/checkout@v4
+        with:
+          # a release is a tag (a state of main); without one, the commit that started the run
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || '' }}
+          fetch-depth: 0
+      - name: The tag is a state of main
+        if: inputs.tag != ''
+        run: |
+          git fetch --quiet origin main
+          git merge-base --is-ancestor HEAD origin/main || { echo "::error::Tag $TAG is not a commit of main: only a state of main can be released."; exit 1; }
+        env:
+          TAG: ${{ inputs.tag }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -70,6 +91,17 @@ jobs:
       AWS_REGION: us-east-1
     steps:
       - uses: actions/checkout@v4
+        with:
+          # a release is a tag (a state of main); without one, the commit that started the run
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || '' }}
+          fetch-depth: 0
+      - name: The tag is a state of main
+        if: inputs.tag != ''
+        run: |
+          git fetch --quiet origin main
+          git merge-base --is-ancestor HEAD origin/main || { echo "::error::Tag $TAG is not a commit of main: only a state of main can be released."; exit 1; }
+        env:
+          TAG: ${{ inputs.tag }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -123,9 +155,11 @@ jobs:
           LEGAL_OPERATOR: ${{ vars.LEGAL_OPERATOR }}
           LEGAL_CONTACT: ${{ vars.LEGAL_CONTACT }}
           LEGAL_LAW: ${{ vars.LEGAL_LAW }}
-        run: npm run build
+        run: VITE_COMMIT=$(git rev-parse HEAD) npm run build
 
       - name: Put the game in place
+        env:
+          TAG: ${{ inputs.tag }}
         run: |
           out() { aws cloudformation describe-stacks --stack-name "PuzzleVidio-$STAGE-Web" --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
           BUCKET=$(out SiteBucket)
@@ -134,4 +168,4 @@ jobs:
           aws s3 sync dist "s3://$BUCKET" --delete --exclude index.html --cache-control "public,max-age=31536000,immutable"
           aws s3 cp dist/index.html "s3://$BUCKET/index.html" --cache-control "no-cache"
           aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/*"
-          echo "Deployed $STAGE: build ${{ github.run_number }}, commit ${GITHUB_SHA::7}, $(out Address)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Deployed $STAGE: build ${{ github.run_number }}, commit $(git rev-parse --short HEAD)${TAG:+, release $TAG}, $(out Address)" >> "$GITHUB_STEP_SUMMARY"

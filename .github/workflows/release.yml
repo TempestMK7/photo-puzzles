@@ -1,0 +1,33 @@
+name: Release
+
+# Creating a tag that starts with v (v1.2.0) on a commit of main sends that state of the game to the stores for review. Nothing is released to players by this:
+#   Google Play  the prod bundle of the tag goes to a testing track (the variable PLAY_TRACK, `alpha` when not set); promote it to production in the Play Console when it is approved
+#   Steam        not built yet (see the job below)
+# The website is deployed by hand when you are ready: Actions > Deploy > prod, with the tag. See docs/runbook.md, "Releasing".
+#
+# This workflow only starts the others, on main: the AWS role that they sign in with trusts runs of main only, not runs of a tag. Make the tag with `git tag -a v1.2.0 -m "..." <commit> && git push origin v1.2.0`
+# or with `gh release create v1.2.0 --target main --generate-notes`. (Who may create tags is a setting of the repository: Settings > Rules > Rulesets > tags.)
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  android:
+    name: Google Play
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build the prod app of the tag and upload it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh workflow run android.yml --repo "$GITHUB_REPOSITORY" --ref main -f build=prod -f "tag=$TAG" -f upload=true
+
+  # steam:
+  #   name: Steam
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - run: gh workflow run steam.yml --repo "$GITHUB_REPOSITORY" --ref main -f "tag=$GITHUB_REF_NAME"   # when there is a Steam build: a workflow that builds the desktop game of the tag and uploads it to a Steam branch (steamcmd), not to the default one
