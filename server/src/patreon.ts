@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { Patreon, PatreonMember } from './types';
+import type { Patreon, PatreonMember, PatreonTokens } from './types';
 
 /** What the deployment keeps in the secret (a JSON text), from Patreon's developer pages (https://www.patreon.com/portal/registration/register-clients) and the campaign. */
 export interface PatreonSettings {
@@ -7,8 +7,12 @@ export interface PatreonSettings {
   clientSecret: string;
   /** The secret of the webhook that Patreon calls when a pledge changes (the webhook's page shows it). */
   webhookSecret: string;
-  /** The creator's own access token (the client's page shows it): it reads a member of the campaign by id. */
-  creatorToken: string;
+  /**
+   * The creator's own tokens (the client's page shows them, and its Refresh button gives a new pair): the access token reads a member of the campaign by id and runs out, so the
+   * refresh token (single-use: each refresh gives a new pair, which the server keeps) gets another. `creatorToken` may be left out (or be an old one): the first call refreshes.
+   */
+  creatorToken?: string;
+  creatorRefreshToken: string;
   /** The id of the campaign whose pledges count (a pledge to anyone else's is nobody's business). */
   campaignId: string;
   /** The least a pledge may be, in cents, to make an account paid (500: the $5 tier; a higher tier of the same campaign counts too). */
@@ -34,7 +38,7 @@ export function parsePatreonSettings(text: string | undefined): PatreonSettings 
   if (!text) return undefined;
   try {
     const v = JSON.parse(text) as Partial<PatreonSettings>;
-    const ok = [v.clientId, v.clientSecret, v.webhookSecret, v.creatorToken, v.campaignId].every((x) => typeof x === 'string' && x);
+    const ok = [v.clientId, v.clientSecret, v.webhookSecret, v.creatorRefreshToken, v.campaignId].every((x) => typeof x === 'string' && x);
     return ok ? (v as PatreonSettings) : undefined;
   } catch {
     return undefined;
@@ -58,7 +62,46 @@ export class HttpPatreon implements Patreon {
     /** Where Patreon sends the player back to (the API's own address for `/patreon/callback`). */
     private readonly redirectUri: string,
     private readonly fetcher: Fetcher = fetch,
+    /** Where the newest creator tokens are kept (without it the secret's pair is all there is, and it is used up by its first refresh). */
+    private readonly tokens?: { get(): Promise<PatreonTokens | undefined>; put(tokens: PatreonTokens): Promise<void> },
   ) {}
+
+  /** The creator's tokens to use: the newest kept pair, unless the secret has been changed since (then its pair is the newer one). */
+  private async creator(): Promise<PatreonTokens> {
+    const kept = await this.tokens?.get();
+    const seed = this.settings.creatorRefreshToken;
+    return kept && kept.from === seed ? kept : { access: this.settings.creatorToken ?? '', refresh: seed, from: seed };
+  }
+
+  /** A refresh token gives a new pair (and is used up by it): the pair is kept. If it is refused, another function may have refreshed first: its pair is looked for before giving up. */
+  private async refresh(old: PatreonTokens): Promise<PatreonTokens> {
+    const res = await this.fetcher(TOKEN, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: old.refresh, client_id: this.settings.clientId, client_secret: this.settings.clientSecret }),
+    });
+    if (!res.ok) {
+      const again = await this.creator();
+      if (again.refresh !== old.refresh) return again;
+      throw new Error(`Patreon would not refresh the creator's token (${res.status}): make a new pair on the client's page and put it in the secret`);
+    }
+    const body = (await res.json()) as { access_token?: string; refresh_token?: string };
+    if (!body.access_token) throw new Error('Patreon gave no token');
+    const next: PatreonTokens = { access: body.access_token, refresh: body.refresh_token ?? old.refresh, from: old.from };
+    await this.tokens?.put(next);
+    return next;
+  }
+
+  /** A request with the creator's token; one that is turned away (the token has run out) is made again with a new one. */
+  private async asCreator(url: string): Promise<Response> {
+    let t = await this.creator();
+    if (t.access) {
+      const res = await this.fetcher(url, { headers: { authorization: `Bearer ${t.access}` } });
+      if (res.status !== 401) return res;
+    }
+    t = await this.refresh(t);
+    return this.fetcher(url, { headers: { authorization: `Bearer ${t.access}` } });
+  }
 
   private get minCents(): number {
     return this.settings.minCents ?? 500;
@@ -90,7 +133,7 @@ export class HttpPatreon implements Patreon {
 
   async member(memberId: string): Promise<PatreonMember | null> {
     const q = new URLSearchParams({ include: 'user', 'fields[member]': MEMBER_FIELDS });
-    const res = await this.fetcher(`${API}/members/${encodeURIComponent(memberId)}?${q}`, { headers: { authorization: `Bearer ${this.settings.creatorToken}` } });
+    const res = await this.asCreator(`${API}/members/${encodeURIComponent(memberId)}?${q}`);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`Patreon would not say about a member (${res.status})`);
     const body = (await res.json()) as { data?: Resource };

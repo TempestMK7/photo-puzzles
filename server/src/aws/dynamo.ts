@@ -1,5 +1,5 @@
 import { BatchGetCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand, ScanCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import type { AccountRecord, AdNonce, Ban, Clock, FileRecord, Presence, RateCounter, Report, RoomRecord, Store } from '../types';
+import type { AccountRecord, AdNonce, Ban, Clock, FileRecord, PatreonTokens, Presence, RateCounter, Report, RoomRecord, Store } from '../types';
 import { isGuestId } from '../guest';
 
 /** The part of the document client that is used, so that a test can put a fake in its place. */
@@ -219,6 +219,15 @@ export class DynamoStore implements Store {
 
   async putLinkIntent(email: string, playerId: string, expiresAt: number): Promise<void> {
     await this.db.send(new PutCommand({ TableName: this.table, Item: { ...linkKey(email), playerId, expiresAt, ttl: seconds(expiresAt) + 3600 } }));
+  }
+
+  async getPatreonTokens(): Promise<PatreonTokens | undefined> {
+    const { Item } = await this.db.send(new GetCommand({ TableName: this.table, Key: { pk: 'PATREON#CREATOR', sk: 'TOKENS' }, ConsistentRead: true }));
+    return Item ? { access: Item.access as string, refresh: Item.refresh as string, from: Item.from as string } : undefined;
+  }
+
+  async putPatreonTokens(tokens: PatreonTokens): Promise<void> {
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: 'PATREON#CREATOR', sk: 'TOKENS', ...tokens } }));
   }
 
   async putPatreonState(state: string, playerId: string, expiresAt: number): Promise<void> {

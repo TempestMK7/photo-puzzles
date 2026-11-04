@@ -5,7 +5,7 @@ import { MemoryMedia, MemoryPubSub, MemoryStore } from '../server/src/memory';
 import { HttpPatreon, parsePatreonSettings, type PatreonSettings } from '../server/src/patreon';
 import { createRouter, DevAuth } from '../server/src/router';
 import { RoomService } from '../server/src/service';
-import type { Clock, Patreon, PatreonMember, Presence, Random, Store } from '../server/src/types';
+import type { Clock, Patreon, PatreonMember, PatreonTokens, Presence, Random, Store } from '../server/src/types';
 import { FakeDynamo } from './helpers/fakeDynamo';
 import { ann, bob, DAY, limits, type MakeStore } from './helpers/world';
 
@@ -213,7 +213,7 @@ describe('the router', () => {
 });
 
 describe('HttpPatreon', () => {
-  const settings: PatreonSettings = { clientId: 'cid', clientSecret: 'secret', webhookSecret: 'hook', creatorToken: 'creator', campaignId: 'camp' };
+  const settings: PatreonSettings = { clientId: 'cid', clientSecret: 'secret', webhookSecret: 'hook', creatorToken: 'creator', creatorRefreshToken: 'refresh0', campaignId: 'camp' };
   const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status });
   const member = (id: string, campaign: string, attributes: Record<string, unknown>) => ({ id, type: 'member', attributes, relationships: { campaign: { data: { id: campaign, type: 'campaign' } }, user: { data: { id: 'u1', type: 'user' } } } });
 
@@ -252,6 +252,71 @@ describe('HttpPatreon', () => {
     expect((await ask({ patron_status: 'active_patron', currently_entitled_amount_cents: 500, last_charge_status: 'Declined' }))?.active).toBe(false);
   });
 
+  describe("the creator's token", () => {
+    const ok = (): Response => json({ data: member('m1', 'camp', { patron_status: 'active_patron', currently_entitled_amount_cents: 500, last_charge_status: 'Paid' }) });
+    /** Patreon with a creator token that has run out: the refresh gives new1 and refresh1 (and uses refresh0 up). */
+    function patreon(opts: { kept?: PatreonTokens; refusing?: boolean } = {}) {
+      const calls: string[] = [];
+      let kept = opts.kept;
+      const fetcher = (async (url: string, init?: RequestInit) => {
+        if (String(url).includes('/token')) {
+          const form = new URLSearchParams(String(init?.body));
+          calls.push(`refresh ${form.get('refresh_token')}`);
+          if (opts.refusing) return json({}, 401);
+          return json({ access_token: 'new1', refresh_token: 'refresh1' });
+        }
+        const bearer = (init?.headers as Record<string, string>).authorization;
+        calls.push(bearer);
+        return bearer === 'Bearer new1' || bearer === 'Bearer fresh' ? ok() : json({}, 401);
+      }) as unknown as typeof fetch;
+      return { calls, kept: () => kept, p: new HttpPatreon(settings, 'x', fetcher, { get: async () => kept, put: async (t) => void (kept = t) }) };
+    }
+
+    it('is refreshed when it has run out, and the new pair is kept and used from then on', async () => {
+      const t = patreon();
+      expect((await t.p.member('m1'))?.active).toBe(true);
+      expect(t.calls).toEqual(['Bearer creator', 'refresh refresh0', 'Bearer new1']);
+      expect(t.kept()).toEqual({ access: 'new1', refresh: 'refresh1', from: 'refresh0' });
+      t.calls.length = 0;
+      expect((await t.p.member('m1'))?.active).toBe(true);
+      expect(t.calls).toEqual(['Bearer new1']);
+    });
+
+    it('starts with the refresh when the secret has no access token', async () => {
+      const seen: string[] = [];
+      const fetcher = (async (url: string) => {
+        seen.push(String(url).includes('/token') ? 'refresh' : 'member');
+        return String(url).includes('/token') ? json({ access_token: 'new1', refresh_token: 'refresh1' }) : ok();
+      }) as unknown as typeof fetch;
+      const bare = new HttpPatreon({ ...settings, creatorToken: undefined }, 'x', fetcher);
+      expect((await bare.member('m1'))?.active).toBe(true);
+      expect(seen).toEqual(['refresh', 'member']);
+    });
+
+    it('is the pair in the secret again when the secret has been changed since the kept pair was made', async () => {
+      const t = patreon({ kept: { access: 'old', refresh: 'refreshX', from: 'refresh-older' } });
+      await t.p.member('m1');
+      expect(t.calls[0]).toBe('Bearer creator');
+    });
+
+    it('uses a pair that another function refreshed first, when its own refresh token was used up', async () => {
+      let kept: PatreonTokens | undefined;
+      const fetcher = (async (url: string, init?: RequestInit) => {
+        if (String(url).includes('/token')) {
+          kept = { access: 'fresh', refresh: 'refresh2', from: 'refresh0' };        // (the other function's, written meanwhile)
+          return json({}, 400);
+        }
+        return (init?.headers as Record<string, string>).authorization === 'Bearer fresh' ? ok() : json({}, 401);
+      }) as unknown as typeof fetch;
+      const p = new HttpPatreon(settings, 'x', fetcher, { get: async () => kept, put: async (t) => void (kept = t) });
+      expect((await p.member('m1'))?.active).toBe(true);
+    });
+
+    it('fails, saying what to do, when it cannot be refreshed', async () => {
+      await expect(patreon({ refusing: true }).p.member('m1')).rejects.toThrow(/new pair/);
+    });
+  });
+
   it('says nothing of a member that is gone, and fails when Patreon does', async () => {
     const gone = new HttpPatreon(settings, 'x', (async () => json({}, 404)) as unknown as typeof fetch);
     expect(await gone.member('m1')).toBeNull();
@@ -273,7 +338,8 @@ describe('HttpPatreon', () => {
 
   it('reads the secret only when it is complete', () => {
     expect(parsePatreonSettings(JSON.stringify(settings))).toEqual(settings);
-    expect(parsePatreonSettings(JSON.stringify({ ...settings, creatorToken: '' }))).toBeUndefined();
+    expect(parsePatreonSettings(JSON.stringify({ ...settings, creatorRefreshToken: '' }))).toBeUndefined();
+    expect(parsePatreonSettings(JSON.stringify({ ...settings, creatorToken: undefined }))).toMatchObject({ creatorRefreshToken: 'refresh0' });
     expect(parsePatreonSettings('nonsense')).toBeUndefined();
     expect(parsePatreonSettings(undefined)).toBeUndefined();
   });

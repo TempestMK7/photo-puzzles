@@ -1,5 +1,5 @@
 import { Signer } from './signing';
-import type { AccountRecord, AdNonce, Ban, Clock, FileRecord, Media, PubSub, RateCounter, Random, Report, RoomRecord, Store } from './types';
+import type { AccountRecord, AdNonce, Ban, Clock, FileRecord, Media, PatreonTokens, PubSub, RateCounter, Random, Report, RoomRecord, Store } from './types';
 
 /** Everything in memory: for the tests and for the local server (which forgets it all when it stops). */
 export class MemoryStore implements Store {
@@ -60,6 +60,16 @@ export class MemoryStore implements Store {
 
   readonly patreonStates = new Map<string, { playerId: string; expiresAt: number }>();
   readonly patreonUsers = new Map<string, { playerId: string | null; charged?: string }>();
+
+  patreonTokens: PatreonTokens | undefined;
+
+  async getPatreonTokens(): Promise<PatreonTokens | undefined> {
+    return this.patreonTokens && { ...this.patreonTokens };
+  }
+
+  async putPatreonTokens(tokens: PatreonTokens): Promise<void> {
+    this.patreonTokens = { ...tokens };
+  }
 
   async putPatreonState(state: string, playerId: string, expiresAt: number): Promise<void> {
     this.patreonStates.set(state, { playerId, expiresAt });

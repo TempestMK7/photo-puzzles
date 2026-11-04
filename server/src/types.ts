@@ -141,6 +141,13 @@ export interface PatreonLink {
   checkedAt: number;
 }
 
+/** The creator's tokens for Patreon's API (the access token runs out; the refresh token is single-use and each refresh gives a new pair, so the newest pair is kept). `from`: the refresh token in the deployment's secret that the pair came from (a pair from an older secret is not used). */
+export interface PatreonTokens {
+  access: string;
+  refresh: string;
+  from: string;
+}
+
 /** What Patreon says about one of its users and their pledge to our campaign. */
 export interface PatreonMember {
   userId: string;
@@ -205,6 +212,9 @@ export interface Store {
   /** The ad network's numbers for the rewards it has reported (each is reported once, but may be reported again if the answer was lost). `until` (ms): when it may be forgotten. */
   hasAdTransaction(transactionId: string): Promise<boolean>;
   putAdTransaction(transactionId: string, until: number): Promise<void>;
+  /** The creator's newest tokens for Patreon's API (nothing before the first refresh: the deployment's secret has the first pair). */
+  getPatreonTokens(): Promise<PatreonTokens | undefined>;
+  putPatreonTokens(tokens: PatreonTokens): Promise<void>;
   /** A one-time number that the player is sent to Patreon with, to know who comes back (`takePatreonState` gives the player once and forgets it). */
   putPatreonState(state: string, playerId: string, expiresAt: number): Promise<void>;
   takePatreonState(state: string): Promise<{ playerId: string; expiresAt: number } | undefined>;
