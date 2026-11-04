@@ -1,6 +1,6 @@
 import type { Command, Lock, Reservation, RoomEvent, RoomState } from '../core/jigsawRoom';
 import type { CallError, RoomApi } from './api';
-import { HAND_INTERVAL_MS, lockHeld, RENEW_INTERVAL_MS, type HandMessage, type Member, type Playback, type RoomDescriptor, type RoomMessage } from './protocol';
+import { HAND_INTERVAL_MS, lockHeld, RENEW_INTERVAL_MS, type HandMessage, type Member, type Playback, type RoomDescriptor, type RoomMessage, type VideoRange } from './protocol';
 import type { Connection, Realtime } from './realtime';
 
 /** What the room needs from the puzzle on the screen (a session): it applies what the others did, and tells how many groups it has (for the puzzles without groups, the number `boardCheck` makes). */
@@ -151,9 +151,10 @@ export class OnlineRoom {
   }
 
   /** The host says where the video is (played, paused or moved, and now and then while it plays). The others hear it at once. */
-  sendPlayback(pos: number, paused: boolean): void {
-    this.playback = { pos, paused, at: this.serverNow };
-    void this.api.setPlayback?.(this.id, { pos, paused });
+  sendPlayback(pos: number, paused: boolean, range?: VideoRange | null): void {
+    const r = range ? { range } : {};
+    this.playback = { pos, paused, at: this.serverNow, ...r };
+    void this.api.setPlayback?.(this.id, { pos, paused, ...r });
   }
 
   /** Asks the server where the host's video is now (for a player who wants to be taken back to it). Nothing new if the server cannot be reached. */
@@ -314,7 +315,7 @@ export class OnlineRoom {
         break;
       case 'playback':
         if (!this.host) {
-          this.playback = { pos: m.pos, paused: m.paused, at: m.at };
+          this.playback = { pos: m.pos, paused: m.paused, at: m.at, ...(m.range ? { range: m.range } : {}) };
           this.onPlayback();
         }
         break;

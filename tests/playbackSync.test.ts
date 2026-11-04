@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DRIFT_SECONDS, HEARTBEAT_MS, PlaybackSync, type SyncRoom, type SyncVideo } from '../src/online/playbackSync';
-import type { Playback } from '../src/online/protocol';
+import { playbackNow, type Playback, type VideoRange } from '../src/online/protocol';
 
 class FakeVideo implements SyncVideo {
   currentTime = 0;
@@ -24,10 +24,12 @@ class FakeRoom implements SyncRoom {
   serverNow = 100_000;
   playback: Playback | null = null;
   sent: { pos: number; paused: boolean }[] = [];
+  sentRanges: (VideoRange | null | undefined)[] = [];
   fresh: Playback | null = null;
   refreshed = 0;
-  sendPlayback(pos: number, paused: boolean): void {
+  sendPlayback(pos: number, paused: boolean, range?: VideoRange | null): void {
     this.sent.push({ pos, paused });
+    this.sentRanges.push(range);
   }
   async refreshPlayback(): Promise<Playback | null> {
     this.refreshed++;
@@ -195,5 +197,58 @@ describe('the host', () => {
     await t.sync.resync();
     expect(t.video.currentTime).toBe(2);
     expect(t.room.refreshed).toBe(0);
+  });
+});
+
+describe('the part of the video that is looped over', () => {
+  /** A video that keeps the range the sync gives it, and says it back. */
+  class RangedVideo extends FakeVideo {
+    range: VideoRange | null = null;
+    setRange(r: VideoRange | null): void {
+      this.range = r;
+    }
+  }
+
+  it('is counted in the position that the host\'s video has now: it goes round inside the range', () => {
+    const p: Playback = { pos: 5, paused: false, at: 100_000, range: { start: 4, end: 8 } };
+    expect(playbackNow(p, 101_000, 20)).toBeCloseTo(6);
+    expect(playbackNow(p, 103_000, 20)).toBeCloseTo(4);                                // (5 + 3 = 8, the end: back at the start)
+    expect(playbackNow(p, 106_500, 20)).toBeCloseTo(7.5);                              // (5 + 6.5 = 11.5: 4 + 7.5 mod 4)
+    expect(playbackNow({ ...p, paused: true }, 200_000, 20)).toBe(5);
+    expect(playbackNow({ pos: 5, paused: false, at: 100_000 }, 118_000, 20)).toBeCloseTo(3);        // (no range: round the whole video)
+  });
+
+  it('is the host\'s for a follower, who is given it with the host\'s position, and the host says it with the position', () => {
+    const video = new RangedVideo();
+    const room = new FakeRoom();
+    const sync = new PlaybackSync(video, room, () => 0);
+    room.playback = { pos: 5, paused: false, at: 100_000, range: { start: 4, end: 8 } };
+    sync.start();
+    expect(video.range).toEqual({ start: 4, end: 8 });
+    room.playback = { pos: 5, paused: false, at: 100_000 };
+    sync.heard();
+    expect(video.range).toBeNull();                                                      // (the host went back to the whole video)
+    const host = new RangedVideo();
+    const hostRoom = new FakeRoom();
+    hostRoom.host = true;
+    const hostSync = new PlaybackSync(host, hostRoom, () => 0);
+    host.range = { start: 1, end: 3 };
+    hostSync.byPlayer();
+    expect(hostRoom.sentRanges.at(-1)).toEqual({ start: 1, end: 3 });
+  });
+
+  it('is left as the follower set it once they go their own way, until they ask to be taken back', async () => {
+    const video = new RangedVideo();
+    const room = new FakeRoom();
+    const sync = new PlaybackSync(video, room, () => 0);
+    room.playback = { pos: 5, paused: false, at: 100_000, range: { start: 4, end: 8 } };
+    sync.start();
+    video.range = { start: 10, end: 12 };
+    sync.byPlayer();                                                                      // (they moved a dot)
+    room.playback = { pos: 5, paused: false, at: 100_000, range: { start: 1, end: 2 } };
+    sync.heard();
+    expect(video.range).toEqual({ start: 10, end: 12 });
+    await sync.resync();
+    expect(video.range).toEqual({ start: 1, end: 2 });
   });
 });

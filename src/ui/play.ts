@@ -8,7 +8,7 @@ import { loadPhoto } from '../image';
 import type { OnlineApi } from '../online/api';
 import { PLAYER_COLORS } from '../online/config';
 import { PlaybackSync } from '../online/playbackSync';
-import { type Invite } from '../online/protocol';
+import { type Invite, type VideoRange } from '../online/protocol';
 import type { OnlineRoom, RoomView } from '../online/room';
 import type { OnlineSession } from '../online/session';
 import { fitView, type View } from '../render';
@@ -78,14 +78,23 @@ export class PlayScreen {
   private dialogEl = h('div', { class: 'dialog', hidden: true });
   private viewBar = h('div', { class: 'viewbar', hidden: true });
   // the playback bar of a video puzzle: pause / play, the time, a draggable position, the length, sound on / off
+  /** Restricts the playing of the video to a part of it: two dots over the timeline (the whole of it to begin with). */
+  private restrictBtn = h('button', { type: 'button', class: 'restrict', title: 'Choose the part of the video that plays over and over', 'aria-pressed': 'false', onclick: () => this.toggleRestrict() }, 'Restrict');
+  private rangeFill = h('div', { class: 'fill' });
+  private rangeLo = h('input', { type: 'range', class: 'lo', min: 0, max: 1000, value: 0, step: 1, 'aria-label': 'Start of the part that plays' });
+  private rangeHi = h('input', { type: 'range', class: 'hi', min: 0, max: 1000, value: 1000, step: 1, 'aria-label': 'End of the part that plays' });
+  private rangeBar = h('div', { class: 'rangebar', hidden: true }, this.rangeFill, this.rangeLo, this.rangeHi);
+  /** The part of the video that is looped over (nothing: the whole of it). */
+  private range: VideoRange | null = null;
   private pauseBtn = h('button', { type: 'button', class: 'icon', title: 'Pause', 'aria-label': 'Pause', onclick: () => this.togglePause() }, '❚❚');
   private curEl = h('span', { class: 'vt' }, '0:00');
   private totalEl = h('span', { class: 'vt' }, '0:00');
   private seekEl = h('input', { type: 'range', class: 'seek', min: 0, max: 1000, value: 0, step: 1, 'aria-label': 'Video position' });
+  private seekWrap = h('div', { class: 'seekwrap' }, this.seekEl, this.rangeBar);
   private muteBtn = h('button', { type: 'button', class: 'icon', title: 'Sound', 'aria-label': 'Sound', onclick: () => this.toggleMute() });
   /** A puzzle played with friends from a video: shown when the player has gone their own way, to be taken back to where the host is. */
   private syncBtn = h('button', { type: 'button', class: 'sync', hidden: true, title: 'Go back to where the host’s video is, and follow it again', onclick: () => void this.sync?.resync() }, '↻ Sync with host');
-  private vbar = h('div', { class: 'vbar', hidden: true }, this.pauseBtn, this.curEl, this.seekEl, this.totalEl, this.muteBtn, this.syncBtn);
+  private vbar = h('div', { class: 'vbar', hidden: true }, this.restrictBtn, this.pauseBtn, this.curEl, this.seekWrap, this.totalEl, this.muteBtn, this.syncBtn);
   private sync: PlaybackSync | null = null;
   private syncTimer = 0;
   // the zoom control of a board with a camera (Jigsaw), bottom right
@@ -222,6 +231,19 @@ export class PlayScreen {
     this.seekEl.addEventListener('pointerup', endSeek);
     this.seekEl.addEventListener('pointercancel', endSeek);
     this.seekEl.addEventListener('change', endSeek);
+    // the two dots of the range: neither goes past the other (at least a tenth of a second apart); letting go says it to the room
+    const nudge = (which: 'lo' | 'hi') => () => {
+      const lo = this.rangeLo as HTMLInputElement;
+      const hi = this.rangeHi as HTMLInputElement;
+      const v = this.src?.video;
+      const gap = Math.max(1, v && v.duration > 0 ? Math.ceil((0.1 / v.duration) * 1000) : 1);
+      if (which === 'lo' && Number(lo.value) > Number(hi.value) - gap) lo.value = String(Math.max(0, Number(hi.value) - gap));
+      if (which === 'hi' && Number(hi.value) < Number(lo.value) + gap) hi.value = String(Math.min(1000, Number(lo.value) + gap));
+      this.rangeFromDots();
+    };
+    this.rangeLo.addEventListener('input', nudge('lo'));
+    this.rangeHi.addEventListener('input', nudge('hi'));
+    for (const dot of [this.rangeLo, this.rangeHi]) dot.addEventListener('change', () => this.sync?.byPlayer());      // (the host says it; a follower goes their own way)
     // a puzzle that is being played is kept when the page is hidden or closed, as well as shortly after each move and when leaving
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && !this.el.hidden) this.saveNow();
@@ -309,6 +331,9 @@ export class PlayScreen {
     this.refreshMute();
     this.totalEl.textContent = formatTime((Number.isFinite(v.duration) ? v.duration : 0) * 1000);
     this.pauseBtn.textContent = '❚❚';
+    this.setRange(null);
+    this.rangeBar.hidden = true;
+    this.refreshRestrict();
     v.addEventListener('play', () => this.refreshPause());
     v.addEventListener('pause', () => this.refreshPause());
     void v.play().catch(() => {
@@ -331,6 +356,7 @@ export class PlayScreen {
     const pump = (): void => {
       requestAnimationFrame(() => {
         if (token !== this.pumpToken) return;
+        this.keepInRange(v);
         if (called || Math.abs(v.currentTime - drawnAt) > 0.04) {
           called = false;
           drawnAt = v.currentTime;
@@ -344,6 +370,54 @@ export class PlayScreen {
       });
     };
     pump();
+  }
+
+  /** Shows or hides the two dots over the timeline (the part that was chosen goes on being played when they are hidden). */
+  private toggleRestrict(): void {
+    this.rangeBar.hidden = !this.rangeBar.hidden;
+    this.refreshRestrict();
+  }
+
+  private refreshRestrict(): void {
+    this.restrictBtn.classList.toggle('on', !this.rangeBar.hidden || !!this.range);
+    this.restrictBtn.setAttribute('aria-pressed', String(!this.rangeBar.hidden));
+  }
+
+  /** The dots have moved: the part of the video that is looped over is what lies between them (the whole video when they are at the ends). */
+  private rangeFromDots(): void {
+    const v = this.src?.video;
+    const lo = Number((this.rangeLo as HTMLInputElement).value);
+    const hi = Number((this.rangeHi as HTMLInputElement).value);
+    const dur = v && Number.isFinite(v.duration) ? v.duration : 0;
+    this.range = dur > 0 && (lo > 0 || hi < 1000) ? { start: (lo / 1000) * dur, end: (hi / 1000) * dur } : null;
+    this.paintRange();
+  }
+
+  /** Puts the dots where a range is (from the host, or none: the ends). */
+  private setRange(r: VideoRange | null): void {
+    const v = this.src?.video;
+    const dur = v && Number.isFinite(v.duration) ? v.duration : 0;
+    const same = (!r && !this.range) || (!!r && !!this.range && Math.abs(r.start - this.range.start) < 0.01 && Math.abs(r.end - this.range.end) < 0.01);
+    if (same) return;
+    this.range = r && dur > 0 ? { start: Math.max(0, r.start), end: Math.min(dur, r.end) } : null;
+    (this.rangeLo as HTMLInputElement).value = String(this.range && dur > 0 ? Math.round((this.range.start / dur) * 1000) : 0);
+    (this.rangeHi as HTMLInputElement).value = String(this.range && dur > 0 ? Math.round((this.range.end / dur) * 1000) : 1000);
+    this.paintRange();
+  }
+
+  private paintRange(): void {
+    const lo = Number((this.rangeLo as HTMLInputElement).value);
+    const hi = Number((this.rangeHi as HTMLInputElement).value);
+    this.rangeFill.style.left = `${lo / 10}%`;
+    this.rangeFill.style.width = `${Math.max(0, hi - lo) / 10}%`;
+    this.refreshRestrict();
+  }
+
+  /** The video goes round the part that was chosen: at its end (or before its start) it goes back to the start of the part. */
+  private keepInRange(v: HTMLVideoElement): void {
+    const r = this.range;
+    if (!r || !(v.duration > 0)) return;
+    if (v.currentTime >= r.end || v.currentTime < r.start - 0.05) v.currentTime = r.start;
   }
 
   private togglePause(): void {
@@ -367,6 +441,7 @@ export class PlayScreen {
   /** Follows the host's video (or, for the host, says where it is): the video of a puzzle played with friends. */
   private startSync(room: OnlineRoom, v: HTMLVideoElement): void {
     this.stopSync();
+    const range = (): VideoRange | null => this.range;
     const sync = new PlaybackSync(
       {
         get currentTime() {
@@ -388,6 +463,10 @@ export class PlayScreen {
             void v.play().catch(() => undefined);
           }),
         pause: () => v.pause(),
+        get range() {
+          return range();
+        },
+        setRange: (r) => this.setRange(r),
       },
       room,
     );
