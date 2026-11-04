@@ -48,6 +48,7 @@ import {
   type JoinResponse,
   type Member,
   type MeResponse,
+  type PatreonStartResponse,
   type PlaybackRequest,
   type VideoCheckResponse,
   type RoomDescriptor,
@@ -56,12 +57,12 @@ import {
   type ReportRequest,
   type RoomSummary,
 } from '../../src/online/protocol';
-import { adsToday, dayOf, earnedToday, guestSummaryOf, helpAdAtOf, helpHeld, LINK_INTENT_MS, newAccount, summaryOf } from './accounts';
+import { adsToday, applyPatreon, dayOf, earnedToday, guestSummaryOf, helpAdAtOf, helpHeld, LINK_INTENT_MS, newAccount, PATREON_RECHECK_MS, summaryOf } from './accounts';
 import { isGuestId } from './guest';
 import { sniffImage } from './image';
 import type { AdminFile, AdminRoomSummary } from '../../src/online/adminProtocol';
 import { playedMs } from './played';
-import type { AccountRecord, Accounts, AdCallbacks, Clock, FileRecord, Limits, Media, Moderation, Player, Presence, PubSub, Random, Report, RoomRecord, Store, VideoModeration } from './types';
+import type { AccountRecord, Accounts, AdCallbacks, Clock, FileRecord, Limits, Media, Moderation, Patreon, PatreonMember, Player, Presence, PubSub, Random, Report, RoomRecord, Store, VideoModeration } from './types';
 
 export interface Deps {
   store: Store;
@@ -83,6 +84,8 @@ export interface Deps {
   notify?: (text: string) => Promise<void>;
   /** The ad network's reports that a rewarded ad was watched (checked by their signature). Nothing for a server that has no ad network: then ads are refused, unless the limit `adsTrusted` says to take the game's word. */
   adCallbacks?: AdCallbacks;
+  /** Patreon, where a paid account comes from a pledge. Nothing for a server that has none: the game does not offer it. */
+  patreon?: Patreon;
 }
 
 const DAY = 24 * 3600 * 1000;
@@ -99,6 +102,8 @@ const ADMIN_VIDEO_BYTES = 5_000_000_000;
 /** How many bytes at the start of a stored video are read to tell what kind of file it is. */
 const PEEK = 16;
 const COLORS = 8;
+/** The player has this long to come back from Patreon's page. */
+const PATREON_STATE_MS = 10 * 60 * 1000;
 /** A guest's chosen name is kept this long after it was last set (a little longer than their token lasts). */
 const GUEST_NAME_KEEP_MS = 100 * 24 * 3600 * 1000;
 
@@ -174,6 +179,7 @@ export class RoomService {
 
   /** What the server knows about the player: the name they chose, if they have. (The token only says who they are.) */
   async profile(player: Player): Promise<MeResponse> {
+    if (!player.guest) await this.recheckPatreon(player.id);
     return { ok: true, id: player.id, name: (await this.d.store.getName(player.id)) ?? null, guest: player.guest === true, account: await this.summary(player) };
   }
 
@@ -190,6 +196,7 @@ export class RoomService {
    */
   async deleteAccount(player: Player): Promise<{ ok: true } | ApiFailure> {
     const { store, accounts } = this.d;
+    await this.letGoOfPatreon(player.id);
     await this.releaseRooms(player);
     await this.releaseFiles(player.id);
     await store.forgetPlayer(player.id);
@@ -421,7 +428,105 @@ export class RoomService {
 
   private summaryFor(player: Player, type: AccountType, account: AccountRecord): AccountSummary {
     const { limits, clock } = this.d;
-    return player.guest ? guestSummaryOf(account, limits, clock.now()) : summaryOf(type, account, limits, clock.now());
+    if (player.guest) return guestSummaryOf(account, limits, clock.now());
+    const summary = summaryOf(type, account, limits, clock.now());
+    return this.d.patreon ? { ...summary, patreon: { on: true, linked: !!account.patreon, active: !!account.patreon?.active } } : summary;
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- Patreon
+
+  /** The player is about to be sent to Patreon to say who they are there: a one-time state (kept ten minutes) comes back with them. */
+  async patreonStart(player: Player): Promise<PatreonStartResponse | ApiFailure> {
+    const { patreon, store, clock, random } = this.d;
+    if (!patreon) return fail('patreon-off');
+    if (player.guest) return fail('account-required');
+    const state = secretFrom(random.bytes(18));
+    await store.putPatreonState(state, player.id, clock.now() + PATREON_STATE_MS);
+    return { ok: true, url: patreon.authorizeUrl(state) };
+  }
+
+  /**
+   * The player came back from Patreon with a code: their Patreon user is joined to the account that started it (one Patreon user to one account), and what they pledge makes it paid. The answer is
+   * where to send the browser on to, with `?patreon=linked`, `taken` or `error` for the game to say.
+   */
+  async patreonCallback(code: string | null, state: string | null): Promise<string> {
+    const { patreon, store, clock, webBase } = this.d;
+    const back = (outcome: string): string => `${webBase}/?patreon=${outcome}`;
+    if (!patreon || !code || !state) return back('error');
+    const asked = await store.takePatreonState(state);
+    if (!asked || asked.expiresAt <= clock.now()) return back('error');
+    try {
+      const member = await patreon.identify(code);
+      const had = await store.getPatreonUser(member.userId);
+      if (had?.playerId && had.playerId !== asked.playerId) return back('taken');            // (their Patreon account is another account's)
+      const current = (await this.accountOf(asked.playerId)).patreon;
+      if (current && current.userId !== member.userId) await this.letGoOfPatreon(asked.playerId);       // (this account had another Patreon user: it lets that one go first)
+      await this.applyPatreonMember(asked.playerId, member);
+      return back('linked');
+    } catch (e) {
+      console.error(e);
+      return back('error');
+    }
+  }
+
+  /** Patreon's call that a pledge changed (genuine: signed with our webhook secret): the account that is joined to that Patreon user is updated. False when the call is not Patreon's. */
+  async patreonWebhook(body: string, signature: string | undefined): Promise<boolean> {
+    const { patreon, store } = this.d;
+    if (!patreon) return false;
+    const member = patreon.webhook(body, signature);
+    if (!member) return false;
+    const user = await store.getPatreonUser(member.userId);
+    if (user?.playerId) await this.applyPatreonMember(user.playerId, member);
+    return true;                                                       // (genuine, and of no use to us if nobody has joined that user: answered all the same)
+  }
+
+  /** The account lets its Patreon user go: what the pledge gave stays (the credits), and the paid type it made goes. */
+  async patreonUnlink(player: Player): Promise<MeResponse | ApiFailure> {
+    if (!this.d.patreon) return fail('patreon-off');
+    if (player.guest) return fail('account-required');
+    await this.letGoOfPatreon(player.id);
+    return this.profile(player);
+  }
+
+  private async letGoOfPatreon(playerId: string): Promise<void> {
+    const { store } = this.d;
+    const had = (await store.getAccount(playerId))?.patreon;
+    if (!had) return;
+    const user = await store.getPatreonUser(had.userId);
+    await store.putPatreonUser(had.userId, { playerId: null, charged: user?.charged });          // (the last payment that gave credits is remembered: joining again does not give them twice)
+    await this.changeAccount(playerId, (a) => {
+      if (a.patreon?.promoted && a.type === 'paid') a.type = 'free';
+      delete a.patreon;
+      return a;
+    });
+  }
+
+  private async applyPatreonMember(playerId: string, member: PatreonMember): Promise<void> {
+    const { store, limits, clock } = this.d;
+    const user = await store.getPatreonUser(member.userId);
+    let charged = user?.charged;
+    await store.putPatreonUser(member.userId, { playerId, charged });                       // (taken first: a second account cannot join the same Patreon user in the meantime)
+    const done = await this.changeAccount(playerId, (a) => {
+      const r = applyPatreon(a, member, limits, clock.now(), user?.charged);
+      charged = r.charged;
+      return r.account;
+    });
+    if ('error' in done) throw new Error('the account could not be changed');
+    if (charged !== user?.charged) await store.putPatreonUser(member.userId, { playerId, charged });
+  }
+
+  /** A pledge that has not been looked at for a day is asked about again (the webhook says when it changes; this is for a call that was lost). A Patreon that cannot be asked leaves it as it was. */
+  private async recheckPatreon(playerId: string): Promise<void> {
+    const { patreon, store, clock } = this.d;
+    if (!patreon) return;
+    const link = (await store.getAccount(playerId))?.patreon;
+    if (!link?.memberId || clock.now() - link.checkedAt < PATREON_RECHECK_MS) return;
+    try {
+      const member = (await patreon.member(link.memberId)) ?? { userId: link.userId, active: false };
+      await this.applyPatreonMember(playerId, member);
+    } catch (e) {
+      console.error(e);
+    }
   }
 
   /**

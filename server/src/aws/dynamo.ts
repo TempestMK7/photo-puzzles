@@ -221,6 +221,27 @@ export class DynamoStore implements Store {
     await this.db.send(new PutCommand({ TableName: this.table, Item: { ...linkKey(email), playerId, expiresAt, ttl: seconds(expiresAt) + 3600 } }));
   }
 
+  async putPatreonState(state: string, playerId: string, expiresAt: number): Promise<void> {
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: `PATREONSTATE#${state}`, sk: 'STATE', playerId, expiresAt, ttl: seconds(expiresAt) + 3600 } }));
+  }
+
+  async takePatreonState(state: string): Promise<{ playerId: string; expiresAt: number } | undefined> {
+    const key = { pk: `PATREONSTATE#${state}`, sk: 'STATE' };
+    const { Item } = await this.db.send(new GetCommand({ TableName: this.table, Key: key, ConsistentRead: true }));
+    if (!Item) return undefined;
+    await this.db.send(new DeleteCommand({ TableName: this.table, Key: key }));
+    return { playerId: Item.playerId as string, expiresAt: Item.expiresAt as number };
+  }
+
+  async getPatreonUser(userId: string): Promise<{ playerId: string | null; charged?: string } | undefined> {
+    const { Item } = await this.db.send(new GetCommand({ TableName: this.table, Key: { pk: `PATREON#${userId}`, sk: 'USER' }, ConsistentRead: true }));
+    return Item ? { playerId: (Item.playerId as string | null) ?? null, ...(typeof Item.charged === 'string' ? { charged: Item.charged } : {}) } : undefined;
+  }
+
+  async putPatreonUser(userId: string, user: { playerId: string | null; charged?: string }): Promise<void> {
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: `PATREON#${userId}`, sk: 'USER', playerId: user.playerId, ...(user.charged ? { charged: user.charged } : {}) } }));
+  }
+
   async putAdNonce(nonce: AdNonce): Promise<void> {
     await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: `AD#${nonce.nonce}`, sk: 'NONCE', body: JSON.stringify(nonce), ttl: seconds(nonce.expiresAt) } }));
   }

@@ -122,9 +122,44 @@ export interface AccountRecord {
   spent?: string[];
   /** A guest's record: the hints and bombs were taken into an account (so that they are not taken twice). An account's: it has taken a guest's. */
   carried?: boolean;
+  /** The Patreon account joined to this one (see `Patreon`): what it pays for is what makes this account paid. */
+  patreon?: PatreonLink;
   createdAt: number;
   /** Counts up with every write, so that two writers cannot overwrite each other (a conditional write, as for a room). */
   rev: number;
+}
+
+/** The Patreon account joined to a player's account, and where its pledge stands as of `checkedAt` (a time of the server's clock). */
+export interface PatreonLink {
+  userId: string;
+  /** The member of our campaign that this Patreon user is (nothing for one who has not pledged). */
+  memberId?: string;
+  /** The pledge is paid up and at least our tier's amount. */
+  active: boolean;
+  /** This link is what made the account paid (so that it is the link that takes it back: a paid type that the operator gave is left alone). */
+  promoted?: boolean;
+  checkedAt: number;
+}
+
+/** What Patreon says about one of its users and their pledge to our campaign. */
+export interface PatreonMember {
+  userId: string;
+  memberId?: string;
+  active: boolean;
+  /** When the last payment was taken (Patreon's own text for the time), if one was: each new one is a payment period of the account. */
+  lastCharge?: string;
+}
+
+/** Patreon (https://docs.patreon.com): joining a player's account to their Patreon account, and the pledge that makes it paid. Nothing for a server that has none (the game does not offer it). */
+export interface Patreon {
+  /** The address that the player is sent to, to say that they are who they are on Patreon (`state` comes back to our callback). */
+  authorizeUrl(state: string): string;
+  /** What Patreon says when it calls our callback with the code that the player came back with. Throws when Patreon refuses or cannot be asked. */
+  identify(code: string): Promise<PatreonMember>;
+  /** Looks at a member again, by their id in our campaign (nothing: they are not one any more). Throws when Patreon cannot be asked. */
+  member(memberId: string): Promise<PatreonMember | null>;
+  /** Patreon's own call that a pledge changed: the member it is about when the call is genuine (signed with our webhook secret), else nothing. */
+  webhook(body: string, signature: string | undefined): PatreonMember | null;
 }
 
 /** A player's report of a puzzle, with who was in it at the time (the puzzle may be gone by the time anyone looks). */
@@ -170,6 +205,12 @@ export interface Store {
   /** The ad network's numbers for the rewards it has reported (each is reported once, but may be reported again if the answer was lost). `until` (ms): when it may be forgotten. */
   hasAdTransaction(transactionId: string): Promise<boolean>;
   putAdTransaction(transactionId: string, until: number): Promise<void>;
+  /** A one-time number that the player is sent to Patreon with, to know who comes back (`takePatreonState` gives the player once and forgets it). */
+  putPatreonState(state: string, playerId: string, expiresAt: number): Promise<void>;
+  takePatreonState(state: string): Promise<{ playerId: string; expiresAt: number } | undefined>;
+  /** Which player's account a Patreon user is joined to (nothing for one that is joined to none), and the last payment of theirs that gave credits (kept after the link is taken away, so that joining again does not give them twice). */
+  getPatreonUser(userId: string): Promise<{ playerId: string | null; charged?: string } | undefined>;
+  putPatreonUser(userId: string, user: { playerId: string | null; charged?: string }): Promise<void>;
   /** Writes the account if it is new (`rev` 0) or if the stored one still has `rev - 1`; false if someone else wrote in between. */
   putAccount(account: AccountRecord): Promise<boolean>;
   /** The display name a player chose (nothing if they have not). */

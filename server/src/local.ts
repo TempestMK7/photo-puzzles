@@ -146,8 +146,9 @@ const server = createServer((req, res) => {
       const out =
         size > MAX_BODY
           ? { status: 413, body: { ok: false, error: 'bad-request' }, type: undefined }
-          : await route({ method: req.method ?? 'GET', path: url.pathname, query: url.searchParams, rawQuery: url.search.slice(1), authorization: req.headers.authorization, body: new Uint8Array(Buffer.concat(chunks)) });
-      if (out.body instanceof Uint8Array) res.writeHead(out.status, { ...CORS, 'Content-Type': out.type ?? 'application/octet-stream', 'Cache-Control': 'private, max-age=60' }).end(Buffer.from(out.body));
+          : await route({ method: req.method ?? 'GET', path: url.pathname, query: url.searchParams, rawQuery: url.search.slice(1), authorization: req.headers.authorization, headers: req.headers as Record<string, string | undefined>, body: new Uint8Array(Buffer.concat(chunks)) });
+      if (out.location) res.writeHead(302, { ...CORS, Location: out.location }).end();
+      else if (out.body instanceof Uint8Array) res.writeHead(out.status, { ...CORS, 'Content-Type': out.type ?? 'application/octet-stream', 'Cache-Control': 'private, max-age=60' }).end(Buffer.from(out.body));
       else res.writeHead(out.status, { ...CORS, 'Content-Type': 'application/json' }).end(JSON.stringify(out.body));
     })().catch((e) => {
       console.error(e);

@@ -91,6 +91,8 @@ export function sayError(error: CallError, failure?: { retryAt?: number; credits
       return (failure?.reason && AD_REFUSALS[failure.reason]) || 'That ad could not be counted.';
     case 'ads-off':
       return 'Ads cannot be counted for credits yet.';
+    case 'patreon-off':
+      return 'Patreon cannot be joined to accounts yet.';
     case 'limit':
       return 'You are in as many online puzzles as you can be (leave one first), or the puzzle is too big.';
     case 'full':

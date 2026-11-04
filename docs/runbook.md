@@ -183,6 +183,19 @@ The steps for a notice of copyright infringement (the published procedure is the
 
 A first sign-in with Google for an address that an account made with a password already has is **refused** by the user pool's pre-sign-up function (`PuzzleVidio-<stage>-Auth-PreSignUp...`; its log is in CloudWatch): the player is told to sign in with the password first and press **Add Google** in their profile, which lets the next Google sign-in with that address join the account. If a player writes that it does not work: look at the function's log for the address (nothing is written about it but the error), and if they have two accounts already, one made with each, the Google one has to be deleted before the two can be joined (`aws cognito-idp admin-delete-user` for the `Google_...` user, then they press Add Google). Nothing here needs a setting.
 
+## Patreon (a pledge makes an account paid)
+
+A player joins their Patreon account to their game account (profile > **Connect Patreon**); while that Patreon user pledges the tier's amount or more to the campaign (`minCents`, 500) and the last payment was not declined, the account is **paid**, and each new payment gives `paidVideoCredits` video credits (once for each payment, whatever is done with the link). Ending the pledge, or disconnecting, takes the paid type back (only one that the link itself gave: a type the operator set is left alone) and keeps the credits. One Patreon user joins one account. Without the secret below the game does not offer it.
+
+To set it up, once for each stage:
+1. On https://www.patreon.com/portal/registration/register-clients make a client (API version 2). Its **redirect URI** is the API's address plus `/patreon/callback` (`https://api.<the stage's domain>/patreon/callback`: the `Address` output of the Api stack plus the path). Note the client id and secret and the **creator's access token** on that page.
+2. On https://www.patreon.com/portal/registration/register-webhooks add a webhook for your campaign, address the API's `/patreon/webhook`, with the triggers `members:pledge:create`, `members:pledge:update` and `members:pledge:delete`; note its secret.
+3. Find the campaign's id (`GET https://www.patreon.com/api/oauth2/v2/campaigns` with the creator's token: `data[0].id`).
+4. Put them in the secret `puzzlevidio/patreon` of the stage's account (the name can be changed with the deploy setting `patreonSecretName`):
+   `aws secretsmanager create-secret --name puzzlevidio/patreon --secret-string '{"clientId":"...","clientSecret":"...","webhookSecret":"...","creatorToken":"...","campaignId":"..."}'`
+   (`minCents` can be added to change the least pledge that counts.) The API reads it when a function starts: a new secret is found by the functions that start after it (deploy again, or wait for the old ones to be replaced).
+A pledge that has not been looked at for a day is asked about again when the player's profile is read (the webhook is the quick way; this is for a call that was lost). Look for `Patreon` errors in the Api function's logs when someone says their pledge did not count.
+
 ## Sign-up e-mail
 
 - The codes come from `no-reply@<domain>` through Amazon SES. **While the SES account is in the sandbox** (`aws sesv2 get-account` says `ProductionAccessEnabled: false`) only addresses verified one by one receive anything: `aws sesv2 create-email-identity --email-identity <address>`, then they click the link. A request to leave the sandbox was filed by the owner on 2026-10-30 (it can take up to 96 hours).

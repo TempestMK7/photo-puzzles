@@ -11,6 +11,7 @@ import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructured
 import { DEFAULT_LIMITS } from '../../../src/online/protocol';
 import { SystemRandom, systemClock } from '../memory';
 import { AdMobCallbacks } from '../admob';
+import { HttpPatreon, parsePatreonSettings } from '../patreon';
 import { RateLimiter } from '../ratelimit';
 import { createRouter, type Req, type Res } from '../router';
 import { RoomService } from '../service';
@@ -43,6 +44,7 @@ export function toReq(event: APIGatewayProxyEventV2WithJWTAuthorizer): Req {
     query: new URLSearchParams(event.rawQueryString),
     rawQuery: event.rawQueryString,
     authorization: event.headers?.authorization,
+    headers: event.headers,
     ip: event.requestContext.http.sourceIp,
     body: new Uint8Array(body),
     player: playerFrom(event.requestContext.authorizer?.jwt?.claims),
@@ -50,6 +52,7 @@ export function toReq(event: APIGatewayProxyEventV2WithJWTAuthorizer): Req {
 }
 
 export function toResult(res: Res): APIGatewayProxyStructuredResultV2 {
+  if (res.location) return { statusCode: 302, headers: { location: res.location, 'cache-control': 'no-store' } };
   if (res.body instanceof Uint8Array) {
     return { statusCode: res.status, isBase64Encoded: true, body: Buffer.from(res.body).toString('base64'), headers: { 'content-type': res.type ?? 'application/octet-stream' } };
   }
@@ -72,6 +75,20 @@ const need = (name: string): string => {
   if (!v) throw new Error(`${name} is not set`);
   return v;
 };
+
+/** Patreon's settings, from the secret that holds them (a JSON text, see `PatreonSettings`). A secret that is not there, or is not complete, switches Patreon off (the game does not offer it). */
+async function patreonFrom(apiBase: string): Promise<HttpPatreon | undefined> {
+  const id = process.env.PATREON_SECRET_ID;
+  if (!id) return undefined;
+  try {
+    const text = (await new SecretsManagerClient({}).send(new GetSecretValueCommand({ SecretId: id }))).SecretString;
+    const settings = parsePatreonSettings(text);
+    return settings ? new HttpPatreon(settings, `${apiBase}/patreon/callback`) : undefined;
+  } catch (e) {
+    if ((e as { name?: string }).name === 'ResourceNotFoundException') return undefined;
+    throw e;
+  }
+}
 
 /** What the deployment says (infra/lib/api-stack.ts), turned into the service. The operator's function (admin.ts) runs the same service. */
 export async function buildService() {
@@ -108,6 +125,8 @@ export async function buildService() {
     videoModeration: new RekognitionVideoModeration(new RekognitionClient({}), need('MEDIA_BUCKET')),
     // AdMob tells the server when a rewarded ad was watched (only for the ad units named in the deployment: without them no ad is accepted)
     adCallbacks: adUnits.length ? new AdMobCallbacks(adUnits, systemClock) : undefined,
+    // a paid account can come from a pledge on Patreon (only where the secret with its settings is there)
+    patreon: await patreonFrom(need('API_BASE')),
     // a report goes to the alarm topic, so that it reaches the operator's e-mail
     notify: async (text) => void (await sns.send(new PublishCommand({ TopicArn: need('ALERT_TOPIC_ARN'), Subject: 'PuzzleVidio: a puzzle was reported', Message: text }))),
   });

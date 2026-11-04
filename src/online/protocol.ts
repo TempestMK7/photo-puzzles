@@ -156,6 +156,7 @@ export type ApiError =
   | 'ad-refused'
   /** Ads are not accepted by this server (it cannot tell that one was watched). */
   | 'ads-off'
+  | 'patreon-off'
   /** Joining by code waits for a member to say yes. */
   | 'knock-pending'
   | 'knock-denied'
@@ -458,6 +459,14 @@ export interface AccountSummary {
   helpAdHints: number;
   helpAdBombs: number;
   helpAdNoAd: boolean;
+  /** Patreon: `on` when the server can join accounts to it; `linked` when this account is joined to a Patreon account, and `active` when that one's pledge is paid up (and so makes this account paid). */
+  patreon?: { on: boolean; linked: boolean; active: boolean };
+}
+
+/** The answer to `POST /me/patreon`: where to send the player to join their Patreon account. */
+export interface PatreonStartResponse {
+  ok: true;
+  url: string;
 }
 
 /** What somebody who has not signed in sees before the server has said (a guest the server knows has hints and bombs, and an ad to watch for more: see `RoomService.summary`): nothing. */

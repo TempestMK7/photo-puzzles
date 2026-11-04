@@ -58,6 +58,28 @@ export class MemoryStore implements Store {
     this.linkIntents.set(email, { playerId, expiresAt });
   }
 
+  readonly patreonStates = new Map<string, { playerId: string; expiresAt: number }>();
+  readonly patreonUsers = new Map<string, { playerId: string | null; charged?: string }>();
+
+  async putPatreonState(state: string, playerId: string, expiresAt: number): Promise<void> {
+    this.patreonStates.set(state, { playerId, expiresAt });
+  }
+
+  async takePatreonState(state: string): Promise<{ playerId: string; expiresAt: number } | undefined> {
+    const s = this.patreonStates.get(state);
+    this.patreonStates.delete(state);
+    return s;
+  }
+
+  async getPatreonUser(userId: string): Promise<{ playerId: string | null; charged?: string } | undefined> {
+    const u = this.patreonUsers.get(userId);
+    return u && { ...u };
+  }
+
+  async putPatreonUser(userId: string, user: { playerId: string | null; charged?: string }): Promise<void> {
+    this.patreonUsers.set(userId, { ...user });
+  }
+
   async putAdNonce(nonce: AdNonce): Promise<void> {
     this.nonces.set(nonce.nonce, { ...nonce });
   }

@@ -53,6 +53,7 @@ export class ProfileDialog {
   private loading = false;
   private deleting = false;
   private busy = false;
+  private waitingForPatreon = false;
   /** Signing in is asked for to go on with deleting an account (the page was opened at the address that stores list). */
   private wantsDeletion = false;
 
@@ -68,6 +69,7 @@ export class ProfileDialog {
       h('div', { class: 'card' }, h('header', {}, h('h2', {}, 'Your profile'), h('button', { type: 'button', class: 'close', onclick: () => this.close() }, 'Close')), h('div', { class: 'body' }, this.loadingEl, ...this.content, this.statusEl)),
     );
     this.refreshBadge();
+    document.addEventListener('visibilitychange', () => this.comeBackFromPatreon());
   }
 
   /** Pictures that could not be shown (so the letter stays, and the same address is not tried again every time). */
@@ -163,6 +165,48 @@ export class ProfileDialog {
     await go();
   }
 
+  /** The owner of the account presses Connect Patreon: Patreon's page opens (in the phone's browser in the Android app), and the player comes back to the game's address with the answer. */
+  private async connectPatreon(): Promise<void> {
+    if (this.busy) return;
+    this.busy = true;
+    this.say('Getting ready…');
+    const res = await this.deps.api.patreonStart();
+    this.busy = false;
+    if (!res.ok) {
+      this.say(sayError(res.error));
+      return;
+    }
+    this.say('Going to Patreon…');
+    this.waitingForPatreon = true;                       // (in the app the player comes back by switching to it: the account is looked at again then)
+    window.location.assign(res.url);
+  }
+
+  private async disconnectPatreon(): Promise<void> {
+    if (this.busy) return;
+    this.busy = true;
+    this.say('Disconnecting Patreon…');
+    const res = await this.deps.api.patreonUnlink();
+    this.busy = false;
+    if (!res.ok) {
+      this.say(sayError(res.error));
+      return;
+    }
+    await this.deps.identity.refreshProfile();
+    this.deps.changed();
+    this.say('Patreon is disconnected from your account.');
+    this.render();
+  }
+
+  /** The player went to Patreon and has switched back to the game: the server is asked where the account stands now. */
+  private comeBackFromPatreon(): void {
+    if (!this.waitingForPatreon || document.visibilityState !== 'visible') return;
+    this.waitingForPatreon = false;
+    void this.deps.identity.refreshProfile().then(() => {
+      this.deps.changed();
+      if (!this.el.hidden && !this.loading) this.render();
+    });
+  }
+
   private show(): void {
     const s = this.deps.identity;
     this.el.hidden = false;
@@ -221,6 +265,24 @@ export class ProfileDialog {
                 { class: 'row' },
                 h('button', { type: 'button', onclick: () => void this.addGoogle() }, 'Add Google'),
                 h('span', { class: 'dim' }, 'to sign in with it as well (use the Google account with this e-mail address)'),
+              ),
+        );
+      }
+      const patreon = s.summary().patreon;
+      if (patreon?.on) {
+        parts.push(
+          patreon.linked
+            ? h(
+                'div',
+                { class: 'row' },
+                h('p', { class: 'chosen' }, patreon.active ? 'Patreon is connected, and your pledge makes this a paid account.' : 'Patreon is connected, but there is no pledge of $5 a month or more. A pledge makes this a paid account.'),
+                h('button', { type: 'button', onclick: () => void this.disconnectPatreon() }, 'Disconnect Patreon'),
+              )
+            : h(
+                'div',
+                { class: 'row' },
+                h('button', { type: 'button', onclick: () => void this.connectPatreon() }, 'Connect Patreon'),
+                h('span', { class: 'dim' }, 'Patrons who pledge $5 a month or more get a paid account'),
               ),
         );
       }
