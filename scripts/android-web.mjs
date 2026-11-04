@@ -45,7 +45,8 @@ if (stage !== 'offline') {
     // phone's browser and the player comes back (android/README.md); VITE_GOOGLE_SIGNIN=yes or no in the environment decides otherwise.
     VITE_GOOGLE_SIGNIN: process.env.VITE_GOOGLE_SIGNIN ?? (variable('GOOGLE_CLIENT_ID') && variable('GOOGLE_SECRET_NAME') ? 'yes' : ''),
   });
-  for (const [k, v] of Object.entries(env)) if (k.startsWith('VITE_') && v === '' && k !== 'VITE_GOOGLE_SIGNIN') throw new Error(`The ${stage} stage did not say ${k}: is it deployed, and are these the right credentials?`);
+  // (VITE_GOOGLE_SIGNIN may be empty, and so may VITE_RELEASE: a build of main that is not a release has no tag)
+  for (const [k, v] of Object.entries(env)) if (k.startsWith('VITE_') && v === '' && k !== 'VITE_GOOGLE_SIGNIN' && k !== 'VITE_RELEASE') throw new Error(`The ${stage} stage did not say ${k}: is it deployed, and are these the right credentials?`);
 }
 
 execFileSync('npx', ['vite', 'build', '--outDir', 'android/app/src/main/assets/www', '--emptyOutDir'], { cwd: root, env, stdio: 'inherit', shell: process.platform === 'win32' });
