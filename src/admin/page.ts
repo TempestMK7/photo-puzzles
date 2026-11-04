@@ -247,6 +247,7 @@ class AdminPage {
             this.copy(u.id),
             h('button', { type: 'button', class: 'small', onclick: () => void this.saveAccount(u) }, 'Save'),
             this.banControl(u),
+            this.deleteControl(u),
           ];
         }),
       ),
@@ -285,6 +286,28 @@ class AdminPage {
     this.edits.delete(u.id);
     this.message = `${u.email}: ${ACCOUNT_NAMES[res.account.type]} account, ${res.account.photo} photo and ${res.account.video} video credits, ${res.account.hints} hints and ${res.account.bombs} bombs.`;
     this.redraw();
+  }
+
+  /** Deletes the account as if its owner had asked (not a ban: they can make another). Asks a second time; not offered for the administrator's own. */
+  private deleteControl(u: AdminPlayer): Node {
+    if (u.id === this.account.who()?.id) return h('span', {});
+    if (this.asked !== `delete:${u.id}`) return h('button', { type: 'button', class: 'small danger', onclick: () => this.ask(`delete:${u.id}`) }, 'Delete…');
+    return h(
+      'span',
+      { class: 'ask', role: 'alertdialog', 'aria-label': 'Delete this account' },
+      'Delete the account for good (its puzzles end, its name and credits go)? ',
+      h('button', { type: 'button', class: 'small danger', onclick: () => void this.deleteAccount(u.id) }, 'Delete account'),
+      h('button', { type: 'button', class: 'small', onclick: () => this.ask('') }, 'Cancel'),
+    );
+  }
+
+  private async deleteAccount(id: string): Promise<void> {
+    this.asked = '';
+    const res = await this.api.post('/admin/delete', { id });
+    this.message = res.ok ? 'The account was deleted.' : sayAdminError(res);
+    this.players = { list: [], next: null };
+    this.look = null;
+    void this.fill();
   }
 
   private banControl(u: AdminPlayer): Node {
