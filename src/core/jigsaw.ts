@@ -489,6 +489,14 @@ export class JigsawGame {
     return hit;
   }
 
+  /** The middle of the piece's place that the picture point (x, y) is over (the nearest, if it is outside the picture): a bomb dropped anywhere on a piece is centred there. */
+  bombCentre(x: number, y: number): { x: number; y: number } {
+    const s = this.size;
+    const col = Math.min(this.cols - 1, Math.max(0, Math.floor(x / s)));
+    const row = Math.min(Math.ceil(this.count / this.cols) - 1, Math.max(0, Math.floor(y / s)));
+    return { x: (col + 0.5) * s, y: (row + 0.5) * s };
+  }
+
   /** A bomb at picture point (x, y): every piece in `bombHits` is put in the picture, with the group it belongs to. Returns the pieces named. */
   bomb(x: number, y: number): number[] {
     return this.bombHits(x, y).filter((i) => this.anchorGroup(i));

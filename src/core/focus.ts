@@ -112,6 +112,22 @@ export class FocusGame {
     return this.homes.flatMap((r, i) => (!this.placed(i) && nearPoint(r.x, r.y, r.w, r.h, x, y, reach) ? [i] : []));
   }
 
+  /** The middle of the piece's place in the picture that the point (x, y) is over (the nearest one, if it is over none): a bomb dropped anywhere on a piece is centred there. */
+  bombCentre(x: number, y: number): { x: number; y: number } {
+    let best = 0;
+    let bestD = Infinity;
+    this.homes.forEach((r, i) => {
+      const inside = x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+      const d = inside ? -1 : Math.hypot(r.x + r.w / 2 - x, r.y + r.h / 2 - y);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    });
+    const r = this.homes[best];
+    return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+  }
+
   /** A bomb at picture point (x, y): every piece in `bombHits` is put in its home. Returns the pieces that moved, in the order they were placed. */
   bomb(x: number, y: number): number[] {
     return this.bombHits(x, y).filter((i) => this.hint(i));

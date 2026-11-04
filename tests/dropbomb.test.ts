@@ -46,7 +46,7 @@ describe('dropBomb', () => {
     const { Cascade, dropBomb } = await import('../src/sessions/feedback');
     const f = fake();
     const placed: number[] = [];
-    dropBomb(new Cascade(), f.fx, { flag: () => true } as never, plan, true, [7, 8, 9], (piece) => placed.push(piece));
+    dropBomb(new Cascade(), f.fx, { flag: () => true } as never, plan, [7, 8, 9], (piece) => placed.push(piece));
     expect(f.calls).toEqual(['drop']);
     expect(played).toEqual(['fuse']);
     expect(placed).toEqual([]);
@@ -58,19 +58,15 @@ describe('dropBomb', () => {
     expect(placed).toEqual([7, 8, 9]);
   });
 
-  it('makes no sound for another player\'s bomb, and has no fall and no fire with animations off', async () => {
+  it('has no fall and no fire with animations off (the sound of the explosion remains)', async () => {
     vi.useFakeTimers();
     const played: string[] = [];
     vi.doMock('../src/sounds', () => ({ playEffect: (e: string) => played.push(e), stopEffect: () => undefined }));
     vi.resetModules();
     const { Cascade, dropBomb } = await import('../src/sessions/feedback');
-    const theirs = fake();
-    dropBomb(new Cascade(), theirs.fx, { flag: () => true } as never, plan, false, [1], () => undefined);
-    vi.advanceTimersByTime(1000);
-    expect(played).toEqual([]);
     const off = fake();
     const placed: number[] = [];
-    dropBomb(new Cascade(), off.fx, { flag: () => false } as never, plan, true, [1, 2], (p) => placed.push(p));
+    dropBomb(new Cascade(), off.fx, { flag: () => false } as never, plan, [1, 2], (p) => placed.push(p));
     expect(off.calls).toEqual(['explode']);                              // (no fall: the pieces start at once)
     expect(placed).toEqual([1]);
     expect(played).toEqual(['explode']);

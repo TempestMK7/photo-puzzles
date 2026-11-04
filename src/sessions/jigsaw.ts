@@ -895,7 +895,7 @@ export class JigsawSession implements PuzzleSession {
     }
     const tv = this.tv();
     if (tv && insideBox(tv.panel, this.toCanvas(p).x, this.toCanvas(p).y)) return null;           // (a bomb is dropped on the board)
-    const at = { x: p.x - this.frameX, y: p.y - this.frameY };
+    const at = this.game.bombCentre(p.x - this.frameX, p.y - this.frameY);              // (centred on the piece that the pointer was over, so that a few pixels either way make no difference)
     return this.game.bombHits(at.x, at.y).length ? { t: 'bomb', x: at.x, y: at.y } : null;
   }
 
@@ -926,7 +926,7 @@ export class JigsawSession implements PuzzleSession {
       lo: 0.75,
       hi: 1.5,
     };
-    dropBomb(this.cascade, this.fx, this.init, plan, mine, hits, (piece, late, k) => void this.placeOne(piece, mine, by, late, k === 0));
+    dropBomb(this.cascade, this.fx, this.init, plan, hits, (piece, late, k) => void this.placeOne(piece, mine, by, late, k === 0));
     this.init.requestDraw();
     return true;
   }
@@ -1129,7 +1129,7 @@ export class JigsawSession implements PuzzleSession {
     const wasGroups = g.groups.size;
     applyOp(g, op);
     if (g.groups.size < wasGroups) this.startWave(g.groupOf[op.piece], before, performance.now(), g.anchoredCount > wasAnchored, ev.by);
-    if (g.anchoredCount > wasAnchored) othersBell();
+    if (g.anchoredCount > wasAnchored || g.groups.size < wasGroups) othersBell();                // (the bell rings for a piece put in its place and for two groups that joined)
     if (g.anchoredCount > wasAnchored && this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
     this.init.traysChanged?.();
     this.init.requestDraw();

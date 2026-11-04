@@ -16,6 +16,9 @@ export class OnlineBar {
   private status = h('span', { class: 'conn' });
   private inviteBtn = h('button', { type: 'button', class: 'small', onclick: () => this.toggleInvite() }, 'Invite');
   private saveBtn = h('button', { type: 'button', class: 'small', title: 'Keep this picture in your own list', onclick: () => this.onSave() }, 'Save picture');
+  /** What the puzzle is made from, for the words of the button that keeps it. */
+  private noun: 'picture' | 'video' = 'picture';
+  private saved = false;
   private reportBtn = h('button', { type: 'button', class: 'small', title: 'Tell the operator that this puzzle is a problem', 'aria-expanded': 'false', onclick: () => this.toggleReport() }, 'Report');
   private knocksEl = h('div', { class: 'knocks' });
   private bannerEl = h('div', { class: 'banner', role: 'status', hidden: true });
@@ -58,13 +61,17 @@ export class OnlineBar {
 
   /** The picture is in the player's own list already: the button that keeps it is greyed out. */
   setSaved(saved: boolean): void {
+    this.saved = saved;
     this.saveBtn.disabled = saved;
-    this.saveBtn.title = saved ? 'This picture is in your list already' : 'Keep this picture in your own list';
+    this.saveBtn.title = saved ? `This ${this.noun} is in your list already` : `Keep this ${this.noun} in your own list`;
   }
 
   show(room: OnlineRoom, invite: Invite | null): void {
     this.room = room;
     this.invite = invite;
+    this.noun = room.descriptor.media.type === 'video' ? 'video' : 'picture';
+    this.saveBtn.textContent = `Save ${this.noun}`;
+    this.setSaved(this.saved);
     this.inviteBtn.hidden = room.me !== room.descriptor.owner;
     this.inviteEl.hidden = true;
     this.reportEl.hidden = true;

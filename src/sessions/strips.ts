@@ -490,7 +490,7 @@ export class StripsSession implements PuzzleSession {
       return { x: d.hx * S, y: d.hy * S, w: b.w * S, h: b.h * S };
     };
     const plan = { x: (op.x + 0.5) * S, y: (op.y + 0.5) * S, unit: S, area: hits.map(box), lo: 0.75, hi: 2 };
-    dropBomb(this.cascade, this.ripples.bombs, this.init, plan, by === undefined, hits, (id, late) => void this.placeOne(id, by, late));
+    dropBomb(this.cascade, this.ripples.bombs, this.init, plan, hits, (id, late) => void this.placeOne(id, by, late));
     this.init.requestDraw();
     return true;
   }

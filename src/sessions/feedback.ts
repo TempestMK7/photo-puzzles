@@ -81,15 +81,15 @@ export class Cascade {
 }
 
 /**
- * A bomb is used: it falls from above the screen (this player's own bomb is heard, a fuse), lands and explodes (the explosion; the explosion's sound for this player's own bomb; and the first
+ * A bomb is used (by this player or another): it falls from above the screen (with the sound of a fuse), lands and explodes (the explosion, and its sound; and the first
  * piece is put in its place), and `placeOne` is then called for each of the pieces it places, nearest first, 0.2 s apart. With animations off there is no fall and no fire, and the
  * pieces start at once.
  */
-export function dropBomb<T>(cascade: Cascade, fx: BombFx, init: SessionInit, plan: BombPlan, mine: boolean, hits: readonly T[], placeOne: (item: T, late: boolean, k: number) => void): void {
+export function dropBomb<T>(cascade: Cascade, fx: BombFx, init: SessionInit, plan: BombPlan, hits: readonly T[], placeOne: (item: T, late: boolean, k: number) => void): void {
   const animate = init.flag('animate');
   if (animate) {
     fx.drop(plan, performance.now());
-    if (mine) playEffect('fuse');
+    playEffect('fuse');
   }
   cascade.start(
     hits,
@@ -98,7 +98,7 @@ export function dropBomb<T>(cascade: Cascade, fx: BombFx, init: SessionInit, pla
       if (k === 0 && !late) {
         stopEffect('fuse');                                            // (it ends if it was still sounding: the bomb has landed)
         fx.explode(plan, performance.now());
-        if (mine) playEffect('explode');
+        playEffect('explode');
       }
       placeOne(item, late, k);
     },
