@@ -42,6 +42,8 @@ export interface ApiStackProps extends StackProps {
   admobAdUnits?: string;
   /** The secret that holds the Pexels API key (the deploy setting `pexelsSecretName`): with it the API offers the stock library. */
   pexelsSecretName?: string;
+  /** The secret that holds Patreon's settings (`puzzlevidio/<stage>/patreon` when not given: each stage has its own Patreon client and so its own secret): with it the game offers joining a Patreon account. */
+  patreonSecretName?: string;
   /** The same for Pixabay (`pixabaySecretName`). */
   pixabaySecretName?: string;
 }
@@ -105,6 +107,9 @@ export class ApiStack extends Stack {
       fn.addEnvironment(variable, name);
       secretsmanager.Secret.fromSecretNameV2(this, id, name).grantRead(fn);
     }
+    // Patreon: the settings of the client and the campaign are read from a secret that only this function may read; without the secret (or with it empty) the game does not offer Patreon
+    fn.addEnvironment('PATREON_SECRET_ID', props.patreonSecretName ?? `puzzlevidio/${props.stage}/patreon`);
+    secretsmanager.Secret.fromSecretNameV2(this, 'PatreonSettings', props.patreonSecretName ?? `puzzlevidio/${props.stage}/patreon`).grantRead(fn);
     if (props.admobAdUnits) fn.addEnvironment('ADMOB_AD_UNITS', props.admobAdUnits);
     const admin = serviceFunction('Admin', 'server/src/aws/admin.ts', 512, Duration.seconds(30));
     // the operator can delete an account for someone who cannot sign in (the same one thing to the user pool)
@@ -171,6 +176,11 @@ export class ApiStack extends Stack {
     this.api.addRoutes({ path: '/items/award', methods: [POST], integration, authorizer: jwt });
     // the ad network's own call, when a rewarded ad was watched: no sign-in, it is signed (and only a signature from AdMob, for one of our ad units, is believed)
     this.api.addRoutes({ path: '/credits/ad/callback', methods: [GET], integration });
+    // Patreon's: the player coming back from its page (no sign-in: the one-time state says whose account), and its call that a pledge changed (signed); the player's own two are checked by the function, as /me is
+    this.api.addRoutes({ path: '/patreon/callback', methods: [GET], integration });
+    this.api.addRoutes({ path: '/patreon/webhook', methods: [POST], integration });
+    this.api.addRoutes({ path: '/me/patreon', methods: [POST], integration });
+    this.api.addRoutes({ path: '/me/patreon/unlink', methods: [POST], integration });
     this.api.addRoutes({ path: '/media/{id}', methods: [PUT], integration });
     this.api.addRoutes({ path: '/stock/search', methods: [GET], integration });
     // the admin page: nothing without a Cognito ID token (the function looks for the admin group besides)

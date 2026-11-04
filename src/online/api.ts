@@ -12,6 +12,7 @@ import type {
   CreateRoomResponse,
   Invite,
   LinkIntentResponse,
+  PatreonStartResponse,
   ProvidersResponse,
   JoinRequest,
   JoinResponse,
@@ -99,6 +100,16 @@ export class OnlineApi implements RoomApi {
   /** The owner of an account made with a password is about to add Google to it (the sign-in service joins them if the same e-mail address signs in with Google in the next few minutes). */
   linkIntent(): Promise<LinkIntentResponse | Offline> {
     return this.call('POST', '/me/link-intent', {});
+  }
+
+  /** Where to send the player to join their Patreon account to this one (the answer comes back to the game with `?patreon=linked`, `taken` or `error`). */
+  patreonStart(): Promise<PatreonStartResponse | ApiFailure | Offline> {
+    return this.call('POST', '/me/patreon', {});
+  }
+
+  /** The account lets its Patreon account go (the paid type that it gave goes with it). */
+  patreonUnlink(): Promise<MeResponse | ApiFailure | Offline> {
+    return this.call('POST', '/me/patreon/unlink', {});
   }
 
   /** Which outside providers are joined to the account. */

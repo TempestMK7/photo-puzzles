@@ -1,5 +1,5 @@
 import { BatchGetCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand, ScanCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import type { AccountRecord, AdNonce, Ban, Clock, FileRecord, Presence, RateCounter, Report, RoomRecord, Store } from '../types';
+import type { AccountRecord, AdNonce, Ban, Clock, FileRecord, PatreonTokens, Presence, RateCounter, Report, RoomRecord, Store } from '../types';
 import { isGuestId } from '../guest';
 
 /** The part of the document client that is used, so that a test can put a fake in its place. */
@@ -219,6 +219,36 @@ export class DynamoStore implements Store {
 
   async putLinkIntent(email: string, playerId: string, expiresAt: number): Promise<void> {
     await this.db.send(new PutCommand({ TableName: this.table, Item: { ...linkKey(email), playerId, expiresAt, ttl: seconds(expiresAt) + 3600 } }));
+  }
+
+  async getPatreonTokens(): Promise<PatreonTokens | undefined> {
+    const { Item } = await this.db.send(new GetCommand({ TableName: this.table, Key: { pk: 'PATREON#CREATOR', sk: 'TOKENS' }, ConsistentRead: true }));
+    return Item ? { access: Item.access as string, refresh: Item.refresh as string, from: Item.from as string } : undefined;
+  }
+
+  async putPatreonTokens(tokens: PatreonTokens): Promise<void> {
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: 'PATREON#CREATOR', sk: 'TOKENS', ...tokens } }));
+  }
+
+  async putPatreonState(state: string, playerId: string, expiresAt: number): Promise<void> {
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: `PATREONSTATE#${state}`, sk: 'STATE', playerId, expiresAt, ttl: seconds(expiresAt) + 3600 } }));
+  }
+
+  async takePatreonState(state: string): Promise<{ playerId: string; expiresAt: number } | undefined> {
+    const key = { pk: `PATREONSTATE#${state}`, sk: 'STATE' };
+    const { Item } = await this.db.send(new GetCommand({ TableName: this.table, Key: key, ConsistentRead: true }));
+    if (!Item) return undefined;
+    await this.db.send(new DeleteCommand({ TableName: this.table, Key: key }));
+    return { playerId: Item.playerId as string, expiresAt: Item.expiresAt as number };
+  }
+
+  async getPatreonUser(userId: string): Promise<{ playerId: string | null; charged?: string } | undefined> {
+    const { Item } = await this.db.send(new GetCommand({ TableName: this.table, Key: { pk: `PATREON#${userId}`, sk: 'USER' }, ConsistentRead: true }));
+    return Item ? { playerId: (Item.playerId as string | null) ?? null, ...(typeof Item.charged === 'string' ? { charged: Item.charged } : {}) } : undefined;
+  }
+
+  async putPatreonUser(userId: string, user: { playerId: string | null; charged?: string }): Promise<void> {
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: `PATREON#${userId}`, sk: 'USER', playerId: user.playerId, ...(user.charged ? { charged: user.charged } : {}) } }));
   }
 
   async putAdNonce(nonce: AdNonce): Promise<void> {

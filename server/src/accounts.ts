@@ -2,7 +2,7 @@ import { adGives, earnsUncapped, mayStartVideos, photosAreFree, videosAreFree, t
 import { GUEST_ACCOUNT } from '../../src/online/protocol';
 export { GUEST_ACCOUNT as GUEST_SUMMARY } from '../../src/online/protocol';
 import { isGuestId } from './guest';
-import type { AccountRecord, Limits } from './types';
+import type { AccountRecord, Limits, PatreonMember } from './types';
 
 /** The day, in UTC, that the ads watched in a day are counted for. */
 export const dayOf = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
@@ -65,6 +65,30 @@ export function guestSummaryOf(account: AccountRecord, limits: Limits, now: numb
   const helpAdIn = Math.max(0, helpAdAtOf(account, limits) - now);
   return { ...GUEST_ACCOUNT, ...helpHeld(account, limits), helpAdReady: !helpAdIn, helpAdIn, helpAdHints: limits.adHints, helpAdBombs: limits.adBombs };
 }
+
+/**
+ * What Patreon says about the account's Patreon user, as the account's type and credits: a pledge that is paid up makes a free account paid, one that is not takes that back (only a paid type that
+ * the link itself gave: one that the operator gave, and a family or admin account, stay as they are). Each new payment is a payment period, which gives `paidVideoCredits` video credits;
+ * `charged` is the last payment that gave them (kept by the Patreon user, not the account, so that taking the link away and joining again does not give them twice), and the new one is returned.
+ */
+export function applyPatreon(account: AccountRecord, member: PatreonMember, limits: Limits, now: number, charged?: string): { account: AccountRecord; charged?: string } {
+  const a: AccountRecord = { ...account, patreon: { userId: member.userId, active: member.active, promoted: account.patreon?.promoted, checkedAt: now, ...(member.memberId ? { memberId: member.memberId } : {}) } };
+  if (member.active && a.type === 'free') {
+    a.type = 'paid';
+    a.patreon!.promoted = true;
+  } else if (!member.active && a.type === 'paid' && a.patreon!.promoted) {
+    a.type = 'free';
+    a.patreon!.promoted = false;
+  }
+  if (member.active && member.lastCharge && member.lastCharge !== charged) {
+    a.video += limits.paidVideoCredits;
+    return { account: a, charged: member.lastCharge };
+  }
+  return { account: a, charged };
+}
+
+/** How long a pledge is believed without asking Patreon again (the webhook says when one changes; this is for the call that was lost). */
+export const PATREON_RECHECK_MS = 24 * 3600 * 1000;
 
 /** How long after the owner of an account pressed "Add Google" a first sign-in with Google and the same e-mail address is joined to the account. */
 export const LINK_INTENT_MS = 10 * 60 * 1000;

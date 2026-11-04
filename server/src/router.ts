@@ -12,6 +12,8 @@ export interface Req {
   /** The `Authorization` header, if any. */
   authorization?: string;
   body: Uint8Array;
+  /** The headers that were sent, with their names in lower case (only what a call that is signed by headers needs: Patreon's webhook). */
+  headers?: Record<string, string | undefined>;
   /** The query string exactly as it came (not taken apart: the ad network signs its text). */
   rawQuery?: string;
   /** The address the request came from, as the gateway saw it (for the limits on how often it may do things). */
@@ -25,6 +27,8 @@ export interface Res {
   /** Sent as JSON, unless it is bytes (a picture). */
   body: unknown;
   type?: string;
+  /** An address to send the browser on to (the status is 302). */
+  location?: string;
 }
 
 const STATUS: Record<ApiError, number> = {
@@ -37,6 +41,7 @@ const STATUS: Record<ApiError, number> = {
   'plan-required': 403,
   'ad-refused': 409,
   'ads-off': 503,
+  'patreon-off': 503,
   limit: 409,
   full: 409,
   'rate-limited': 429,
@@ -129,6 +134,15 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
       return (await service.adCallback(req.rawQuery ?? '')) ? { status: 200, body: { ok: true } } : { status: 403, body: { ok: false, error: 'unauthorized' } };
     }
 
+    // Patreon: the player comes back from Patreon's page with a code (no sign-in: the one-time state says whose account it is), and Patreon calls when a pledge changes (signed)
+    if (parts[0] === 'patreon' && parts[1] === 'callback' && parts.length === 2 && req.method === 'GET') {
+      return { status: 302, body: {}, location: await service.patreonCallback(req.query.get('code'), req.query.get('state')) };
+    }
+    if (parts[0] === 'patreon' && parts[1] === 'webhook' && parts.length === 2 && req.method === 'POST') {
+      if (req.body.length > 1024 * 1024) return bad;
+      return (await service.patreonWebhook(new TextDecoder().decode(req.body), req.headers?.['x-patreon-signature'])) ? { status: 200, body: { ok: true } } : { status: 403, body: { ok: false, error: 'unauthorized' } };
+    }
+
     // the library of stock pictures and videos: open to everyone (the game's single-player side has no sign-in), so how often an address may ask is limited, and the provider's own limit is shared by all
     if (parts[0] === 'stock' && parts[1] === 'search' && parts.length === 2 && req.method === 'GET') {
       const sites = stock ? stockSitesOf(stock) : [];
@@ -168,6 +182,9 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
     // an account made with a password adds an outside provider (Google) to itself: it says so first (the sign-in service joins them), and can ask which are there
     if (parts[0] === 'me' && parts[1] === 'link-intent' && parts.length === 2 && req.method === 'POST') return reply(await service.linkIntent(player));
     if (parts[0] === 'me' && parts[1] === 'providers' && parts.length === 2 && req.method === 'GET') return reply(await service.providers(player));
+    // an account joins its Patreon account (the answer is where to send the player), or lets it go
+    if (parts[0] === 'me' && parts[1] === 'patreon' && parts.length === 2 && req.method === 'POST') return reply(await service.patreonStart(player));
+    if (parts[0] === 'me' && parts[1] === 'patreon' && parts[2] === 'unlink' && parts.length === 3 && req.method === 'POST') return reply(await service.patreonUnlink(player));
     // a new account takes what the guest it was has left of hints and bombs
     if (parts[0] === 'me' && parts[1] === 'carry' && parts.length === 2 && req.method === 'POST') {
       const given = json<CarryRequest>(req)?.guest;

@@ -11,6 +11,7 @@ import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructured
 import { DEFAULT_LIMITS } from '../../../src/online/protocol';
 import { SystemRandom, systemClock } from '../memory';
 import { AdMobCallbacks } from '../admob';
+import { HttpPatreon, parsePatreonSettings } from '../patreon';
 import { RateLimiter } from '../ratelimit';
 import { createRouter, type Req, type Res } from '../router';
 import { RoomService } from '../service';
@@ -43,6 +44,7 @@ export function toReq(event: APIGatewayProxyEventV2WithJWTAuthorizer): Req {
     query: new URLSearchParams(event.rawQueryString),
     rawQuery: event.rawQueryString,
     authorization: event.headers?.authorization,
+    headers: event.headers,
     ip: event.requestContext.http.sourceIp,
     body: new Uint8Array(body),
     player: playerFrom(event.requestContext.authorizer?.jwt?.claims),
@@ -50,6 +52,7 @@ export function toReq(event: APIGatewayProxyEventV2WithJWTAuthorizer): Req {
 }
 
 export function toResult(res: Res): APIGatewayProxyStructuredResultV2 {
+  if (res.location) return { statusCode: 302, headers: { location: res.location, 'cache-control': 'no-store' } };
   if (res.body instanceof Uint8Array) {
     return { statusCode: res.status, isBase64Encoded: true, body: Buffer.from(res.body).toString('base64'), headers: { 'content-type': res.type ?? 'application/octet-stream' } };
   }
@@ -73,6 +76,20 @@ const need = (name: string): string => {
   return v;
 };
 
+/** Patreon's settings, from the secret that holds them (a JSON text, see `PatreonSettings`). A secret that is not there, or is not complete, switches Patreon off (the game does not offer it). */
+async function patreonFrom(apiBase: string, store: DynamoStore): Promise<HttpPatreon | undefined> {
+  const id = process.env.PATREON_SECRET_ID;
+  if (!id) return undefined;
+  try {
+    const text = (await new SecretsManagerClient({}).send(new GetSecretValueCommand({ SecretId: id }))).SecretString;
+    const settings = parsePatreonSettings(text);
+    return settings ? new HttpPatreon(settings, `${apiBase}/patreon/callback`, fetch, { get: () => store.getPatreonTokens(), put: (t) => store.putPatreonTokens(t) }) : undefined;
+  } catch (e) {
+    if ((e as { name?: string }).name === 'ResourceNotFoundException') return undefined;
+    throw e;
+  }
+}
+
 /** What the deployment says (infra/lib/api-stack.ts), turned into the service. The operator's function (admin.ts) runs the same service. */
 export async function buildService() {
   const secret = await new SecretsManagerClient({}).send(new GetSecretValueCommand({ SecretId: need('SIGNING_SECRET_ARN') }));
@@ -92,8 +109,9 @@ export async function buildService() {
   // the picture is sent through the API and a Lambda can take about 6 MB in a request (a little less than that once it is base64), so a picture may be at most 4 MB
   const limits: Limits = { ...DEFAULT_LIMITS, pictureBytes: 4_000_000, ...(JSON.parse(process.env.LIMITS ?? '{}') as Partial<Limits>) };
   const adUnits = (process.env.ADMOB_AD_UNITS ?? '').split(',').map((u) => u.trim()).filter(Boolean);
+  const store = new DynamoStore(db, table, systemClock);
   const service = new RoomService({
-    store: new DynamoStore(db, table, systemClock),
+    store,
     media,
     pubsub: new IotPubSub(new IoTDataPlaneClient({ endpoint: `https://${endpoint}` })),
     presence: new DynamoPresence(db, table, systemClock),
@@ -108,6 +126,8 @@ export async function buildService() {
     videoModeration: new RekognitionVideoModeration(new RekognitionClient({}), need('MEDIA_BUCKET')),
     // AdMob tells the server when a rewarded ad was watched (only for the ad units named in the deployment: without them no ad is accepted)
     adCallbacks: adUnits.length ? new AdMobCallbacks(adUnits, systemClock) : undefined,
+    // a paid account can come from a pledge on Patreon (only where the secret with its settings is there)
+    patreon: await patreonFrom(need('API_BASE'), store),
     // a report goes to the alarm topic, so that it reaches the operator's e-mail
     notify: async (text) => void (await sns.send(new PublishCommand({ TopicArn: need('ALERT_TOPIC_ARN'), Subject: 'PuzzleVidio: a puzzle was reported', Message: text }))),
   });

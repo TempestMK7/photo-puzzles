@@ -261,6 +261,14 @@ async function main(): Promise<void> {
   listenForShared((files) => library.addFiles(files));        // what other apps share with the Android app lands in the library
   // a link to a puzzle (https://.../#/join/12345~secret) joins it
   const link = signedInHash || window.location.hash;
+  // coming back from Patreon's page (the server sent the browser here with the answer)
+  const patreonAnswer = new URLSearchParams(window.location.search).get('patreon');
+  const patreonNotice = patreonAnswer ? PATREON_TEXT[patreonAnswer] : undefined;
+  if (patreonAnswer) {
+    const rest = new URLSearchParams(window.location.search);
+    rest.delete('patreon');
+    history.replaceState(null, '', window.location.pathname + (rest.size ? `?${rest}` : '') + window.location.hash);
+  }
   if (panel && player.kind() === 'account' && parseInvite(link)) await player.refreshProfile();        // to know whether the account has a name before deciding to ask
   if (panel && parseInvite(link)) {
     history.replaceState(null, '', window.location.pathname + window.location.search);        // the secret does not stay in the address bar
@@ -270,6 +278,9 @@ async function main(): Promise<void> {
   } else if (profile && link === DELETE_HASH && !signInFailed) {
     history.replaceState(null, '', window.location.pathname + window.location.search);
     void profile.openDeletion();
+  } else if (profile && patreonNotice) {
+    profile.notice(patreonNotice);
+    void player.refreshProfile().then(() => profile.refreshBadge());
   } else if (profile && signInNotice) {
     profile.notice(signInNotice);                         // (Google was added, or the sign-in service said why not: only the player's profile has room for it)
   } else if (panel && signInFailed) {
@@ -279,6 +290,13 @@ async function main(): Promise<void> {
     if (profile && deleted) profile.notice(deleted);
   }
 }
+
+/** What the profile says when the player comes back from Patreon. */
+const PATREON_TEXT: Record<string, string> = {
+  linked: 'Patreon is connected to your account. A pledge of $5 a month or more makes it a paid account.',
+  taken: 'That Patreon account is connected to another account here. Disconnect it there first.',
+  error: 'Connecting Patreon did not work. Please try again.',
+};
 
 /** What the profile says when Google has been added to the account. */
 const LINKED_TEXT = 'Google was added to your account. You can sign in with it from now on.';
