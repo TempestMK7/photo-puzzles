@@ -1,4 +1,5 @@
 import type { Masks } from './jigsawArt';
+import { detectTurn, UPRIGHT_GLSL } from './videoTurn';
 
 /**
  * Drawing jigsaw pieces from a picture that keeps changing (a video). Cutting thousands of shaped pieces out of every video frame with the 2D canvas would be far too
@@ -97,6 +98,7 @@ uniform float u_pitch;
 uniform vec2 u_src;
 uniform float u_size;
 uniform vec2 u_vid;
+uniform int u_turn;
 uniform float u_outline;
 uniform float u_blur;
 uniform float u_o;
@@ -105,6 +107,7 @@ in vec2 v_cell;
 in float v_plain;
 flat in float v_join;
 out vec4 o;
+${UPRIGHT_GLSL}
 void main() {
   vec2 auv = (v_cell * u_pitch + vec2(1.0) + v_tile) / u_atlas;
   vec2 d = vec2(u_blur) / u_atlas;
@@ -113,7 +116,7 @@ void main() {
   if (cov <= 0.0) discard;
   // an edge that is only half covered on each side of a seam would let the background show through it: a piece is made fully opaque from half covered on, so that neighbours overlap instead
   cov = min(1.0, cov * mix(1.5, 2.0, v_plain));
-  vec3 col = texture(u_video, (u_src + v_cell * u_size + v_tile) / u_vid).rgb;
+  vec3 col = texture(u_video, upright((u_src + v_cell * u_size + v_tile) / u_vid, u_turn)).rgb;
   vec4 ov = texture(u_overlay, auv);
   // no outline along a side where the piece lies against another of its group (bit 0 top, 1 right, 2 bottom, 3 left): the side is the quarter of the tile, cut along the diagonals, that the point is in
   vec2 q = v_tile - vec2(u_o);
@@ -200,6 +203,10 @@ export class PieceRenderer {
   res = 1;
   /** Which sides of piece `m` lie against another piece of its group (bit 0 top, 1 right, 2 bottom, 3 left): no outline is drawn there. */
   joinOf: ((m: number) => number) | null = null;
+  /** How far the texture of the video is turned (see videoTurn.ts), looked for in the first frames that have something in them. */
+  private turn = 0;
+  private turnKnown = false;
+  private turnTries = 0;
   private readonly vw: number;
   private readonly vh: number;
 
@@ -258,7 +265,7 @@ export class PieceRenderer {
     if (!gl) throw new Error('no WebGL 2');
     this.gl = gl;
     const shared = ['u_res', 'u_xf', 'u_tile', 'u_o', 'u_cover', 'u_atlas', 'u_pitch'];
-    this.piece = this.compile(FRAG_PIECE, [...shared, 'u_video', 'u_overlay', 'u_src', 'u_size', 'u_vid', 'u_outline', 'u_blur']);
+    this.piece = this.compile(FRAG_PIECE, [...shared, 'u_video', 'u_overlay', 'u_src', 'u_size', 'u_vid', 'u_turn', 'u_outline', 'u_blur']);
     this.glow = this.compile(FRAG_GLOW, [...shared, 'u_r', 'u_glow']);
     this.flashProg = this.compile(FRAG_FLASH, [...shared, 'u_k', 'u_tint']);
     this.vao = gl.createVertexArray()!;
@@ -297,6 +304,14 @@ export class PieceRenderer {
       this.lastTime = v.currentTime;
       this.hasFrame = true;
       this.mipsFresh = false;
+      if (!this.turnKnown && this.turnTries < 12) {
+        this.turnTries++;
+        const k = detectTurn(v);
+        if (k !== null) {
+          this.turn = k;
+          this.turnKnown = true;
+        }
+      }
     }
     if (needMips && !this.mipsFresh) {
       gl.generateMipmap(gl.TEXTURE_2D);
@@ -452,6 +467,7 @@ export class PieceRenderer {
     gl.uniform2f(p.u.u_src, l.cropX - masks.pad, l.cropY - masks.pad);
     gl.uniform1f(p.u.u_size, l.size);
     gl.uniform2f(p.u.u_vid, this.vw, this.vh);
+    gl.uniform1i(p.u.u_turn, this.turn);
     gl.uniform1f(p.u.u_outline, Math.min(1, Math.max(0, (l.size * view.scale - 10) / 20)));      // lines between tiny pieces only make noise
     gl.uniform1f(p.u.u_blur, view.scale < 1 ? 0.5 / view.scale : 0);
     draw(0, nBack);
