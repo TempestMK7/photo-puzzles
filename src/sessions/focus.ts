@@ -183,7 +183,7 @@ export class FocusSession implements PuzzleSession {
     const unit = Math.sqrt((this.init.width * this.init.height) / game.count);               // (a piece of the average size: the pieces are of different sizes)
     const plan = { x: op.x, y: op.y, unit, area: hits.map((i) => game.homes[i]), lo: 0.4, hi: 0.9 };
     if (by === undefined) buzz(this.init, 'join');
-    dropBomb(this.cascade, this.ripples.bombs, this.init, plan, by === undefined, hits, (piece, late) => void this.placeOne(piece, by, late, false));
+    dropBomb(this.cascade, this.ripples.bombs, this.init, plan, hits, (piece, late) => void this.placeOne(piece, by, late, false));
     this.init.requestDraw();
     return true;
   }
@@ -204,14 +204,18 @@ export class FocusSession implements PuzzleSession {
   canHelp(kind: HelpKind, p: Pt): boolean {
     const game = this.game;
     if (game.solved) return false;
-    if (kind === 'bomb') return game.bombHits(p.x, p.y).length > 0;
+    if (kind === 'bomb') {
+      const at = game.bombCentre(p.x, p.y);
+      return game.bombHits(at.x, at.y).length > 0;
+    }
     const piece = game.pieceAt(p.x, p.y);
     return piece >= 0 && !game.placed(piece);
   }
 
   help(kind: HelpKind, p: Pt): void {
     if (!this.canHelp(kind, p)) return;
-    const op: BoardOp = kind === 'hint' ? { t: 'hint', piece: this.game.pieceAt(p.x, p.y) } : { t: 'bomb', x: Math.min(this.init.width, Math.max(0, p.x)), y: Math.min(this.init.height, Math.max(0, p.y)) };
+    // a bomb is centred on the piece (the place in the picture) that the pointer was over, so that a few pixels either way make no difference
+    const op: BoardOp = kind === 'hint' ? { t: 'hint', piece: this.game.pieceAt(p.x, p.y) } : { t: 'bomb', ...this.game.bombCentre(p.x, p.y) };
     if (this.run(op)) this.init.online?.send(op);
   }
 

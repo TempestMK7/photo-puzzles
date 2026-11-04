@@ -796,7 +796,7 @@ export class OverlapSession implements PuzzleSession {
     const hits = nearestFirst(g.bombHits(op.x, op.y), op.x + 0.5, op.y + 0.5, (id) => ({ x: cells(id).reduce((n, c) => n + c.x + 0.5, 0) / cells(id).length, y: cells(id).reduce((n, c) => n + c.y + 0.5, 0) / cells(id).length }));
     if (!hits.length) return false;
     const plan = { x: (op.x + 0.5) * CELL, y: (op.y + 0.5) * CELL, unit: CELL, area: hits.flatMap((id) => g.homeCells(id).map((c) => ({ x: c.x * CELL, y: c.y * CELL, w: CELL, h: CELL }))), lo: 0.75, hi: 2 };
-    dropBomb(this.cascade, this.ripples.bombs, this.init, plan, by === undefined, hits, (id, late) => void this.placeOne(id, by, late));
+    dropBomb(this.cascade, this.ripples.bombs, this.init, plan, hits, (id, late) => void this.placeOne(id, by, late));
     this.init.requestDraw();
     return true;
   }
