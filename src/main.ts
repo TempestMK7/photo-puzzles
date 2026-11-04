@@ -19,7 +19,7 @@ import { preloadEffects, setEffectsOn, setEffectsVolume } from './sounds';
 import { listenForShared } from './store/shared';
 import type { PhotoEntry } from './store/photos';
 import { LibraryScreen } from './ui/library';
-import { OnlinePanel } from './ui/online';
+import { OnlinePanel, type OnlineDeps } from './ui/online';
 import { PlayScreen } from './ui/play';
 import { browserSignIn, takeSignIn, tellAchievements } from './platform';
 import { InventoryUi } from './ui/inventory';
@@ -158,9 +158,9 @@ async function main(): Promise<void> {
         },
       })
     : null;
-  const panel: OnlinePanel | null =
+  const onlineDeps: OnlineDeps | null =
     api && realtime
-      ? new OnlinePanel({
+      ? {
           prefs,
           photos,
           api,
@@ -176,13 +176,17 @@ async function main(): Promise<void> {
             play.el.hidden = false;
             void play.startOnline(room, invite);
           },
-        })
+        }
       : null;
+  // two windows over the same things: Join a game (a code, and the puzzles the player is in) and Host an online game (a puzzle from the chosen photo)
+  const panel: OnlinePanel | null = onlineDeps ? new OnlinePanel(onlineDeps, 'join') : null;
+  const hostPanel: OnlinePanel | null = onlineDeps ? new OnlinePanel(onlineDeps, 'host') : null;
   const library: LibraryScreen = new LibraryScreen({
     prefs,
     photos,
     saves,
     onOnline: panel ? () => panel.open() : undefined,
+    onHost: hostPanel ? () => hostPanel.open() : undefined,
     badge: profile?.badge,
     inventory: inventory?.button(),
     achievements: achievementsUi.button(),
@@ -198,6 +202,7 @@ async function main(): Promise<void> {
   play.el.hidden = true;
   root.append(library.el, play.el);
   if (panel) root.append(panel.el);
+  if (hostPanel) root.append(hostPanel.el);
   if (inventory) root.append(inventory.dialog);
   root.append(achievementsUi.dialog, achievementsUi.toast, bestTimesUi.dialog);
   if (profile) root.append(profile.el);

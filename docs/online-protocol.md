@@ -152,7 +152,7 @@ Failures are `{ ok: false, error }` with one of the `ApiError` values.
 ## Trying it on this machine
 
 `npm run server` starts the same `RoomService` that the cloud will run, on memory, at http://localhost:8787 (HTTP for the requests, a WebSocket at `/ws` in place of the cloud's publish/subscribe;
-`PORT` and `WEB_BASE` change it, and `ACCOUNT_TYPE=paid npm run server` (free, paid, family or admin) makes every account here that type, to try what each can do; an ad is believed here). `npm run dev` then shows **Play with friends** on the main screen. There is no real sign-in: each browser tab is a player of its own
+`PORT` and `WEB_BASE` change it, and `ACCOUNT_TYPE=paid npm run server` (free, paid, family or admin) makes every account here that type, to try what each can do; an ad is believed here). `npm run dev` then shows **Join a game** and, under the settings, **Host Online** on the main screen. There is no real sign-in: each browser tab is a player of its own
 (`dev:<id>:<name>`), which is what makes two tabs two players; the panel can sign that identity out, and then the tab is a guest (`POST /guest`), which is how guests are tried without a sign-in service. Stopping the server forgets every room.
 
 The server is built from interfaces (`server/src/types.ts`: store, media, publish/subscribe, presence, clock, random) so that the cloud can fill them with DynamoDB, S3 and IoT Core.
