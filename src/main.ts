@@ -105,6 +105,18 @@ async function main(): Promise<void> {
   const bestTimes = new BestTimeStore(storage());
   const bestTimesUi = new BestTimesUi(bestTimes);
   // the platform's own achievements (Google Play Games in the Android app): everything unlocked now, and each unlock as it comes
+  // (what is kept is the signed-in account's own: another account on this device starts with nothing)
+  const useOwner = (): void => {
+    const owner = player.kind() === 'account' ? player.who()?.id ?? null : null;
+    achievements.use(owner);
+    bestTimes.use(owner);
+  };
+  useOwner();
+  player.onChange(() => {
+    const before = achievements.unlockedIds().join();
+    useOwner();
+    if (achievements.unlockedIds().join() !== before) tellAchievements(achievements.unlockedIds());
+  });
   tellAchievements(achievements.unlockedIds());
   achievements.onUnlock((list) => tellAchievements(list.map((a) => a.id)));
   const play = new PlayScreen({

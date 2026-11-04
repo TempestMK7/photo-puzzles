@@ -244,6 +244,36 @@ describe('the name of an account', () => {
     expect(t.server.names.get('acc1')).toBe('Annie');
   });
 
+  it('is not left behind for the next account when the player renamed the first one in its profile', async () => {
+    const t = setup();
+    await t.session.signIn();
+    await t.session.refreshProfile();
+    expect(await t.session.setName('Annie')).toBe(true);
+    t.session.signOut();
+    expect(t.session.name()).toMatch(/^Guest \d{4}$/);
+    (t.account as FakeAccount).user = { id: 'acc2', name: 'bob' };
+    await t.session.refreshProfile();
+    expect(t.session.name()).toBe('bob');
+    expect(t.server.names.get('acc2')).toBe('bob');
+  });
+
+  it('forgets a name chosen as a guest once an account has it, and an old copy of the account’s own name', async () => {
+    const t = setup();
+    await t.session.setName('Zed');
+    await t.session.signIn();
+    await t.session.refreshProfile();
+    t.session.signOut();
+    expect(t.session.name()).toMatch(/^Guest \d{4}$/);
+    // a copy left by an earlier version, which kept the account's name here as a chosen one
+    const old = setup();
+    old.server.names.set('acc1', 'Annie');
+    await old.session.setName('Annie');
+    await old.session.signIn();
+    await old.session.refreshProfile();
+    old.session.signOut();
+    expect(old.session.nameChosen()).toBe(false);
+  });
+
   it('is not asked for when the server cannot say (the account can still be used)', async () => {
     const t = setup();
     await t.session.signIn();
