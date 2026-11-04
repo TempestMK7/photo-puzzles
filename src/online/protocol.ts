@@ -128,13 +128,25 @@ export interface Playback {
   pos: number;
   paused: boolean;
   at: number;
+  /** The part of the video that is looped over (nothing: the whole of it). */
+  range?: VideoRange;
+}
+
+/** The part of a video that is played over and over: from `start` to `end`, in seconds. */
+export interface VideoRange {
+  start: number;
+  end: number;
 }
 
 /** Where the video should be now (in seconds, within a video that is `duration` long and loops), by the server's clock `now`: a playing video moves on since `at`. */
 export function playbackNow(p: Playback, now: number, duration: number): number {
   if (!(duration > 0)) return Math.max(0, p.pos);
   const pos = p.paused ? p.pos : p.pos + Math.max(0, now - p.at) / 1000;
-  return ((pos % duration) + duration) % duration;
+  // a video with a range loops over that part of it
+  const from = p.range ? Math.max(0, Math.min(p.range.start, duration)) : 0;
+  const length = (p.range ? Math.min(p.range.end, duration) : duration) - from;
+  if (!(length > 0)) return ((pos % duration) + duration) % duration;
+  return from + ((Math.max(0, pos - from) % length) + length) % length;
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------- requests
@@ -315,6 +327,8 @@ export interface VideoCheckResponse {
 export interface PlaybackRequest {
   pos: number;
   paused: boolean;
+  /** The part of the video that is looped over (nothing: the whole of it). */
+  range?: VideoRange;
 }
 
 export interface JoinRequest {

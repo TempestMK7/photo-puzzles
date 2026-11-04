@@ -259,6 +259,21 @@ describe('the host of a video puzzle', () => {
     expect(room.playback).toEqual({ pos: 3.5, paused: true, at: w.clock.t });
   });
 
+  it('says the part of the video that is looped over, which the others hear and are told when they join, and keeps it inside the video', async () => {
+    const w = world();
+    const res = await ready(w);
+    expect(await w.service.setPlayback(ann, res.roomId, { pos: 3, paused: false, range: { start: 2, end: 6 } })).toEqual({ ok: true });
+    expect(w.messages(res.roomId).at(-1)).toMatchObject({ t: 'playback', pos: 3, range: { start: 2, end: 6 } });
+    expect((await joined(w, res, { id: 'cy', name: 'Cy' })).playback?.range).toEqual({ start: 2, end: 6 });
+    expect(await w.service.setPlayback(ann, res.roomId, { pos: 3, paused: false })).toEqual({ ok: true });                   // (no range: the whole video)
+    expect((await w.store.getRoom(res.roomId))!.playback!.range).toBeUndefined();
+    for (const range of [{ start: -1, end: 4 }, { start: 5, end: 5.05 }, { start: 6, end: 2 }, { start: 0, end: 99 }, { start: Number.NaN, end: 4 }, { start: 1, end: '4' }]) {
+      expect(await w.service.setPlayback(ann, res.roomId, { pos: 1, paused: false, range: range as never }), JSON.stringify(range)).toEqual({ ok: false, error: 'bad-request' });
+    }
+    expect(await w.service.setPlayback(ann, res.roomId, { pos: 1, paused: false, range: { start: 4, end: 12.5 } })).toEqual({ ok: true });      // (a little past the end is the end)
+    expect((await w.store.getRoom(res.roomId))!.playback!.range).toEqual({ start: 4, end: 12 });
+  });
+
   it('is the owner only, and only in a video puzzle, with a position inside the video', async () => {
     const w = world();
     const res = await ready(w);

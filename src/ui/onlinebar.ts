@@ -14,7 +14,7 @@ export class OnlineBar {
   readonly el: HTMLElement;
   private chips = h('div', { class: 'chips' });
   private status = h('span', { class: 'conn' });
-  private inviteBtn = h('button', { type: 'button', class: 'small', onclick: () => this.toggleInvite() }, 'Invite');
+  private inviteBtn = h('button', { type: 'button', class: 'small', onclick: () => this.toggleInvite() }, 'Invite/Remove');
   private saveBtn = h('button', { type: 'button', class: 'small', title: 'Keep this picture in your own list', onclick: () => this.onSave() }, 'Save picture');
   /** What the puzzle is made from, for the words of the button that keeps it. */
   private noun: 'picture' | 'video' = 'picture';

@@ -1,10 +1,13 @@
-import { playbackNow, type Playback } from './protocol';
+import { playbackNow, type Playback, type VideoRange } from './protocol';
 
 /** The video that is played, as the sync needs to move it (a test puts a fake in its place). */
 export interface SyncVideo {
   readonly currentTime: number;
   readonly paused: boolean;
   readonly duration: number;
+  /** The part that is looped over (nothing: the whole of the video). */
+  readonly range?: VideoRange | null;
+  setRange?(range: VideoRange | null): void;
   seek(seconds: number): void;
   play(): void;
   pause(): void;
@@ -18,7 +21,7 @@ export interface SyncRoom {
   readonly serverNow: number;
   /** Where the host's video is, as the host last said. */
   readonly playback: Playback | null;
-  sendPlayback(pos: number, paused: boolean): void;
+  sendPlayback(pos: number, paused: boolean, range?: VideoRange | null): void;
   /** Asks the server where the host's video is now. */
   refreshPlayback(): Promise<Playback | null>;
 }
@@ -63,7 +66,7 @@ export class PlaybackSync {
     if (!this.room.host && this.follows) this.follow();
   }
 
-  /** The player played, paused or moved the video with their own hands. */
+  /** The player played, paused or moved the video, or changed the part of it that is looped over, with their own hands. */
   byPlayer(): void {
     if (this.room.host) {
       this.say();
@@ -93,12 +96,13 @@ export class PlaybackSync {
 
   private say(): void {
     this.lastSent = this.now();
-    this.room.sendPlayback(this.video.currentTime, this.video.paused);
+    this.room.sendPlayback(this.video.currentTime, this.video.paused, this.video.range);
   }
 
   private follow(): void {
     const p = this.room.playback;
     if (!p) return;
+    this.video.setRange?.(p.range ?? null);                          // (the host's part of the video, as the host's position is)
     const duration = this.video.duration;
     const target = playbackNow(p, this.room.serverNow, duration);
     if (p.paused) {

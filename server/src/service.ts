@@ -1148,7 +1148,15 @@ export class RoomService {
     if (!r.room.video) return fail('bad-request');
     const duration = r.room.video.ms / 1000;
     if (!req || typeof req.paused !== 'boolean' || typeof req.pos !== 'number' || !Number.isFinite(req.pos) || req.pos < 0 || req.pos > duration + 1) return fail('bad-request');
-    const playback = { pos: Math.min(req.pos, duration), paused: req.paused, at: this.d.clock.now() };
+    // the part of the video that is looped over: inside the video, and at least a tenth of a second
+    let range: { start: number; end: number } | undefined;
+    if (req.range !== undefined && req.range !== null) {
+      const { start, end } = req.range;
+      if (typeof start !== 'number' || typeof end !== 'number' || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end > duration + 1) return fail('bad-request');
+      range = { start, end: Math.min(end, duration) };
+      if (range.end - range.start < 0.1) return fail('bad-request');
+    }
+    const playback = { pos: Math.min(req.pos, duration), paused: req.paused, at: this.d.clock.now(), ...(range ? { range } : {}) };
     const done = await this.update(roomId, (x) => {
       x.playback = playback;
       return x;
