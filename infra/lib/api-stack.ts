@@ -42,7 +42,7 @@ export interface ApiStackProps extends StackProps {
   admobAdUnits?: string;
   /** The secret that holds the Pexels API key (the deploy setting `pexelsSecretName`): with it the API offers the stock library. */
   pexelsSecretName?: string;
-  /** The secret that holds Patreon's settings (`puzzlevidio/patreon` when not given): with it the game offers joining a Patreon account. */
+  /** The secret that holds Patreon's settings (`puzzlevidio/<stage>/patreon` when not given: each stage has its own Patreon client and so its own secret): with it the game offers joining a Patreon account. */
   patreonSecretName?: string;
   /** The same for Pixabay (`pixabaySecretName`). */
   pixabaySecretName?: string;
@@ -108,8 +108,8 @@ export class ApiStack extends Stack {
       secretsmanager.Secret.fromSecretNameV2(this, id, name).grantRead(fn);
     }
     // Patreon: the settings of the client and the campaign are read from a secret that only this function may read; without the secret (or with it empty) the game does not offer Patreon
-    fn.addEnvironment('PATREON_SECRET_ID', props.patreonSecretName ?? 'puzzlevidio/patreon');
-    secretsmanager.Secret.fromSecretNameV2(this, 'PatreonSettings', props.patreonSecretName ?? 'puzzlevidio/patreon').grantRead(fn);
+    fn.addEnvironment('PATREON_SECRET_ID', props.patreonSecretName ?? `puzzlevidio/${props.stage}/patreon`);
+    secretsmanager.Secret.fromSecretNameV2(this, 'PatreonSettings', props.patreonSecretName ?? `puzzlevidio/${props.stage}/patreon`).grantRead(fn);
     if (props.admobAdUnits) fn.addEnvironment('ADMOB_AD_UNITS', props.admobAdUnits);
     const admin = serviceFunction('Admin', 'server/src/aws/admin.ts', 512, Duration.seconds(30));
     // the operator can delete an account for someone who cannot sign in (the same one thing to the user pool)
