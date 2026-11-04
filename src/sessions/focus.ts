@@ -6,7 +6,7 @@ import type { Rect } from '../core/layout';
 import { beginFrame, draw, rectNow, SWAP_MS, type Anim, type View } from '../render';
 import { Ripples } from './ripple';
 import { playEffect } from '../sounds';
-import { bombCut, buzz, Cascade, CASCADE_MS, dropBomb, nearestFirst, rippleColor } from './feedback';
+import { bombCut, buzz, Cascade, CASCADE_MS, dropBomb, nearestFirst, othersBell, rippleColor } from './feedback';
 import { Camera } from './camera';
 import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
@@ -160,7 +160,10 @@ export class FocusSession implements PuzzleSession {
         if (to !== before[i]) this.anims.set(i, { from: before[i], to, start: now });
       }
     }
-    if (!opts.sound) return;                                                                     // (the last piece rings the bell too, before the end of the puzzle begins)
+    if (!opts.sound) {
+      if (opts.by !== undefined) fresh.forEach((_, k) => othersBell(k * CASCADE_MS + glide));         // (another player's: the bell at half the volume, and nothing else)
+      return;
+    }                                                                                            // (the last piece rings the bell too, before the end of the puzzle begins)
     playEffect('pickup');
     fresh.forEach((_, k) => playEffect('placed', k * CASCADE_MS + glide));
   }
@@ -337,5 +340,10 @@ export class FocusSession implements PuzzleSession {
 
   groupCount(): number {
     return boardCheck(this.board);
+  }
+
+  /** A bomb's pieces are still being put in place one after the other (the board is not yet what the room's is). */
+  busy(): boolean {
+    return this.cascade.busy;
   }
 }

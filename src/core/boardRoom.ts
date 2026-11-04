@@ -180,10 +180,24 @@ export interface RoomRules {
   submit(player: string, cmd: unknown, now: number): RoomResult;
 }
 
+/** How many pieces are in their places (a piece never leaves its place once it is there). */
+function piecesPlaced(board: Board): number {
+  switch (board.kind) {
+    case 'focus':
+      return board.game.slotOf.reduce((n, _, i) => n + (board.game.placed(i) ? 1 : 0), 0);
+    case 'overlap':
+      return board.game.done.reduce((n, d) => n + (d ? 1 : 0), 0);
+    case 'strips':
+      return board.game.state.reduce((n, s) => n + (s.locked ? 1 : 0), 0);
+  }
+}
+
 export class BoardRoom implements RoomRules {
   readonly board: Board;
   private v = 0;
   private done = false;
+  private credits: Record<string, number> = {};
+  private seen = 0;
 
   constructor(readonly setup: RoomSetup & { kind: BoardKind }, state?: RoomState) {
     this.board = buildBoard(setup);
@@ -191,7 +205,9 @@ export class BoardRoom implements RoomRules {
       (this.board.game as { restore(s: BoardState): void }).restore(state.game as BoardState);       // throws if it is not this puzzle
       this.v = state.v;
       this.done = state.solved;
+      this.credits = { ...(state.credits ?? {}) };
     }
+    this.seen = piecesPlaced(this.board);
   }
 
   get version(): number {
@@ -203,7 +219,7 @@ export class BoardRoom implements RoomRules {
   }
 
   state(): RoomState {
-    return { v: this.v, lock: null, solved: this.done, game: this.board.game.snapshot(), reserved: [] };
+    return { v: this.v, lock: null, solved: this.done, game: this.board.game.snapshot(), reserved: [], credits: { ...this.credits } };
   }
 
   /** Nobody holds a piece in these puzzles. */
@@ -229,7 +245,10 @@ export class BoardRoom implements RoomRules {
     if (!res.ok) return { ok: false, reason: res.stale ? 'no-group' : 'bad' };
     this.v++;
     this.done = this.board.game.solved;
-    const event: RoomEvent = { v: this.v, by: player, op, lock: null, reserved: [], joins: 0, groups: boardCheck(this.board), solved: this.done };
+    const placed = piecesPlaced(this.board);
+    if (placed > this.seen) this.credits[player] = (this.credits[player] ?? 0) + placed - this.seen;      // (what this operation put in its place is its player's)
+    this.seen = placed;
+    const event: RoomEvent = { v: this.v, by: player, op, lock: null, reserved: [], joins: 0, groups: boardCheck(this.board), solved: this.done, credits: { ...this.credits } };
     return { ok: true, event };
   }
 }

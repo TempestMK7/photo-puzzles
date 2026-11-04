@@ -397,6 +397,7 @@ button.small { padding: 4px 10px; font-size: 13px; }
 .onlinebar .chip.on { color: var(--text); border-color: var(--accent); }
 .onlinebar .chip i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; opacity: 0.45; }
 .onlinebar .chip.on i { opacity: 1; }
+.onlinebar .chip .count { min-width: 1.4em; padding: 0 5px; text-align: center; font-size: 12px; font-weight: 600; color: var(--text); background: rgba(255, 255, 255, 0.12); border-radius: 999px; }
 .onlinebar .conn { font-size: 13px; padding: 3px 9px; border-radius: 6px; background: rgba(42, 27, 20, 0.88); color: var(--accent2); }
 .onlinebar .conn:empty { display: none; }
 .onlinebar .conn.bad { background: #7a1f1f; color: #fff; }

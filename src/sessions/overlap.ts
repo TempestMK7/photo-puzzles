@@ -7,7 +7,7 @@ import { makePattern } from './patterns';
 import { Ripples } from './ripple';
 import { beginFrame, drawSlice, type View } from '../render';
 import { playEffect } from '../sounds';
-import { bombCut, buzz, Cascade, dropBomb, nearestFirst, rippleColor, startLift, type Lift } from './feedback';
+import { bombCut, buzz, Cascade, dropBomb, nearestFirst, othersBell, rippleColor, startLift, type Lift } from './feedback';
 import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
@@ -808,6 +808,7 @@ export class OverlapSession implements PuzzleSession {
     if (!late) {
       this.ripples.add(g.homeCells(id).map((c) => ({ x: c.x * CELL, y: c.y * CELL, w: CELL, h: CELL })), performance.now(), 0, rippleColor(this.init, by));
       if (by === undefined) playEffect('placed');
+      else othersBell();                                                          // (another player's: half the volume, and nothing else of theirs is heard)
     }
     this.afterOthers();
     this.init.requestDraw();
@@ -912,6 +913,7 @@ export class OverlapSession implements PuzzleSession {
     if (!res.ok) return;
     if (op.t === 'put' && res.placed) {
       this.ripples.add(this.game.cellsNow(op.piece).map((c) => ({ x: (op.x + c.x) * CELL, y: (op.y + c.y) * CELL, w: CELL, h: CELL })), performance.now(), 0, rippleColor(this.init, ev.by));
+      othersBell();
     }
     this.afterOthers();
   }
@@ -937,5 +939,10 @@ export class OverlapSession implements PuzzleSession {
 
   groupCount(): number {
     return boardCheck(this.rules);
+  }
+
+  /** A bomb's pieces are still being put in place one after the other (the board is not yet what the room's is). */
+  busy(): boolean {
+    return this.cascade.busy;
   }
 }

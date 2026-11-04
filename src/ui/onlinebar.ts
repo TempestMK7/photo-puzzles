@@ -101,9 +101,12 @@ export class OnlineBar {
           { class: `chip${room.online.has(m.id) || m.id === room.me ? ' on' : ''}`, title: room.online.has(m.id) || m.id === room.me ? 'Here now' : 'Not here at the moment' },
           h('i', { style: `background:${PLAYER_COLORS[m.color % PLAYER_COLORS.length]}` }),
           m.id === room.me ? `${m.name} (you)` : m.name,
+          h('b', { class: 'count', title: 'Pieces this player has put in their places' }, String(room.credits[m.id] ?? 0)),
         ),
       ),
     );
+    this.reportBtn.hidden = room.host;                          // (the host made the puzzle from their own picture: there is nothing to report; the host is whoever has the puzzle now, so this is looked at again)
+    this.inviteBtn.hidden = !room.host;
     const held = room.holderOther();
     this.status.textContent =
       room.status === 'reconnecting' ? 'Reconnecting…' : room.status === 'connecting' ? 'Connecting…' : room.status === 'refused' ? 'Not allowed in this puzzle' : held ? `${held.name} is moving a piece` : '';
