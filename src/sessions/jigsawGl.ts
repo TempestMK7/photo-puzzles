@@ -46,6 +46,8 @@ export interface GlView {
   frameY: number;
   /** A light background: the selection glow is then orange (a yellow one would hardly show). */
   light?: boolean;
+  /** The colour this player's own selected group glows in when others are playing too (their colour in the list of players, as the others see it); else the usual gold. */
+  own?: [number, number, number];
 }
 
 let support: boolean | null = null;
@@ -478,7 +480,8 @@ export class PieceRenderer {
       const g = this.glow;
       shared(g);
       gl.uniform1f(g.u.u_r, Math.min(GLOW_PX / view.scale, masks.pad - 1));
-      if (view.light) gl.uniform3f(g.u.u_glow, 0.9, 0.45, 0);
+      if (view.own) gl.uniform3f(g.u.u_glow, view.own[0], view.own[1], view.own[2]);
+      else if (view.light) gl.uniform3f(g.u.u_glow, 0.9, 0.45, 0);
       else gl.uniform3f(g.u.u_glow, 1, 0.847, 0.29);
       draw(selStart, nSel);                                         // the glow of the whole group first ...
       gl.useProgram(p.prog);
@@ -517,7 +520,8 @@ export class PieceRenderer {
         const g = this.glow;
         shared(g, tray.scale, tray.ox, tray.oy);
         gl.uniform1f(g.u.u_r, Math.min(GLOW_PX / tray.scale, masks.pad - 1));
-        if (view.light) gl.uniform3f(g.u.u_glow, 0.9, 0.45, 0);
+        if (view.own) gl.uniform3f(g.u.u_glow, view.own[0], view.own[1], view.own[2]);
+        else if (view.light) gl.uniform3f(g.u.u_glow, 0.9, 0.45, 0);
         else gl.uniform3f(g.u.u_glow, 1, 0.847, 0.29);
         draw(traySelStart, nTraySel);
         gl.useProgram(p.prog);

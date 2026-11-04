@@ -76,12 +76,12 @@ export function preloadEffects(): void {
  * Plays an effect from its start, unless the player has switched effects off, `delayMs` from now if asked (a bell that is to ring as a ripple begins). An effect that is
  * still sounding when it is asked for again goes on, and the new one sounds over it (a row of bells ring into each other).
  */
-export function playEffect(effect: Effect, delayMs = 0): void {
+export function playEffect(effect: Effect, delayMs = 0, gain = 1): void {
   if (!on) return;
   if (delayMs > 0) {
     const timer = setTimeout(() => {
       waiting.delete(timer);
-      playEffect(effect);
+      playEffect(effect, 0, gain);
     }, delayMs);
     waiting.add(timer);
     return;
@@ -90,7 +90,7 @@ export function playEffect(effect: Effect, delayMs = 0): void {
     let a = player(effect);
     if (!a) return;
     if (a.paused === false) a = new Audio(FILES[effect]);                  // (the browser has the file already)
-    a.volume = volume;
+    a.volume = volume * gain;
     a.currentTime = 0;
     void a.play().catch(() => undefined);
     const set = sounding.get(effect) ?? new Set<HTMLAudioElement>();

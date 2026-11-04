@@ -9,6 +9,11 @@ export function buzz(init: SessionInit, kind: Haptic): void {
   if (init.flag('haptics')) haptic(kind);
 }
 
+/** The bell for a piece that another player put in its place: half of the volume that the player chose (it is the only sound that another player's moves make). */
+export function othersBell(delayMs = 0): void {
+  playEffect('placed', delayMs, 0.5);
+}
+
 /** A bomb places its pieces one after the other this far apart (the ripple and the bell of each), as a cascade ... */
 export const CASCADE_MS = 200;
 /** ... but the whole cascade is over within this, however many pieces the bomb places. */

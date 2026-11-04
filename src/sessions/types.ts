@@ -135,6 +135,8 @@ export interface PuzzleSession {
   /** Where the piece another player holds is now (`null`: it is let go). */
   hand?(by: string, pose: HandMessage | null): void;
   groupCount?(): number;
+  /** A bomb's pieces are still being put in place one after the other: the board is not yet what the room's is, which is not drift. */
+  busy?(): boolean;
 }
 
 export type SessionFactory = (init: SessionInit) => PuzzleSession;

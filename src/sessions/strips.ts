@@ -4,7 +4,7 @@ import type { RoomEvent, RoomState } from '../core/jigsawRoom';
 import { boxOf, makeStrips, MARGIN, type StripsGame, type StripsState } from '../core/strips';
 import { beginFrame, drawSlice, type View } from '../render';
 import { playEffect } from '../sounds';
-import { bombCut, buzz, Cascade, dropBomb, nearestFirst, rippleColor, startLift, type Lift } from './feedback';
+import { bombCut, buzz, Cascade, dropBomb, nearestFirst, othersBell, rippleColor, startLift, type Lift } from './feedback';
 import { Camera } from './camera';
 import { Ripples } from './ripple';
 import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
@@ -465,6 +465,7 @@ export class StripsSession implements PuzzleSession {
     this.game.moves++;
     if (mine) buzz(this.init, this.game.solved ? 'solved' : 'placed');
     if (chime && !quiet) playEffect('placed', delay);                  // (the last strip rings the bell too, before the end of the puzzle begins)
+    else if (!mine && !chime && by !== undefined && !quiet) othersBell(delay);          // (another player's: half the volume, and nothing else of theirs is heard)
     this.nextTab();
   }
 
@@ -631,5 +632,10 @@ export class StripsSession implements PuzzleSession {
 
   groupCount(): number {
     return boardCheck(this.rules);
+  }
+
+  /** A bomb's strips are still being put in place one after the other (the board is not yet what the room's is). */
+  busy(): boolean {
+    return this.cascade.busy;
   }
 }

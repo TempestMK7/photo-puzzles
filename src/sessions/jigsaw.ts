@@ -11,7 +11,7 @@ import { glAvailable, PieceRenderer, type GlGroup } from './jigsawGl';
 import { GroupRipple } from './ripple';
 import { playEffect } from '../sounds';
 import { BombFx } from './bomb';
-import { bombCut, Cascade, dropBomb, LIFT_CSS, LIFT_MS, nearestFirst, rippleColor } from './feedback';
+import { bombCut, Cascade, dropBomb, LIFT_CSS, LIFT_MS, nearestFirst, othersBell, rippleColor } from './feedback';
 import { FrontLayer } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
@@ -480,7 +480,7 @@ export class JigsawSession implements PuzzleSession {
       const held = theirs.get(id);
       if (id === selId || held) {                                 // a glow round the selected group: drawn under it, and over again by the pieces themselves
         // a piece in another player's hand shows that player's colour, whatever this player has selected, and strongly (a pale halo disappears round a small piece)
-        ctx.shadowColor = held ?? (this.init.flag('light') ? '#e67300' : '#ffd84a');
+        ctx.shadowColor = held ?? (this.init.online ? this.init.online.colorOf(this.init.online.self) : this.init.flag('light') ? '#e67300' : '#ffd84a');
         ctx.shadowBlur = held ? 22 : 16;
         for (let pass = held ? 3 : 1; pass > 0; pass--) group(lit, grp);
         ctx.shadowBlur = 0;
@@ -578,7 +578,7 @@ export class JigsawSession implements PuzzleSession {
     const inTray: Group[] = [];
     if (tv) for (const id of g.z) if (g.groups.get(id)!.tray === this.openTrayId && id !== selId) inTray.push(g.groups.get(id)!);
     this.gl!.render(
-      { width: this.canvasW, height: this.canvasH, scale: view.scale, ox: view.ox, oy: view.oy, frameX: this.frameX, frameY: this.frameY, light: this.init.flag('light') },
+      { width: this.canvasW, height: this.canvasH, scale: view.scale, ox: view.ox, oy: view.oy, frameX: this.frameX, frameY: this.frameY, light: this.init.flag('light'), own: this.init.online ? rgbOf(this.init.online.colorOf(this.init.online.self)) : undefined },
       anchored,
       loose,
       selGroup && selGroup.tray < 0 ? selGroup : null,
@@ -949,7 +949,10 @@ export class JigsawSession implements PuzzleSession {
     if (!late) for (const [gid, from] of byGroup) this.startWave(gid, from, now, true, by);
     if (this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
     if (mine && first && this.init.flag('haptics')) haptic(g.solved ? 'solved' : 'placed');
-    if (mine && !late) playEffect('placed');                                      // (the last piece rings it too, before the end of the puzzle begins)
+    if (!late) {
+      if (mine) playEffect('placed');                                             // (the last piece rings it too, before the end of the puzzle begins)
+      else othersBell();                                                          // (another player's: half the volume, and nothing else of theirs is heard)
+    }
     this.init.traysChanged?.();
     this.init.requestDraw();
     this.init.progress?.();
@@ -1126,6 +1129,7 @@ export class JigsawSession implements PuzzleSession {
     const wasGroups = g.groups.size;
     applyOp(g, op);
     if (g.groups.size < wasGroups) this.startWave(g.groupOf[op.piece], before, performance.now(), g.anchoredCount > wasAnchored, ev.by);
+    if (g.anchoredCount > wasAnchored) othersBell();
     if (g.anchoredCount > wasAnchored && this.sel >= 0 && g.groups.get(g.groupOf[this.sel])!.anchored) this.sel = -1;
     this.init.traysChanged?.();
     this.init.requestDraw();
@@ -1155,6 +1159,11 @@ export class JigsawSession implements PuzzleSession {
 
   groupCount(): number {
     return this.game.groups.size;
+  }
+
+  /** A bomb's pieces are still being put in place one after the other (the board is not yet what the room's is). */
+  busy(): boolean {
+    return this.cascade.busy;
   }
 
   /** Where another player's piece in hand is now; `null` puts it back where the board has it. */

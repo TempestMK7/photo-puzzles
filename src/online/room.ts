@@ -12,6 +12,8 @@ export interface RoomView {
   /** Where the piece another player holds is now, or `null` when it is let go (it goes back to where the board has it). Only a Jigsaw has hands. */
   hand?(by: string, pose: HandMessage | null): void;
   groupCount(): number;
+  /** A bomb's pieces are still being put in place one after the other: the board differs from the room's until that is over, and that is not drift. */
+  busy?(): boolean;
   /** The pieces that other players have chosen (and so nobody else may take) changed, or one ran out: draw them again. */
   reservations?(): void;
 }
@@ -29,6 +31,8 @@ export class OnlineRoom {
   /** Why the room ended, once it has. */
   closedReason: 'owner' | 'expired' | 'solved' | 'removed' | null = null;
   solved: boolean;
+  /** How many pieces each player has put in the picture (by member id; pieces that were in place from the start are nobody's). */
+  credits: Record<string, number>;
   /** Players who knocked and wait for someone to let them in. */
   knocks: { id: string; name: string }[] = [];
   /** Called after anything the screen might show changed (the players, the connection, who holds a piece, solved). */
@@ -88,6 +92,7 @@ export class OnlineRoom {
     this.lock = descriptor.state.lock;
     this.reserved = descriptor.state.reserved ?? [];
     this.solved = descriptor.status === 'solved';
+    this.credits = { ...(descriptor.state.credits ?? {}) };
     this.offset = descriptor.serverTime - Date.now();
     this.descriptor = descriptor;
     this.playback = descriptor.playback ?? null;
@@ -342,6 +347,7 @@ export class OnlineRoom {
       return;
     }
     this.version = ev.v;
+    if (ev.credits) this.credits = ev.credits;
     // (this player's own are applied already, but not the making and taking away of trays: the room says which id a new tray has, so a screen waits for it)
     const ownTray = ev.by === this.me && (ev.op?.t === 'trayAdd' || ev.op?.t === 'trayRemove');
     if (ev.by !== this.me || ownTray) {
@@ -354,7 +360,7 @@ export class OnlineRoom {
     this.view?.reservations?.();
     if (ev.solved) this.solved = true;
     // the board here and the board there have drifted apart (but while this player's own moves are on their way the board here is ahead, which is not that)
-    if (this.view && this.pending === 0 && this.view.groupCount() !== ev.groups) void this.resync();
+    if (this.view && this.pending === 0 && !this.view.busy?.() && this.view.groupCount() !== ev.groups) void this.resync();
     this.changed();
   }
 
@@ -430,6 +436,7 @@ export class OnlineRoom {
         this.reserved = r.state.reserved ?? [];
         this.setLock(r.state.lock);
         this.solved = r.status === 'solved';
+        this.credits = { ...(r.state.credits ?? {}) };
         this.view?.resync(r.state);
         this.view?.reservations?.();
         this.changed();

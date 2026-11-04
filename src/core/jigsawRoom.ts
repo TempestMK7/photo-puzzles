@@ -58,6 +58,8 @@ export interface RoomEvent {
   /** How many groups the board has now (for the other puzzles, a number that says what the board comes to: `boardCheck`): a screen that counts a different number has gone wrong and asks for the whole state. */
   groups: number;
   solved: boolean;
+  /** How many pieces each player has put in the picture so far (pieces that were in place from the start are nobody's). */
+  credits?: Record<string, number>;
 }
 
 export type Refusal =
@@ -79,6 +81,8 @@ export interface RoomState {
   lock: Lock | null;
   solved: boolean;
   game: JigsawState | BoardState;
+  /** How many pieces each player has put in the picture (a room from before they were counted has none). */
+  credits?: Record<string, number>;
   /** The reserved pieces (a room from before they existed has none). */
   reserved?: Reservation[];
 }
@@ -90,6 +94,9 @@ export class JigsawRoom {
   private done = false;
   private reserved: Reservation[] = [];
   private at = 0;
+  private credits: Record<string, number> = {};
+  /** The pieces that were in the picture after the last operation (what the next one adds is credited to its player). */
+  private seen = 0;
 
   constructor(readonly setup: JigsawSetup, state?: RoomState) {
     this.board = buildJigsaw(setup);
@@ -99,7 +106,9 @@ export class JigsawRoom {
       this.lock = state.lock;
       this.done = state.solved;
       this.reserved = (state.reserved ?? []).map((r) => ({ ...r }));
+      this.credits = { ...(state.credits ?? {}) };
     }
+    this.seen = this.board.game.anchoredCount;
   }
 
   get version(): number {
@@ -111,7 +120,7 @@ export class JigsawRoom {
   }
 
   state(): RoomState {
-    return { v: this.v, lock: this.lock && { ...this.lock }, solved: this.done, game: this.board.game.snapshot(), reserved: this.reserved.map((r) => ({ ...r })) };
+    return { v: this.v, lock: this.lock && { ...this.lock }, solved: this.done, game: this.board.game.snapshot(), reserved: this.reserved.map((r) => ({ ...r })), credits: { ...this.credits } };
   }
 
   /** Who holds a piece at time `now`; a hold that has run out is nobody's. */
@@ -257,11 +266,14 @@ export class JigsawRoom {
 
   private accept(by: string, op: JigsawOp | undefined, joins: number): RoomResult {
     this.v++;
+    const now = this.board.game.anchoredCount;
+    if (now > this.seen) this.credits[by] = (this.credits[by] ?? 0) + now - this.seen;               // (what this operation put in the picture is its player's)
+    this.seen = now;
     if (this.board.game.solved) {
       this.done = true;
       this.lock = null;
       this.reserved = [];
     }
-    return { ok: true, event: { v: this.v, by, op, lock: this.lock && { ...this.lock }, reserved: this.reservations(this.at), joins, groups: this.board.game.groups.size, solved: this.done } };
+    return { ok: true, event: { v: this.v, by, op, lock: this.lock && { ...this.lock }, reserved: this.reservations(this.at), joins, groups: this.board.game.groups.size, solved: this.done, credits: { ...this.credits } } };
   }
 }
