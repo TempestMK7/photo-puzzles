@@ -1,4 +1,5 @@
 import type { View } from '../render';
+import { UPRIGHT_GLSL, VideoTurn } from './videoTurn';
 
 /**
  * A layer drawn on the graphics card for puzzles made from a video. Getting a picture of a playing video into a 2D canvas costs 25-40 ms on a slow device however small the
@@ -46,12 +47,14 @@ const FRAG = `#version 300 es
 precision mediump float;
 uniform sampler2D u_video;
 uniform sampler2D u_img;
+uniform int u_turn;
 in vec2 v_uv;
 in vec4 v_col;
 out vec4 o;
+${UPRIGHT_GLSL}
 void main() {
   if (v_col.a < -1.5) o = vec4(texture(u_img, v_uv).rgb * v_col.r, 1.0);
-  else if (v_col.a < 0.0) o = vec4(texture(u_video, v_uv).rgb * v_col.r, 1.0);
+  else if (v_col.a < 0.0) o = vec4(texture(u_video, upright(v_uv, u_turn)).rgb * v_col.r, 1.0);
   else o = vec4(v_col.rgb * v_col.a, v_col.a);
 }`;
 
@@ -68,6 +71,9 @@ export class VideoLayer {
   private imgTex!: WebGLTexture;
   private image: HTMLCanvasElement | null = null;
   private uImg: WebGLUniformLocation | null = null;
+  private uTurn: WebGLUniformLocation | null = null;
+  /** How far the texture of the video is turned (see videoTurn.ts). */
+  private readonly turn: VideoTurn;
   private uRes: WebGLUniformLocation | null = null;
   private uXf: WebGLUniformLocation | null = null;
   private hasFrame = false;
@@ -86,6 +92,7 @@ export class VideoLayer {
   constructor(private readonly video: HTMLVideoElement) {
     this.vw = video.videoWidth;
     this.vh = video.videoHeight;
+    this.turn = new VideoTurn(video);
     this.canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
       this.lost = true;
@@ -116,6 +123,7 @@ export class VideoLayer {
     this.uRes = gl.getUniformLocation(this.prog, 'u_res');
     this.uXf = gl.getUniformLocation(this.prog, 'u_xf');
     this.uImg = gl.getUniformLocation(this.prog, 'u_img');
+    this.uTurn = gl.getUniformLocation(this.prog, 'u_turn');
     this.vao = gl.createVertexArray()!;
     gl.bindVertexArray(this.vao);
     this.buf = gl.createBuffer()!;
@@ -184,6 +192,7 @@ export class VideoLayer {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v);
       this.hasFrame = true;
       this.lastTime = v.currentTime;
+      this.turn.frame();
     }
     this.n = 0;
     this.cut = -1;
@@ -304,6 +313,7 @@ export class VideoLayer {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.imgTex);
     gl.uniform1i(this.uImg, 1);
+    gl.uniform1i(this.uTurn, this.turn.value);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.tex);
     gl.uniform2f(this.uRes, this.width, this.height);

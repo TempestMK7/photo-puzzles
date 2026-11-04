@@ -800,7 +800,7 @@ export class PlayScreen {
     const url = URL.createObjectURL(blob);
     let src: PlaySource;
     try {
-      src = await openVideo(url);
+      src = await openVideo(url, blob);
     } catch (e) {
       URL.revokeObjectURL(url);
       throw e;

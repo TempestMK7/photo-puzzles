@@ -1,6 +1,7 @@
 import { gifToWebm, isGifFile } from '../gif';
 import type { StockCredit } from './stock';
 import { isVideoFile, loadPhoto, makeThumb, readVideo } from '../image';
+import { noteOrientation, readMp4Orientation } from '../mp4';
 
 const EXTENSION = /\.(jpe?g|png|gif|webp|avif|bmp|svg|heic|heif|tiff?|mp4|m4v|webm|mov|mkv|avi|ogv)$/i;
 
@@ -351,9 +352,17 @@ export async function settleDuration(v: HTMLVideoElement): Promise<void> {
   v.currentTime = 0;
 }
 
-export function openVideo(url: string): Promise<PlaySource> {
+/** The video at `url` (an address of this page, such as an object URL), ready to play; `file` is its bytes when the caller has them (else they are got from the address, which does not copy them). */
+export async function openVideo(url: string, file?: Blob): Promise<PlaySource> {
+  let orientation = null;
+  try {
+    orientation = await readMp4Orientation(file ?? (await (await fetch(url)).blob()));
+  } catch {
+    // the video is then looked at while it plays
+  }
   return new Promise((resolve, reject) => {
     const v = document.createElement('video');
+    noteOrientation(v, orientation);
     v.src = url;
     v.loop = true;
     v.playsInline = true;
