@@ -1,3 +1,4 @@
+import { orientationOf } from '../mp4';
 import { h } from './dom';
 
 /** What the window shows: a picture, or a video that is being played elsewhere (the window follows it). */
@@ -63,7 +64,9 @@ export class RefWindow {
     this.vid.hidden = true;
     this.canvas.hidden = true;
     if (v) {
-      const stream = (v as HTMLVideoElement & { captureStream?: () => MediaStream }).captureStream?.();
+      // (a video the file says is turned is copied picture by picture: on some phones a mirrored stream shows it as stored, sideways, where drawing it turns it)
+      const turned = (orientationOf(v)?.rotation ?? 0) !== 0;
+      const stream = turned ? undefined : (v as HTMLVideoElement & { captureStream?: () => MediaStream }).captureStream?.();
       if (stream) {
         this.vid.srcObject = stream;
         this.vid.hidden = false;
