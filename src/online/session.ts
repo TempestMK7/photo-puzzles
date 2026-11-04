@@ -73,9 +73,19 @@ export class OnlineSession implements Account {
     } catch {
       /* unreadable: a new name is made */
     }
-    const made = { name: `Guest ${Math.floor(1000 + Math.random() * 9000)}`, chosen: false };
+    const made = this.freshName();
     this.keep(made);
     return made;
+  }
+
+  private freshName(): { name: string; chosen: boolean } {
+    return { name: `Guest ${Math.floor(1000 + Math.random() * 9000)}`, chosen: false };
+  }
+
+  /** The name that was chosen here before there was an account has gone to the account (or is the account's already): the device goes back to a name of its own, so that it is not given to the next one who signs in. */
+  private releaseName(): void {
+    this.saved = this.freshName();
+    this.keep(this.saved);
   }
 
   private keep(s: { name: string; chosen: boolean }): void {
@@ -281,10 +291,16 @@ export class OnlineSession implements Account {
     this.standing = { id: who.id, summary: res.account };
     this.changed();
     if (this.spends.size) void this.flushSpends();
-    if (res.name !== null) return;
+    if (res.name !== null) {
+      if (this.saved.chosen && this.saved.name === res.name) this.releaseName();
+      return;
+    }
     // only the server is told: on this device the name stays what it was, so that it is not taken for a name that the player chose (a guest on the same device would be called by it)
     const given = await this.api.setName(this.name());
-    if (given.ok) this.profile = { id: who.id, name: given.name };
+    if (given.ok) {
+      this.profile = { id: who.id, name: given.name };
+      if (this.saved.chosen) this.releaseName();
+    }
   }
 
   /** An account that has just signed in takes the hints and bombs that the guest it was on this device has left (the server decides whether it may: once, and only for a new account). */
@@ -326,9 +342,12 @@ export class OnlineSession implements Account {
   async setName(raw: string): Promise<boolean> {
     const clean = cleanName(raw);
     if (!clean) return false;
-    this.saved = { name: clean, chosen: true };
-    this.keep(this.saved);
     const kind = this.kind();
+    // an account's name is the server's: kept here as well it would be taken for the name of the next account (or guest) on this device
+    if (kind !== 'account') {
+      this.saved = { name: clean, chosen: true };
+      this.keep(this.saved);
+    }
     if (kind === 'none') return true;                                       // there is no guest yet: the name goes with the first one
     if (!this.api) return false;
     const res = await this.api.setName(clean);

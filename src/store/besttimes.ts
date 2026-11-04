@@ -1,20 +1,32 @@
 import { bestKey, recordBest, type BestTime, type BestTimes } from '../core/besttimes';
 import { KINDS, type KindId } from '../core/kinds';
 import type { StorageLike } from '../core/prefs';
+import { adoptDeviceData, ownerKey } from './owner';
 
 const KEY = 'photo-puzzles/besttimes/v1';
 
 /** The player's best time for each kind of puzzle and size, on this device (local storage; nothing is sent anywhere). */
 export class BestTimeStore {
   data: BestTimes = {};
+  /** The account whose times these are (nobody: the device's own, for a guest). */
+  private owner: string | null = null;
 
   constructor(private readonly storage: StorageLike | null) {
     this.load();
   }
 
+  /** Switches to the times of another player (an account's id, or null for nobody). */
+  use(owner: string | null): void {
+    if (owner === this.owner) return;
+    this.owner = owner;
+    if (owner) adoptDeviceData(this.storage, KEY, owner);
+    this.data = {};
+    this.load();
+  }
+
   private load(): void {
     try {
-      const text = this.storage?.getItem(KEY);
+      const text = this.storage?.getItem(ownerKey(KEY, this.owner));
       if (!text) return;
       const raw = JSON.parse(text) as Record<string, Partial<BestTime>>;
       for (const k of KINDS) {
@@ -41,7 +53,7 @@ export class BestTimeStore {
     const isBest = recordBest(this.data, bestKey(kind, size), entry);
     if (isBest) {
       try {
-        this.storage?.setItem(KEY, JSON.stringify(this.data));
+        this.storage?.setItem(ownerKey(KEY, this.owner), JSON.stringify(this.data));
       } catch {
         // private mode or full: the game still works, it just forgets
       }

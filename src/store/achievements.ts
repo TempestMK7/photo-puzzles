@@ -1,5 +1,6 @@
 import { ACHIEVEMENTS, applyEvent, emptyAchievements, type AchievementDef, type AchievementState, type Counter, type GameEvent } from '../core/achievements';
 import type { StorageLike } from '../core/prefs';
+import { adoptDeviceData, ownerKey } from './owner';
 
 const KEY = 'photo-puzzles/achievements/v1';
 const COUNTERS: Counter[] = ['hints', 'bombs', 'solved'];
@@ -12,14 +13,25 @@ const COUNTERS: Counter[] = ['hints', 'bombs', 'solved'];
 export class AchievementStore {
   state: AchievementState = emptyAchievements();
   private listeners: ((unlocked: AchievementDef[]) => void)[] = [];
+  /** The account whose achievements these are (nobody: the device's own, for a guest). */
+  private owner: string | null = null;
 
   constructor(private readonly storage: StorageLike | null) {
     this.load();
   }
 
+  /** Switches to the achievements of another player (an account's id, or null for nobody). */
+  use(owner: string | null): void {
+    if (owner === this.owner) return;
+    this.owner = owner;
+    if (owner) adoptDeviceData(this.storage, KEY, owner);
+    this.state = emptyAchievements();
+    this.load();
+  }
+
   private load(): void {
     try {
-      const text = this.storage?.getItem(KEY);
+      const text = this.storage?.getItem(ownerKey(KEY, this.owner));
       if (!text) return;
       const raw = JSON.parse(text) as Partial<AchievementState>;
       const known = new Set(ACHIEVEMENTS.map((a) => a.id));
@@ -38,7 +50,7 @@ export class AchievementStore {
 
   private save(): void {
     try {
-      this.storage?.setItem(KEY, JSON.stringify(this.state));
+      this.storage?.setItem(ownerKey(KEY, this.owner), JSON.stringify(this.state));
     } catch {
       // private mode or full: the game still works, it just forgets
     }
