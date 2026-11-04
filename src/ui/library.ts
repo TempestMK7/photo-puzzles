@@ -28,6 +28,8 @@ export interface LibraryDeps {
   onPlay(entry: PhotoEntry): void;
   /** Playing with friends is possible in this build: this opens its window. */
   onOnline?: () => void;
+  /** Hosting an online puzzle from the chosen photo is possible in this build: this opens its window. */
+  onHost?: () => void;
   /** The round badge for the profile, at the end of the top bar (only in a build that has online play). */
   badge?: HTMLElement;
   /** The button of the inventory (credits, hints, bombs), after the title (only in a build that has online play). */
@@ -111,7 +113,8 @@ export class LibraryScreen {
   private optionsEl = h('div', { class: 'options' });
   private seedInput = h('input', { type: 'text', class: 'seed', maxLength: 12, spellcheck: false, 'aria-label': 'Seed' });
   private noteEl = h('div', { class: 'note', 'aria-live': 'polite' });
-  private playBtn = h('button', { type: 'button', class: 'primary', onclick: () => this.play() }, 'Play');
+  private playBtn = h('button', { type: 'button', class: 'primary', onclick: () => this.play() }, 'Play Offline');
+  private hostBtn = h('button', { type: 'button', class: 'primary', title: 'Start this puzzle for friends to join over the internet', onclick: () => this.deps.onHost?.() }, 'Host Online');
   /** On the stock tab, over Play: puts the chosen item in Local Files without starting a puzzle. */
   private addStockBtn = h('button', { type: 'button', hidden: true, onclick: () => void this.addStockOnly() }, 'Add to Local Files');
   private footEl = h('div', { class: 'pfoot' });
@@ -196,7 +199,7 @@ export class LibraryScreen {
         h(
           'div',
           { class: 'online-group' },
-          ...(deps.onOnline ? [h('button', { type: 'button', class: 'progress-btn friends', title: 'Play a Jigsaw, Tile Swap, Overlap or Strips together over the internet', onclick: () => deps.onOnline!() }, 'Play with friends')] : []),
+          ...(deps.onOnline ? [h('button', { type: 'button', class: 'progress-btn friends', title: 'Join a friend\u2019s online puzzle with a code, or go back to one you are in', onclick: () => deps.onOnline!() }, 'Join a game')] : []),
           this.progressBtn,
         ),
         h('div', { class: 'tool-group' }, ...(deps.inventory ? [deps.inventory] : []), ...(deps.achievements ? [deps.achievements] : []), ...(deps.bestTimes ? [deps.bestTimes] : []), settingsButton(deps.prefs), ...(deps.badge ? [deps.badge] : [])),
@@ -215,6 +218,7 @@ export class LibraryScreen {
           h('div', { class: 'spacer' }),
           this.noteEl,
           this.addStockBtn,
+          ...(deps.onHost ? [this.hostBtn] : []),
           this.playBtn,
         ),
       ),
@@ -531,6 +535,7 @@ export class LibraryScreen {
     this.nameEl.textContent = shown?.name ?? (this.tab === 'stock' ? (this.stock.busy ? 'Searching…' : 'Nothing to show') : this.loading ? 'Loading photos…' : this.deps.stockBase ? 'No photos yet. Add some, or try Stock Files' : 'No photos yet. Add some below');
     this.creditEl.replaceChildren(...(shown?.credit ? [creditLine(shown.credit, shown.video)] : []));
     this.playBtn.disabled = !shown || !!this.stockAbort;
+    this.hostBtn.disabled = !e || !!this.stockAbort;
     this.addStockBtn.hidden = this.tab !== 'stock';
     this.addStockBtn.disabled = !stock || !!e || !!this.stockAbort;
     this.addStockBtn.textContent = e ? 'In Local Files' : 'Add to Local Files';

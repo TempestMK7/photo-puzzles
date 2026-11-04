@@ -156,8 +156,10 @@ export function roomLabel(settings: Pick<RoomSettings, 'kind'> & { opts: Record<
   return `${kind?.name ?? 'Puzzle'} · ${size}`;
 }
 
-/** The pop-up for playing with friends: make a puzzle, join one with a code or a link, and the puzzles the player is in. */
+/** What a pop-up of the online panel is for: joining a puzzle (a code or a link, and the puzzles the player is in) or hosting one (the chosen photo, with the settings of the main screen). */
+export type OnlineMode = 'join' | 'host';
 
+/** The pop-ups for playing with friends: **Join a game** (a code or a link, and the puzzles the player has joined or hosted that are still going) and **Host an online game** (starts a puzzle from the chosen photo). */
 export class OnlinePanel {
   readonly el: HTMLElement;
   private nameInput = h('input', { type: 'text', class: 'plain', maxLength: NAME_MAX, 'aria-label': 'Your name', onkeydown: (e: KeyboardEvent) => e.key === 'Enter' && void this.saveName() });
@@ -169,8 +171,8 @@ export class OnlinePanel {
   /** Stands in for everything else while the account's name is being fetched, so that nothing is drawn twice. */
   private loadingEl = h('p', { class: 'chosen' }, 'Loading…');
   /** What stands where "Start a puzzle" is for a player who has no account: joining needs only a name, making a puzzle needs an account. */
-  private startTitle = h('h3', {}, 'Start a puzzle');
-  private needTitle = h('h3', {}, 'Start a puzzle');
+  private startTitle = h('h3', {}, 'Host a puzzle');
+  private needTitle = h('h3', {}, 'Host a puzzle');
   private needAccount = h(
     'section',
     { hidden: true },
@@ -188,11 +190,11 @@ export class OnlinePanel {
   /** The account's profile is being asked for (see `loadingEl`). */
   private loading = false;
   private chosenEl = h('div', { class: 'chosen' });
-  private consent = h('input', { type: 'checkbox', id: 'online-consent' });
+  private consent = h('input', { type: 'checkbox' });
   private consentText = h('span', {}, '');
   /** The host lets the players use their hints and bombs (off unless ticked). */
-  private helpers = h('input', { type: 'checkbox', id: 'online-helpers' });
-  private startBtn = h('button', { type: 'button', class: 'primary', onclick: () => void this.start() }, 'Start');
+  private helpers = h('input', { type: 'checkbox' });
+  private startBtn = h('button', { type: 'button', class: 'primary', onclick: () => void this.start() }, 'Host this puzzle');
   private codeInput = h('input', { type: 'text', class: 'plain', placeholder: 'Code or link', 'aria-label': 'Code or link', onkeydown: (e: KeyboardEvent) => e.key === 'Enter' && void this.join(this.codeInput.value) });
   private joinBtn = h('button', { type: 'button', onclick: () => void this.join(this.codeInput.value) }, 'Join');
   private statusEl = h('div', { class: 'status', role: 'status' });
@@ -201,7 +203,10 @@ export class OnlinePanel {
   /** Bumped by Close and by a new try: an older try that is still waiting (for a knock to be answered) gives up. */
   private attempt = 0;
 
-  constructor(private readonly deps: OnlineDeps) {
+  constructor(
+    private readonly deps: OnlineDeps,
+    private readonly mode: OnlineMode = 'join',
+  ) {
     this.startSection = h(
       'section',
       {},
@@ -209,22 +214,23 @@ export class OnlinePanel {
       this.chosenEl,
       h(
         'label',
-        { class: 'consent', for: 'online-consent' },
+        { class: 'consent' },
         this.consent,
         this.consentText,
       ),
-      h('label', { class: 'consent', for: 'online-helpers', title: 'Hints place a piece, bombs place the pieces round a point. Each player uses their own, from their account.' }, this.helpers, h('span', {}, 'Allow hints and bombs in this puzzle')),
+      h('label', { class: 'consent', title: 'Hints place a piece, bombs place the pieces round a point. Each player uses their own, from their account.' }, this.helpers, h('span', {}, 'Allow hints and bombs in this puzzle')),
       this.startBtn,
     );
-    this.joinSection = h('section', {}, h('h3', {}, 'Join a friend'), h('div', { class: 'row' }, this.codeInput, this.joinBtn));
-    this.listSection = h('section', {}, h('h3', {}, 'Your online puzzles'), this.listEl);
+    this.joinSection = h('section', {}, h('h3', {}, 'Join with a code or a link'), h('div', { class: 'row' }, this.codeInput, this.joinBtn));
+    this.listSection = h('section', {}, h('h3', {}, 'Your online puzzles'), h('p', { class: 'dim' }, 'The ones you joined or hosted that are still going.'), this.listEl);
+    const title = mode === 'host' ? 'Host an online game' : 'Join a game';
     this.el = h(
       'div',
-      { class: 'inprogress online', role: 'dialog', 'aria-label': 'Play with friends', hidden: true, onclick: (e: Event) => (e.target === this.el ? this.close() : undefined) },
+      { class: 'inprogress online', role: 'dialog', 'aria-label': title, hidden: true, onclick: (e: Event) => (e.target === this.el ? this.close() : undefined) },
       h(
         'div',
         { class: 'card' },
-        h('header', {}, h('h2', {}, 'Play with friends'), h('button', { type: 'button', class: 'close', onclick: () => this.close() }, 'Close')),
+        h('header', {}, h('h2', {}, title), h('button', { type: 'button', class: 'close', onclick: () => this.close() }, 'Close')),
         h('div', { class: 'body' }, this.loadingEl, this.whoEl, this.nameField, this.needAccount, this.startSection, this.joinSection, this.statusEl, this.listSection),
       ),
     );
@@ -256,7 +262,7 @@ export class OnlinePanel {
       this.say('Choose the name the other players will see, and press Save.');          // only when the server could not be given the name that the sign-in knows
       return;
     }
-    if (s.kind() !== 'none') void this.loadList();
+    if (this.mode === 'join' && s.kind() !== 'none') void this.loadList();
   }
 
   /** Opens the panel for someone who came with an invite link and has not chosen a name: they can, and then press Join. */
@@ -294,10 +300,11 @@ export class OnlinePanel {
     this.nameLabel.textContent = needs ? 'Choose a display name' : 'Your name';
     this.nameField.hidden = this.loading || !asking;
     const wait = this.loading || needs;
-    this.needAccount.hidden = wait || s.canCreate() || !s.hasAccounts;
-    this.startSection.hidden = wait || !s.canCreate();
-    this.joinSection.hidden = wait;
-    this.listSection.hidden = wait || kind === 'none';
+    const host = this.mode === 'host';
+    this.needAccount.hidden = wait || !host || s.canCreate() || !s.hasAccounts;
+    this.startSection.hidden = wait || !host || !s.canCreate();
+    this.joinSection.hidden = wait || host;
+    this.listSection.hidden = wait || host || kind === 'none';
   }
 
   private async saveName(): Promise<void> {
@@ -349,7 +356,7 @@ export class OnlinePanel {
     const opts = optionsOf(settings, kind);
     const main = ROOM_KINDS[id]![0];
     const note = opts[main] > DEFAULT_LIMITS.jigsawPieces ? ` (online puzzles have at most ${DEFAULT_LIMITS.jigsawPieces} ${id === 'overlap' || id === 'strips' ? 'cells' : 'pieces'}: it will have that many)` : '';
-    this.startTitle.textContent = this.needTitle.textContent = `Start ${/^[aeiou]/i.test(kind.name) ? 'an' : 'a'} ${kind.name}`;
+    this.startTitle.textContent = this.needTitle.textContent = `Host ${/^[aeiou]/i.test(kind.name) ? 'an' : 'a'} ${kind.name}`;
     const admin = this.deps.identity.isAdmin();                                  // an administrator may try a video of any length and size
     const tooLong = !admin && !!entry?.video && entry.duration * 1000 > DEFAULT_LIMITS.videoMs;
     const wrongKind = !!entry?.video && /[.](webm|mkv)$/i.test(entry.name);          // plays here, but cannot be checked to be shared (the check reads MP4 and MOV)
