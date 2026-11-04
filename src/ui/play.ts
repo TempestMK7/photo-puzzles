@@ -78,8 +78,8 @@ export class PlayScreen {
   private dialogEl = h('div', { class: 'dialog', hidden: true });
   private viewBar = h('div', { class: 'viewbar', hidden: true });
   // the playback bar of a video puzzle: pause / play, the time, a draggable position, the length, sound on / off
-  /** Restricts the playing of the video to a part of it: two dots over the timeline (the whole of it to begin with). */
-  private restrictBtn = h('button', { type: 'button', class: 'restrict', title: 'Choose the part of the video that plays over and over', 'aria-pressed': 'false', onclick: () => this.toggleRestrict() }, 'Restrict');
+  /** Opens a bar above the timeline with two dots that choose the part of the video that plays (the whole of it to begin with). */
+  private restrictBtn = h('button', { type: 'button', class: 'restrict', title: 'Choose the part of the video that plays over and over', 'aria-pressed': 'false', onclick: () => this.toggleRestrict() }, 'Duration');
   private rangeFill = h('div', { class: 'fill' });
   private rangeLo = h('input', { type: 'range', class: 'lo', min: 0, max: 1000, value: 0, step: 1, 'aria-label': 'Start of the part that plays' });
   private rangeHi = h('input', { type: 'range', class: 'hi', min: 0, max: 1000, value: 1000, step: 1, 'aria-label': 'End of the part that plays' });
@@ -90,7 +90,7 @@ export class PlayScreen {
   private curEl = h('span', { class: 'vt' }, '0:00');
   private totalEl = h('span', { class: 'vt' }, '0:00');
   private seekEl = h('input', { type: 'range', class: 'seek', min: 0, max: 1000, value: 0, step: 1, 'aria-label': 'Video position' });
-  private seekWrap = h('div', { class: 'seekwrap' }, this.seekEl, this.rangeBar);
+  private seekWrap = h('div', { class: 'seekwrap' }, this.rangeBar, this.seekEl);
   private muteBtn = h('button', { type: 'button', class: 'icon', title: 'Sound', 'aria-label': 'Sound', onclick: () => this.toggleMute() });
   /** A puzzle played with friends from a video: shown when the player has gone their own way, to be taken back to where the host is. */
   private syncBtn = h('button', { type: 'button', class: 'sync', hidden: true, title: 'Go back to where the host’s video is, and follow it again', onclick: () => void this.sync?.resync() }, '↻ Sync with host');
@@ -372,7 +372,7 @@ export class PlayScreen {
     pump();
   }
 
-  /** Shows or hides the two dots over the timeline (the part that was chosen goes on being played when they are hidden). */
+  /** Shows or hides the bar of the two dots above the timeline (the part that was chosen goes on being played when they are hidden). */
   private toggleRestrict(): void {
     this.rangeBar.hidden = !this.rangeBar.hidden;
     this.refreshRestrict();
