@@ -1,5 +1,5 @@
 import type { View } from '../render';
-import { detectTurn, UPRIGHT_GLSL } from './videoTurn';
+import { UPRIGHT_GLSL, VideoTurn } from './videoTurn';
 
 /**
  * A layer drawn on the graphics card for puzzles made from a video. Getting a picture of a playing video into a 2D canvas costs 25-40 ms on a slow device however small the
@@ -72,10 +72,8 @@ export class VideoLayer {
   private image: HTMLCanvasElement | null = null;
   private uImg: WebGLUniformLocation | null = null;
   private uTurn: WebGLUniformLocation | null = null;
-  /** How far the texture of the video is turned (see videoTurn.ts), looked for in the first frames that have something in them. */
-  private turn = 0;
-  private turnKnown = false;
-  private turnTries = 0;
+  /** How far the texture of the video is turned (see videoTurn.ts). */
+  private readonly turn: VideoTurn;
   private uRes: WebGLUniformLocation | null = null;
   private uXf: WebGLUniformLocation | null = null;
   private hasFrame = false;
@@ -94,6 +92,7 @@ export class VideoLayer {
   constructor(private readonly video: HTMLVideoElement) {
     this.vw = video.videoWidth;
     this.vh = video.videoHeight;
+    this.turn = new VideoTurn(video);
     this.canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
       this.lost = true;
@@ -193,14 +192,7 @@ export class VideoLayer {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v);
       this.hasFrame = true;
       this.lastTime = v.currentTime;
-      if (!this.turnKnown && this.turnTries < 12) {
-        this.turnTries++;
-        const k = detectTurn(v);
-        if (k !== null) {
-          this.turn = k;
-          this.turnKnown = true;
-        }
-      }
+      this.turn.frame();
     }
     this.n = 0;
     this.cut = -1;
@@ -321,7 +313,7 @@ export class VideoLayer {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.imgTex);
     gl.uniform1i(this.uImg, 1);
-    gl.uniform1i(this.uTurn, this.turn);
+    gl.uniform1i(this.uTurn, this.turn.value);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.tex);
     gl.uniform2f(this.uRes, this.width, this.height);

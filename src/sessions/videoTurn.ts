@@ -1,3 +1,5 @@
+import { orientationOf, type Mp4Orientation } from '../mp4';
+
 /**
  * A video that was filmed with the phone upright has its picture stored sideways, with a note in the file that says how far to turn it. A browser turns it by that when it draws the video
  * (`drawImage`, the video element), but on some phones (a Samsung Galaxy S23's WebView, for one) the picture that `texImage2D` is given is the stored one, not turned. The players' own device is
@@ -86,5 +88,63 @@ export function detectTurn(video: HTMLVideoElement): number | null {
     return null;
   } finally {
     gl.getExtension('WEBGL_lose_context')?.loseContext();
+  }
+}
+
+const CACHE = 'photo-puzzles/videoturn/v1';
+
+/** What a device does for a video of this codec that is stored this far turned, as the WebView of this version (an update can change it, and so can the decoder a codec gets) turns the texture. */
+export const turnKey = (userAgent: string, o: Mp4Orientation): string => `${/Chrome\/(\d+)/.exec(userAgent)?.[1] ?? '?'}|${o.codec}|${o.rotation}`;
+
+function cached(storage: Storage | null): Record<string, number> {
+  try {
+    const raw = JSON.parse(storage?.getItem(CACHE) ?? '{}') as Record<string, unknown>;
+    return Object.fromEntries(Object.entries(raw).filter(([, v]) => v === 0 || v === 1 || v === 2 || v === 3)) as Record<string, number>;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * How far the texture of one video is turned, for a renderer to pass to its shader (`value`). A video whose file says it is not turned needs no look (nearly all of them). One that says it
+ * is turned is looked at once for each codec and amount of turn on this device and WebView version, and the answer is kept in local storage for the next. A file that says nothing
+ * (not an MP4, or no header that could be read) is looked at while it plays, each time. Call `frame()` after each new picture of the video is given to the graphics card.
+ */
+export class VideoTurn {
+  value = 0;
+  private done = false;
+  private tries = 0;
+  private readonly o: Mp4Orientation | undefined;
+  private readonly key: string | null;
+
+  constructor(
+    private readonly video: HTMLVideoElement,
+    private readonly storage: Storage | null = typeof localStorage === 'undefined' ? null : localStorage,
+  ) {
+    this.o = orientationOf(video);
+    this.key = this.o && this.o.rotation !== 0 ? turnKey(navigator.userAgent, this.o) : null;
+    if (this.o?.rotation === 0) this.done = true;
+    else if (this.key) {
+      const k = cached(storage)[this.key];
+      if (k !== undefined) {
+        this.value = k;
+        this.done = true;
+      }
+    }
+  }
+
+  frame(): void {
+    if (this.done || this.tries >= 12) return;
+    this.tries++;                                                       // (a black or flat picture says nothing: the next ones are tried, a few times)
+    const k = detectTurn(this.video);
+    if (k === null) return;
+    this.value = k;
+    this.done = true;
+    if (!this.key) return;
+    try {
+      this.storage?.setItem(CACHE, JSON.stringify({ ...cached(this.storage), [this.key]: k }));
+    } catch {
+      // private mode or full: it is looked at again next time
+    }
   }
 }

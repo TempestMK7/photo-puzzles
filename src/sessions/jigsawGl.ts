@@ -1,5 +1,5 @@
 import type { Masks } from './jigsawArt';
-import { detectTurn, UPRIGHT_GLSL } from './videoTurn';
+import { UPRIGHT_GLSL, VideoTurn } from './videoTurn';
 
 /**
  * Drawing jigsaw pieces from a picture that keeps changing (a video). Cutting thousands of shaped pieces out of every video frame with the 2D canvas would be far too
@@ -203,10 +203,8 @@ export class PieceRenderer {
   res = 1;
   /** Which sides of piece `m` lie against another piece of its group (bit 0 top, 1 right, 2 bottom, 3 left): no outline is drawn there. */
   joinOf: ((m: number) => number) | null = null;
-  /** How far the texture of the video is turned (see videoTurn.ts), looked for in the first frames that have something in them. */
-  private turn = 0;
-  private turnKnown = false;
-  private turnTries = 0;
+  /** How far the texture of the video is turned (see videoTurn.ts). */
+  private readonly turn: VideoTurn;
   private readonly vw: number;
   private readonly vh: number;
 
@@ -217,6 +215,7 @@ export class PieceRenderer {
   ) {
     this.vw = video.videoWidth;
     this.vh = video.videoHeight;
+    this.turn = new VideoTurn(video);
     this.canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
       this.lost = true;
@@ -304,14 +303,7 @@ export class PieceRenderer {
       this.lastTime = v.currentTime;
       this.hasFrame = true;
       this.mipsFresh = false;
-      if (!this.turnKnown && this.turnTries < 12) {
-        this.turnTries++;
-        const k = detectTurn(v);
-        if (k !== null) {
-          this.turn = k;
-          this.turnKnown = true;
-        }
-      }
+      this.turn.frame();
     }
     if (needMips && !this.mipsFresh) {
       gl.generateMipmap(gl.TEXTURE_2D);
@@ -467,7 +459,7 @@ export class PieceRenderer {
     gl.uniform2f(p.u.u_src, l.cropX - masks.pad, l.cropY - masks.pad);
     gl.uniform1f(p.u.u_size, l.size);
     gl.uniform2f(p.u.u_vid, this.vw, this.vh);
-    gl.uniform1i(p.u.u_turn, this.turn);
+    gl.uniform1i(p.u.u_turn, this.turn.value);
     gl.uniform1f(p.u.u_outline, Math.min(1, Math.max(0, (l.size * view.scale - 10) / 20)));      // lines between tiny pieces only make noise
     gl.uniform1f(p.u.u_blur, view.scale < 1 ? 0.5 / view.scale : 0);
     draw(0, nBack);
