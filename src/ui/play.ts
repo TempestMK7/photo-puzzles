@@ -381,6 +381,7 @@ export class PlayScreen {
   private refreshRestrict(): void {
     this.restrictBtn.classList.toggle('on', !this.rangeBar.hidden || !!this.range);
     this.restrictBtn.setAttribute('aria-pressed', String(!this.rangeBar.hidden));
+    this.vbar.classList.toggle('ranging', !this.rangeBar.hidden);
   }
 
   /** The dots have moved: the part of the video that is looped over is what lies between them (the whole video when they are at the ends). */
