@@ -2,6 +2,7 @@ import { describeDifficulty, findKind, KINDS, optionValue, recordKey, settingsOf
 import { pickAnother } from '../core/pick';
 import { randomSeedText } from '../core/rng';
 import { isVideoFile } from '../image';
+import { readMp4Orientation } from '../mp4';
 import { formatAgo, formatTime, type Prefs } from '../core/prefs';
 import { STOCK_NAMES, type StockItem, type StockSite, type StockType } from '../online/protocol';
 import { fetchLink, parseLink } from '../store/link';
@@ -99,6 +100,8 @@ export class LibraryScreen {
   // (no referrer: a stock site's image server turns away a picture asked for by another site's page, and what we show is the library's own object URL or the stock site's)
   private previewImg = h('img', { alt: '', referrerPolicy: 'no-referrer' });
   private previewVideo = h('video', { muted: true, loop: true, playsInline: true, autoplay: true, hidden: true, 'aria-label': 'Preview' });
+  /** Where a video that the file says is turned is shown instead (drawn picture by picture: on some phones the video element shows it as stored, sideways). */
+  private previewCanvas = h('canvas', { hidden: true, 'aria-label': 'Preview' });
   private nameEl = h('div', { class: 'pname' });
   /** The name of the chosen local file, with the button that renames it (the file is known by its id, so the name is the player's to change). */
   private renameBtn = h('button', { type: 'button', class: 'small rename', title: 'Give this file another name', onclick: () => this.startRename() }, 'Rename');
@@ -203,7 +206,7 @@ export class LibraryScreen {
         'div',
         { class: 'main' },
         h('aside', { class: 'photos' }, this.tabsEl, this.stockBar, this.sortBar, this.listEl, this.stockListEl, this.photoNoteEl, this.footEl),
-        h('section', { class: 'preview' }, h('div', { class: 'frame' }, this.previewImg, this.previewVideo), this.nameRow, this.creditEl),
+        h('section', { class: 'preview' }, h('div', { class: 'frame' }, this.previewImg, this.previewVideo, this.previewCanvas), this.nameRow, this.creditEl),
         h(
           'aside',
           { class: 'side' },
@@ -457,6 +460,35 @@ export class LibraryScreen {
     return li;
   }
 
+  /** A video whose file says it is turned is shown by drawing its pictures on a canvas (the video element itself plays on, out of sight). */
+  private async copyIfTurned(url: string): Promise<void> {
+    let turned = false;
+    try {
+      turned = ((await readMp4Orientation(await (await fetch(url)).blob()))?.rotation ?? 0) !== 0;
+    } catch {
+      return;
+    }
+    const v = this.previewVideo;
+    if (!turned || v.dataset.url !== url) return;
+    v.classList.add('copied');
+    this.previewCanvas.hidden = false;
+    const draw = (): void => {
+      if (v.dataset.url !== url || this.previewCanvas.hidden) return;
+      if (v.readyState >= 2 && v.videoWidth) {
+        const k = Math.min(1, 640 / Math.max(v.videoWidth, v.videoHeight));
+        const w = Math.round(v.videoWidth * k);
+        const hgt = Math.round(v.videoHeight * k);
+        if (this.previewCanvas.width !== w || this.previewCanvas.height !== hgt) {
+          this.previewCanvas.width = w;
+          this.previewCanvas.height = hgt;
+        }
+        this.previewCanvas.getContext('2d')!.drawImage(v, 0, 0, w, hgt);
+      }
+      requestAnimationFrame(draw);
+    };
+    draw();
+  }
+
   private thumbFor(e: PhotoEntry): HTMLImageElement {
     const img = h('img', { alt: '', width: 56, height: 56 });
     if (this.nearby) {
@@ -477,12 +509,16 @@ export class LibraryScreen {
       if (this.previewVideo.dataset.url !== shown.url) {
         this.previewVideo.dataset.url = shown.url;
         this.previewVideo.src = shown.url;
+        this.previewCanvas.hidden = true;
+        this.previewVideo.classList.remove('copied');
+        if (e && !stock) void this.copyIfTurned(shown.url);
       }
       this.previewVideo.hidden = false;
       void this.previewVideo.play().catch(() => undefined);
     } else {
       this.previewVideo.pause();
       this.previewVideo.hidden = true;
+      this.previewCanvas.hidden = true;
       if (this.previewVideo.dataset.url) {
         delete this.previewVideo.dataset.url;
         this.previewVideo.removeAttribute('src');
