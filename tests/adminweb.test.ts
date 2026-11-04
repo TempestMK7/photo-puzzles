@@ -53,7 +53,7 @@ describe('the admin routes', () => {
     const { w, call } = setup();
     const made = await open(w);
     for (const who of [[], ['users'], ['admin'], ['Admins']]) {
-      for (const [method, path] of [['GET', '/admin/me'], ['GET', '/admin/players'], ['GET', '/admin/rooms'], ['GET', `/admin/room/${made.roomId}`], ['POST', `/admin/room/${made.roomId}/remove`], ['GET', '/admin/files'], ['POST', '/admin/file/x/remove'], ['POST', '/admin/account'], ['GET', '/admin/reports'], ['GET', '/admin/bans'], ['POST', '/admin/ban'], ['POST', '/admin/unban'], ['GET', '/admin/logs/groups'], ['GET', '/admin/logs']]) {
+      for (const [method, path] of [['GET', '/admin/me'], ['GET', '/admin/players'], ['GET', '/admin/rooms'], ['GET', `/admin/room/${made.roomId}`], ['POST', `/admin/room/${made.roomId}/remove`], ['GET', '/admin/files'], ['POST', '/admin/file/x/remove'], ['POST', '/admin/account'], ['GET', '/admin/reports'], ['GET', '/admin/bans'], ['POST', '/admin/ban'], ['POST', '/admin/unban'], ['POST', '/admin/delete'], ['GET', '/admin/logs/groups'], ['GET', '/admin/logs']]) {
         expect(await call(method, path, { groups: who, body: { id: 'ann' } }), `${method} ${path} as ${who}`).toEqual({ status: 403, body: { ok: false, error: 'unauthorized' } });
       }
     }
@@ -180,6 +180,17 @@ describe('the admin routes', () => {
     expect((await call('GET', '/admin/bans')).body.bans).toEqual([]);
     for (const bad of [{}, { id: '' }, { id: '../x' }, { id: 5 }]) expect((await call('POST', '/admin/ban', { body: bad })).status).toBe(400);
     expect((await call('POST', '/admin/unban', { body: {} })).status).toBe(400);
+  });
+
+  it('delete an account without banning it, and not the one that asks', async () => {
+    const { w, call } = setup();
+    const made = await open(w);
+    expect(await call('POST', '/admin/delete', { body: { id: 'ann' }, sub: 'root' })).toEqual({ status: 200, body: { ok: true } });
+    expect(await w.store.getAccount('ann')).toBeUndefined();
+    expect(await w.service.adminRoom(made.roomId)).toBeUndefined();            // the puzzle she made ended with her account
+    expect((await call('GET', '/admin/bans')).body.bans).toEqual([]);          // (not banned: she can make another)
+    expect(await call('POST', '/admin/delete', { body: { id: 'root' }, sub: 'root' })).toEqual({ status: 400, body: { ok: false, error: 'self' } });
+    for (const bad of [{}, { id: '' }, { id: '../x' }, { id: 5 }]) expect((await call('POST', '/admin/delete', { body: bad })).status).toBe(400);
   });
 
   it('read the logs of one of the groups it offers, within the last day, and no other', async () => {

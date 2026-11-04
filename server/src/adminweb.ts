@@ -127,6 +127,13 @@ export function makeAdminWeb(d: { service: RoomService; directory: Directory; lo
       return ok();
     }
 
+    // an account deleted for good, as if its owner had asked (not a ban: they may make another; for testing, and for someone who cannot sign in). Not the administrator's own.
+    if (post && path === '/admin/delete') {
+      if (!isId(body.id)) return no(400, 'id');
+      if (body.id === req.sub) return no(400, 'self');
+      return (await service.adminDeleteAccount(body.id)).ok ? ok() : no(502, 'busy');
+    }
+
     if (get && path === '/admin/logs/groups') return ok({ groups: await d.logs.groups() });
     if (get && path === '/admin/logs') {
       const group = req.query.get('group') ?? '';
