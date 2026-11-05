@@ -23,6 +23,8 @@ import { OnlinePanel, type OnlineDeps } from './ui/online';
 import { PlayScreen } from './ui/play';
 import { browserSignIn, takeSignIn, tellAchievements } from './platform';
 import { InventoryUi } from './ui/inventory';
+import { Tutorial } from './ui/tutorial';
+import { TutorialStore } from './store/tutorial';
 import { DELETE_HASH, ProfileDialog, takeAccountDeletedNotice } from './ui/profile';
 import { SignInDialog } from './ui/signin';
 
@@ -99,7 +101,8 @@ async function main(): Promise<void> {
         ? new WsRealtime(base, () => player.token())
         : null;
   // the inventory (credits, hints, bombs): its dialog explains each and, in the mobile apps, plays the ads for them; its button is on the main screen and the play screen
-  const inventory = api ? new InventoryUi({ identity: player, api, signIn: () => signIn() }) : null;
+  const tutorial = new Tutorial(new TutorialStore(storage()));
+  const inventory = api ? new InventoryUi({ identity: player, api, signIn: () => signIn(), tutorial }) : null;
   const achievements = new AchievementStore(storage());
   const achievementsUi = new AchievementsUi(achievements);
   const bestTimes = new BestTimeStore(storage());
@@ -130,6 +133,9 @@ async function main(): Promise<void> {
     online: api ? { api } : undefined,
     player,
     inventory: inventory?.button.bind(inventory),
+    tutorial,
+    helpAdReady: () => !!inventory?.helpAdReady(),
+    openHelp: (kind) => inventory?.show(kind),
     photoAdded: (id) => void library.photoAdded(id),
   });
   // the pop-ups for signing in (the game's own pages, in a build whose accounts have them) and for the profile, with the round badge on the main screen

@@ -191,13 +191,12 @@ describe.each(stores)('accounts and credits on %s', (_name, store) => {
       expect((await w.service.summary(ann)).photo).toBe(0);
     });
 
-    it('gives a free account photo credits, and only when it has none left', async () => {
+    it('gives a free account photo credits, whether or not it has some left (up to the daily count)', async () => {
       const w = world({ adsTrusted: 1 });
-      expect(await w.service.claimAd(ann, ad())).toMatchObject({ ok: false, error: 'ad-refused', reason: 'has-credits', account: { photo: 5 } });
+      expect(await w.service.claimAd(ann, ad())).toMatchObject({ ok: true, account: { photo: 10, photoAdsLeft: 4 } });
       await none(w);
-      expect(await w.service.claimAd(ann, ad())).toMatchObject({ ok: true, account: { photo: 5, photoAdsLeft: 4 } });
-      expect(await w.service.claimAd(ann, ad())).toMatchObject({ ok: false, reason: 'has-credits' });
-      expect(await w.store.getAccount('ann')).toMatchObject({ photo: 5, photoAds: 1 });
+      expect(await w.service.claimAd(ann, ad())).toMatchObject({ ok: true, account: { photo: 5, photoAdsLeft: 3 } });
+      expect(await w.store.getAccount('ann')).toMatchObject({ photo: 5, photoAds: 2 });
     });
 
     it('allows five a day, and starts again the next day', async () => {
@@ -237,9 +236,8 @@ describe.each(stores)('accounts and credits on %s', (_name, store) => {
       const w = world({ adsTrusted: 1 });
       const route = createRouter({ service: w.service, auth: new DevAuth(), media: w.media });
       const post = (who: string, body: unknown) => route({ method: 'POST', path: '/credits/ad', query: new URLSearchParams(), authorization: `Bearer dev:${who}:Name`, body: new TextEncoder().encode(JSON.stringify(body)) });
-      expect(await post('ann', ad())).toMatchObject({ status: 409, body: { error: 'ad-refused', reason: 'has-credits' } });
-      await none(w);
-      expect(await post('ann', ad())).toMatchObject({ status: 200, body: { ok: true, account: { photo: 5 } } });
+      expect(await post('ann', ad())).toMatchObject({ status: 200, body: { ok: true, account: { photo: 10 } } });
+      expect(await post('ann', ad('video'))).toMatchObject({ status: 409, body: { error: 'ad-refused', reason: 'plan' } });
       expect((await route({ method: 'POST', path: '/credits/ad', query: new URLSearchParams(), body: new Uint8Array() })).status).toBe(401);
       const cold = world();
       const r2 = createRouter({ service: cold.service, auth: new DevAuth(), media: cold.media });

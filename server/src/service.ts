@@ -595,7 +595,7 @@ export class RoomService {
     const { limits, clock } = this.d;
     if (!adGives(type, kind)) return fail('ad-refused', { reason: 'plan' });
     if (kind === 'hint' || kind === 'bomb') return this.helpAdWait(account);                // (they are not for having none left, and not so many a day: one every so often)
-    if (account[kind] > 0) return fail('ad-refused', { reason: 'has-credits' });                       // only when there are none left
+    if (kind === 'video' && account.video > 0) return fail('ad-refused', { reason: 'has-credits' });       // video credits only when there are none left (photo credits can be had any time, up to the daily count)
     const used = adsToday(account, clock.now())[kind];
     if (used >= (kind === 'photo' ? limits.adsPerDay : limits.videoAdsPerDay)) return fail('ad-refused', { reason: 'daily-limit' });
     return null;

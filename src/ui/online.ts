@@ -56,7 +56,7 @@ export function costNote(video: boolean, a: AccountSummary): string {
 }
 
 const AD_REFUSALS: Record<AdRefusal, string> = {
-  'has-credits': 'You can watch an ad when you have no credits left.',
+  'has-credits': 'You can watch an ad for video credits when you have none left.',
   'daily-limit': 'You have watched all of today\u2019s ads. You can watch more tomorrow.',
   platform: 'Ads can only be watched in the Android and iOS apps.',
   plan: 'This account does not get credits for ads.',
@@ -367,6 +367,12 @@ export class OnlinePanel {
         : tooLong
         ? `${entry.name} is longer than the ${DEFAULT_LIMITS.videoMs / 1000} seconds an online video puzzle may be: choose another, or a picture.`
         : `${entry.name}: ${entry.video ? 'a video, ' : ''}${describeDifficulty(kind, settings)}${note}. The settings are the ${kind.name} settings of the main screen. ${costNote(!!entry.video, this.deps.identity.summary())}`.trim();
+    // the way to more credits is next to what they cost (the inventory has the ad for them, in the apps that have ads)
+    const mine = this.deps.identity.summary();
+    const want: CreditKind = entry?.video ? 'video' : 'photo';
+    if (entry && mine.type !== 'guest' && !(want === 'video' ? mine.videoInfinite || !mine.canVideo : mine.photoInfinite)) {
+      this.chosenEl.append(' ', h('button', { type: 'button', class: 'small', onclick: () => this.deps.openCredits?.(want) }, 'Get credits'));
+    }
     const said = entry?.video
       ? 'I agree that this video is sent to the online server, where the players of this puzzle can see and download it, and that all of it is checked automatically. The puzzle is deleted when it is solved or when nobody has touched it for a day, but the server keeps a copy of the video for a week after you last make a puzzle from it, so that you can make another without sending it again. I confirm that it has no sexual or adult content: that is not allowed in online puzzles.'
       : 'I agree that this picture is sent to the online server, where the players of this puzzle can see it. The puzzle is deleted when it is solved or when nobody has touched it for a day, but the server keeps a copy of the picture for a week after you last make a puzzle from it, so that you can make another without sending it again. I confirm that it has no sexual or adult content: that is not allowed in online puzzles.';
