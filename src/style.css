@@ -63,6 +63,8 @@ input[type='email'], input[type='password'] { text-transform: none; letter-spaci
 .inventory-btn.glow .ico { color: #ffd84a; }
 .howto-btn.glow, .play .helps button.ad { border-color: #ffd84a; box-shadow: 0 0 0 0 rgba(255, 216, 74, 0.7); animation: inventory-pulse 1.8s ease-out infinite; }
 .howto-btn.glow .ico { color: #ffd84a; }
+.play button.howto-btn { display: inline-flex; align-items: center; gap: 6px; }
+.howto-btn .ico { display: inline-flex; color: var(--accent2); }
 .play .helps button.empty { opacity: 0.6; }
 @keyframes inventory-pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 216, 74, 0.7); } 70% { box-shadow: 0 0 0 9px rgba(255, 216, 74, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 216, 74, 0); } }
 @media (prefers-reduced-motion: reduce) { .inventory-btn.glow, .howto-btn.glow, .play .helps button.ad { animation: none; box-shadow: 0 0 0 3px rgba(255, 216, 74, 0.55); } }
