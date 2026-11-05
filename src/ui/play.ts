@@ -193,7 +193,7 @@ export class PlayScreen {
         h('div', { class: 'stats' }, this.timeEl, this.statusEl),
         // two groups at the right (side by side, or one under the other on a phone: style.css): what is done to the board, then what is the player's
         h('div', { class: 'view-group' }, this.rotateBtn, this.refBtn),
-        h('div', { class: 'tool-group' }, this.howBtn, this.helpEl, (this.invBtn = deps.inventory?.()), settingsButton(deps.prefs, () => this.settingsChanged())),
+        h('div', { class: 'tool-group' }, this.helpEl, (this.invBtn = deps.inventory?.()), this.howBtn, settingsButton(deps.prefs, () => this.settingsChanged())),
       ),
       this.main,
     );
