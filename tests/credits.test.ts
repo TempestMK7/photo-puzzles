@@ -141,13 +141,13 @@ describe('what the credit dialogs say', () => {
     expect(text(explainCredits('photo', GUEST_ACCOUNT, 'web'))).toContain('starts with 5 photo credits');
   });
 
-  it('says what a photo credit does, that it never expires, and, with none left in an app, offers an ad', () => {
+  it('says what a photo credit does, that it never expires, and, in an app, offers an ad (any time for photo credits)', () => {
     const some = explainCredits('photo', summary({ photo: 3 }), 'android');
     expect(text(some)).toContain('costs 1 photo credit');
     expect(text(some)).toContain('You have 3');
     expect(text(some)).toContain('never expire');
-    expect(some.ad).toBeUndefined();                                                // only when there are none left
-    expect(text(some)).toContain('(5 ads left today)');
+    expect(some.ad).toEqual({ label: 'Watch an ad for 5 photo credits', note: '5 ads left today' });          // a photo ad can be watched with credits in hand
+    expect(text(some)).toContain('whenever you like');
     const none = explainCredits('photo', summary({ photo: 0, photoAdsLeft: 3 }), 'ios');
     expect(none.ad).toEqual({ label: 'Watch an ad for 5 photo credits', note: '3 ads left today' });
     const used = explainCredits('photo', summary({ photo: 0, photoAdsLeft: 0 }), 'android');
@@ -210,7 +210,7 @@ describe('what starting a puzzle is said to cost', () => {
     expect(sayError('no-credits', { credits: 'video' })).toBe('You have no video credits left.');
     expect(sayError('plan-required')).toBe('Video puzzles are for paid accounts.');
     expect(sayError('ad-refused', { reason: 'daily-limit' })).toContain('tomorrow');
-    expect(sayError('ad-refused', { reason: 'has-credits' })).toContain('no credits left');
+    expect(sayError('ad-refused', { reason: 'has-credits' })).toContain('none left');
     expect(sayError('ad-refused')).toBe('That ad could not be counted.');
     expect(sayError('ads-off')).toContain('cannot be counted');
   });

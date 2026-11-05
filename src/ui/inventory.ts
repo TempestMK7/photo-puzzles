@@ -4,6 +4,7 @@ import type { OnlineSession } from '../online/session';
 import { adPlatform, adPrivacy, platform, prepareAds, watchAd, type Platform } from '../platform';
 import { creditText, explainCredits, type CreditsExplanation } from './credits';
 import { h, svg } from './dom';
+import type { Tutorial } from './tutorial';
 import { sayError } from './online';
 
 /** What the inventory lists: the credits that starting a puzzle for friends costs, and the hints and bombs that a puzzle uses. */
@@ -68,6 +69,8 @@ export interface InventoryDeps {
   api: OnlineApi;
   /** Asks the player to sign in or make an account (the pop-up for it); true when they have. */
   signIn(): Promise<boolean>;
+  /** The walk-through of the game: the window points at its button for an ad when the play screen has led the player here. */
+  tutorial?: Tutorial;
 }
 
 /**
@@ -121,7 +124,18 @@ export class InventoryUi {
     return Math.max(0, this.deps.identity.summary().helpAdIn - (Date.now() - this.seenAt));
   }
 
-  /** The buttons (lit while an ad for hints or a bomb is ready) and the open dialog, from what the account says. `ask`: the account is asked again if the wait should be over. */
+  /** An ad for hints or a bomb can be watched (or taken) now. */
+  helpAdReady(): boolean {
+    return this.available() && this.deps.identity.summary().helpAdReady;
+  }
+
+  /** A free account in an app with ads, with no photo credits and ads left today: an ad is a way to start a puzzle with friends. */
+  private photoAdReady(): boolean {
+    const a = this.deps.identity.summary();
+    return !!adPlatform() && a.type === 'free' && !a.photoInfinite && a.photo < 1 && a.photoAdsLeft > 0;
+  }
+
+  /** The buttons (lit while an ad for hints, a bomb or photo credits can be had) and the open dialog, from what the account says. `ask`: the account is asked again if the wait should be over. */
   refresh(ask = false): void {
     const a = this.deps.identity.summary();
     if (a !== this.last) {
@@ -129,8 +143,8 @@ export class InventoryUi {
       this.seenAt = Date.now();
     }
     const here = this.available();
-    const ready = here && a.helpAdReady;
-    const title = ready ? (a.helpAdNoAd ? 'Inventory: free hints or a bomb are ready to take' : 'Inventory: you can watch an ad for hints or a bomb') : 'Inventory: your credits, hints and bombs';
+    const ready = (here && a.helpAdReady) || this.photoAdReady();
+    const title = !(here && a.helpAdReady) && ready ? 'Inventory: you can watch an ad for photo credits' : ready ? (a.helpAdNoAd ? 'Inventory: free hints or a bomb are ready to take' : 'Inventory: you can watch an ad for hints or a bomb') : 'Inventory: your credits, hints and bombs';
     for (const b of this.buttons) {
       b.classList.toggle('glow', ready);
       b.title = title;
@@ -156,11 +170,30 @@ export class InventoryUi {
     this.dialog.hidden = false;
     if (item) this.body.querySelector<HTMLElement>(`[data-item="${item}"]`)?.scrollIntoView({ block: 'nearest' });
     this.dialog.querySelector<HTMLElement>('button')?.focus();
+    this.tour();
   }
 
   close(): void {
     this.open = false;
     this.dialog.hidden = true;
+    const t = this.deps.tutorial;
+    if (t?.adDialog) {
+      t.adDialog = false;
+      t.coach.hide();
+      t.changed();                                         // (the play screen points at the button again, if the ad has not been watched)
+    }
+  }
+
+  /** When the play screen has led the player here to see the ad for hints and bombs, a bubble points at the button for it. */
+  private tour(): void {
+    const t = this.deps.tutorial;
+    if (!t || t.step !== 'ad') return;
+    t.adDialog = true;
+    t.coach.show({
+      target: () => (this.open ? this.body.querySelector<HTMLElement>('.inv-item[data-item="hint"] .row button, .inv-item[data-item="bomb"] .row button') : null),
+      title: 'More hints and bombs',
+      text: 'Press this button to watch a short ad. When it is over the hints (or the bomb) are yours. There is another ad about every 20 to 30 minutes.',
+    });
   }
 
   private draw(): void {
@@ -227,6 +260,11 @@ export class InventoryUi {
       this.message = { item, text: out.error === 'offline' ? 'Could not reach the server.' : sayError(out.error, out as ApiFailure) };
     };
     this.busy = item;
+    if (help && this.deps.tutorial?.adDialog) {
+      this.deps.tutorial.store.done('ad');                  // (the player has taken the step the walk-through was leading to)
+      this.deps.tutorial.adDialog = false;
+      this.deps.tutorial.coach.hide();
+    }
     this.say(item, help && !free ? 'Adding them…' : 'Getting an ad ready…');
     try {
       if (help && !free) {

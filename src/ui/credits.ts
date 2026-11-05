@@ -58,7 +58,7 @@ export function explainCredits(kind: CreditKind, a: AccountSummary, where: Platf
     paragraphs.push(outside);
     return { title, paragraphs };
   }
-  if (held > 0) {
+  if (!photo && held > 0) {
     paragraphs.push(`When you have none left you can watch an ad for ${plural(give, `${unit} credit`, `${unit} credits`)} (${plural(left, 'ad', 'ads')} left today).`);
     return { title, paragraphs };
   }
@@ -66,5 +66,6 @@ export function explainCredits(kind: CreditKind, a: AccountSummary, where: Platf
     paragraphs.push('You have watched all of today’s ads. You can watch more tomorrow.');
     return { title, paragraphs };
   }
+  if (photo) paragraphs.push(`You can watch an ad for ${plural(give, 'photo credit', 'photo credits')} whenever you like, ${plural(left, 'ad', 'ads')} left today.`);
   return { title, paragraphs, ad: { label: `Watch an ad for ${plural(give, `${unit} credit`, `${unit} credits`)}`, note: `${plural(left, 'ad', 'ads')} left today` } };
 }

@@ -27,6 +27,11 @@ import { settingsButton } from './settings';
 import { sayError } from './online';
 import { OnlineBar } from './onlinebar';
 import { RefWindow } from './refwindow';
+import { openHowTo } from './howto';
+import { howtoNew, nextStep, type Step } from '../core/tutorial';
+import type { Tutorial } from './tutorial';
+
+const HOWTO_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/></svg>';
 
 export interface PlayDeps {
   prefs: Prefs;
@@ -45,6 +50,12 @@ export interface PlayDeps {
   player?: OnlineSession;
   /** Makes a button for the inventory (credits, hints, bombs), for the top bar of this screen. */
   inventory?: () => HTMLButtonElement;
+  /** The walk-through of the game: What the player has been shown, and the bubble that points things out. */
+  tutorial?: Tutorial;
+  /** An ad for hints or a bomb can be watched now (the buttons of hints and bombs glow then). */
+  helpAdReady?: () => boolean;
+  /** Opens the inventory at the hints or the bombs (a button with none left leads there). */
+  openHelp?: (kind: HelpKind) => void;
   /** The achievements: told when a hint or a bomb is used and when a puzzle is solved. */
   achievements?: AchievementStore;
   /** The best time of each kind and size: a puzzle played alone is entered when it is solved. */
@@ -119,6 +130,13 @@ export class PlayScreen {
   private refBtn = h('button', { type: 'button', class: 'toggle', title: 'Look at the original photo', 'aria-pressed': 'false', onclick: () => this.toggleRef() }, 'Show Photo');
   private main = h('main', {}, this.tabsEl, this.stage, this.vbar);
   // hints and bombs (Tile Swap, Overlap, Strips, Jigsaw): the player picks one, then taps the board; it comes out of their account (see core/help.ts)
+  /** Opens the window with the controls and rules of this puzzle type; it glows until it has been opened for the type. */
+  private howBtn = h('button', { type: 'button', class: 'toggle howto-btn', title: 'How to play this puzzle: the controls and the rules', 'aria-label': 'How To Play', onclick: () => this.openHowTo() }, svg(HOWTO_ICON, 'ico'), h('span', { class: 'label' }, 'How To Play'));
+  private invBtn: HTMLButtonElement | undefined;
+  /** The steps of the walk-through that the player has put away for this puzzle, the one that is showing, and whether the How To Play window is open. */
+  private putAway = new Set<Step>();
+  private tipKey = '';
+  private howtoOpen = false;
   private hintBtn = this.helpButton('hint', 'Hint');
   private bombBtn = this.helpButton('bomb', 'Bomb');
   private helpEl = h('span', { class: 'helps', hidden: true }, this.hintBtn, this.bombBtn);
@@ -175,7 +193,7 @@ export class PlayScreen {
         h('div', { class: 'stats' }, this.timeEl, this.statusEl),
         // two groups at the right (side by side, or one under the other on a phone: style.css): what is done to the board, then what is the player's
         h('div', { class: 'view-group' }, this.rotateBtn, this.refBtn),
-        h('div', { class: 'tool-group' }, this.helpEl, deps.inventory?.(), settingsButton(deps.prefs, () => this.settingsChanged())),
+        h('div', { class: 'tool-group' }, this.howBtn, this.helpEl, (this.invBtn = deps.inventory?.()), settingsButton(deps.prefs, () => this.settingsChanged())),
       ),
       this.main,
     );
@@ -188,7 +206,11 @@ export class PlayScreen {
         new ResizeObserver(() => this.stage.style.setProperty('--obar', `${row.offsetHeight ? row.offsetHeight + 6 : 0}px`)).observe(row);
       }
     }
-    deps.player?.onChange(() => this.refreshHelp());
+    deps.player?.onChange(() => {
+      this.refreshHelp();
+      this.coachTick();
+    });
+    deps.tutorial?.onChange(() => this.coachTick());
     if (deps.player) deps.player.onSpendRefused = (item) => this.session && this.flash(`The server had no ${item}s left for one that was used.`);
     this.canvas.addEventListener('pointerdown', (e) => this.pointerDown(e));
     this.canvas.addEventListener('pointermove', (e) => this.pointerMove(e));
@@ -518,6 +540,7 @@ export class PlayScreen {
     const src = this.src;
     if (!entry || !src) return;
     const run = ++this.beginRun;
+    this.putAway.clear();
     const { prefs, saves } = this.deps;
     const kind = this.kind;
     this.loading = true;
@@ -600,6 +623,7 @@ export class PlayScreen {
     this.arm(null);
     this.helpShown = '';
     this.refreshHelp();
+    this.coachTick();
   }
 
   // ---------------------------------------------------------------------------------------------------------------- hints and bombs
@@ -611,6 +635,11 @@ export class PlayScreen {
 
   /** A button of the header was pressed: chooses that one, or puts the choice away. */
   private pressHelp(kind: HelpKind): void {
+    const a = this.deps.player?.summary();
+    if (a && (kind === 'hint' ? a.hints : a.bombs) < 1) {                  // none left: the inventory says how to get more (and has the ad for them)
+      this.deps.openHelp?.(kind);
+      return;
+    }
     this.arm(this.armed === kind ? null : kind);
   }
 
@@ -626,7 +655,8 @@ export class PlayScreen {
     const available = this.helpAvailable();
     const a = p?.summary();
     const over = !!this.session?.solved;
-    const key = available && a ? `${a.hints}|${a.bombs}|${over}` : '';
+    const ad = !!this.deps.helpAdReady?.();
+    const key = available && a ? `${a.hints}|${a.bombs}|${over}|${ad}` : '';
     if (key === this.helpShown) return;
     this.helpShown = key;
     this.helpEl.hidden = !available;
@@ -636,8 +666,10 @@ export class PlayScreen {
     }
     const set = (kind: HelpKind, btn: HTMLButtonElement, n: number): void => {
       btn.querySelector('.n')!.textContent = String(n);
-      btn.disabled = over || n < 1;
-      btn.title = n < 1 ? `You have no ${kind}s left. The Inventory says how to get more.` : kind === 'hint' ? 'Place one piece where it belongs' : 'Place the pieces round a point you choose';
+      btn.disabled = over;
+      btn.classList.toggle('empty', n < 1);
+      btn.classList.toggle('ad', ad && n < 1);                           // (none left and an ad for more can be watched: it glows)
+      btn.title = n < 1 ? `You have no ${kind}s left. ${ad ? 'Press to watch an ad for more.' : 'Press to see how to get more.'}` : kind === 'hint' ? 'Place one piece where it belongs' : 'Place the pieces round a point you choose';
       if (btn.disabled && this.armed === kind) this.arm(null);
     };
     set('hint', this.hintBtn, a.hints);
@@ -656,6 +688,7 @@ export class PlayScreen {
     this.canvas.classList.toggle('helping-hint', kind === 'hint');          // (the cursor is the hint's or the bomb's own: style.css)
     this.canvas.classList.toggle('helping-bomb', kind === 'bomb');
     this.instruct();
+    this.coachTick();
   }
 
   /** The line over the board: what the chosen one will do, or nothing. */
@@ -698,6 +731,7 @@ export class PlayScreen {
       else player.spend(kind);
       session.help(kind, p);
       this.deps.achievements?.record({ type: 'help', help: kind });
+      this.deps.tutorial?.store.done(kind);
       this.arm(null);
       this.after();
       if (this.online) {
@@ -706,6 +740,84 @@ export class PlayScreen {
       }
     } finally {
       this.helpBusy = false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- how to play, and the walk-through
+
+  private openHowTo(): void {
+    this.deps.tutorial?.store.seenHowto(this.kind.id);
+    this.howtoOpen = true;
+    this.coachTick();
+    openHowTo(this.kind.id, () => {
+      this.howtoOpen = false;
+      this.coachTick();
+    });
+  }
+
+  private hideTip(): void {
+    const t = this.deps.tutorial;
+    if (this.tipKey && t) t.coach.hide();
+    if (t) t.step = null;
+    this.tipKey = '';
+  }
+
+  /**
+   * Lights the How To Play button of a type of puzzle that has never been opened, and points out what comes next to a player who is new (how to play, then a hint, then a bomb, then
+   * an ad for more: `nextStep`) with a bubble. The bubble is not there while a window is open or the puzzle is over.
+   */
+  private coachTick(): void {
+    const t = this.deps.tutorial;
+    if (!t) return;
+    const data = t.store.data;
+    this.howBtn.classList.toggle('glow', howtoNew(data, this.kind.id));
+    if (t.adDialog) return;                                              // (the inventory window has the bubble)
+    const a = this.deps.player?.summary();
+    const quiet = this.el.hidden || !this.session || this.session.solved || this.loading || this.howtoOpen || !this.dialogEl.hidden;
+    // (a player who has put the bubble about How To Play away is taken for one who has seen it, for the rest of this puzzle)
+    const seen = this.putAway.has('howto') ? { ...data, howto: [...data.howto, '*'] } : data;
+    let step = quiet ? null : nextStep(seen, { helpers: this.helpAvailable(), hints: a?.hints ?? 0, bombs: a?.bombs ?? 0, adReady: !!this.deps.helpAdReady?.() });
+    if (step && this.putAway.has(step)) step = null;
+    const key = step ? `${step}|${this.armed ?? ''}` : '';
+    t.step = step;
+    if (key === this.tipKey) return;
+    this.tipKey = key;
+    if (!step) {
+      t.coach.hide();
+      return;
+    }
+    const away = (done?: 'hint' | 'bomb'): (() => void) => () => {
+      if (done) t.store.done(done);
+      this.putAway.add(step!);
+      this.tipKey = '';
+      this.coachTick();
+    };
+    switch (step) {
+      case 'howto':
+        t.coach.show({ target: () => this.howBtn, title: 'New here?', text: 'Press How To Play to see the controls and the rules of this puzzle.', dismiss: 'Got it', onDismiss: away() });
+        break;
+      case 'hint':
+      case 'bomb': {
+        const hint = step === 'hint';
+        t.coach.show({
+          target: () => (hint ? this.hintBtn : this.bombBtn),
+          title: hint ? 'Hints' : 'Bombs',
+          text:
+            this.armed === step
+              ? hint
+                ? 'Now tap the piece you want placed. It goes straight to where it belongs.'
+                : 'Now tap a spot on the board. Every piece around it goes where it belongs.'
+              : hint
+                ? 'Stuck? Press Hint, then tap a piece to put it in its place.'
+                : 'Want to clear a whole area? Press Bomb, then tap a spot: the pieces around it go where they belong.',
+          dismiss: 'Skip',
+          onDismiss: away(step),
+        });
+        break;
+      }
+      case 'ad':
+        t.coach.show({ target: () => this.invBtn ?? null, title: 'Need more?', text: 'Hints and bombs run out. Open the Inventory to watch a short ad for more.', dismiss: 'Not now', onDismiss: away() });
+        break;
     }
   }
 
@@ -1129,6 +1241,7 @@ export class PlayScreen {
 
   private leave(): void {
     this.arm(null);
+    this.hideTip();
     const o = this.online;
     if (o) {
       o.room.detach();
@@ -1407,6 +1520,7 @@ export class PlayScreen {
     this.statusEl.textContent = session.status();
     if (session.zoomLabel) this.zoomLabel.textContent = session.zoomLabel();
     this.refreshHelp();
+    this.coachTick();
     this.refreshTabs();
     if (this.online) {
       if (session.solved) this.finishOnline();

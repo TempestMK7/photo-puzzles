@@ -126,7 +126,6 @@ describe.each(stores)('a rewarded ad, from the game to the credits, on %s', (_na
 
   it('is not started for an account that is not owed credits, or from where there are no ads, or by a guest', async () => {
     const w = worldWithAds();
-    expect(await start(w)).toMatchObject({ ok: false, error: 'ad-refused', reason: 'has-credits', account: { photo: 5 } });
     await zero(w);
     expect(await w.service.adStart(ann, { kind: 'photo', platform: 'web' as never })).toMatchObject({ ok: false, reason: 'platform' });
     expect(await w.service.adStart(ann, { kind: 'audio' as never, platform: 'ios' })).toEqual({ ok: false, error: 'bad-request' });
@@ -211,12 +210,12 @@ describe.each(stores)('a rewarded ad, from the game to the credits, on %s', (_na
 
   it('gives nothing when the account has been given credits since the ad was asked for, and still answers AdMob', async () => {
     const w = worldWithAds();
-    await zero(w);
-    const out = await start(w);
+    await w.service.adminSetAccount('ann', { type: 'paid', video: 0 });          // (video credits are for having none left; photo credits can be had any time)
+    const out = await start(w, ann, 'video');
     if (!out.ok) throw new Error();
-    await zero(w, 'ann', { photo: 2 });
+    await w.service.adminSetAccount('ann', { video: 2 });
     expect(await reward(w, out.nonce, 'TX-1')).toBe(true);
-    expect(await credits(w)).toBe(2);
+    expect((await w.service.summary(ann)).video).toBe(2);
   });
 
   it('allows five ads a day, and starts again the next day', async () => {
