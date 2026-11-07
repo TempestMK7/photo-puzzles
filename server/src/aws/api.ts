@@ -12,6 +12,7 @@ import { DEFAULT_LIMITS } from '../../../src/online/protocol';
 import { SystemRandom, systemClock } from '../memory';
 import { AdMobCallbacks } from '../admob';
 import { HttpPatreon, parsePatreonSettings } from '../patreon';
+import { HttpPlay, parsePlaySettings } from '../play';
 import { RateLimiter } from '../ratelimit';
 import { createRouter, type Req, type Res } from '../router';
 import { RoomService } from '../service';
@@ -90,6 +91,20 @@ async function patreonFrom(apiBase: string, store: DynamoStore): Promise<HttpPat
   }
 }
 
+/** Google Play's settings, from the secret that holds them (a JSON text, see `PlaySettings`). A secret that is not there, or is not complete, switches the subscription off (the game does not offer it). */
+async function playFrom(): Promise<HttpPlay | undefined> {
+  const id = process.env.PLAY_SECRET_ID;
+  if (!id) return undefined;
+  try {
+    const text = (await new SecretsManagerClient({}).send(new GetSecretValueCommand({ SecretId: id }))).SecretString;
+    const settings = parsePlaySettings(text);
+    return settings ? new HttpPlay(settings) : undefined;
+  } catch (e) {
+    if ((e as { name?: string }).name === 'ResourceNotFoundException') return undefined;
+    throw e;
+  }
+}
+
 /** What the deployment says (infra/lib/api-stack.ts), turned into the service. The operator's function (admin.ts) runs the same service. */
 export async function buildService() {
   const secret = await new SecretsManagerClient({}).send(new GetSecretValueCommand({ SecretId: need('SIGNING_SECRET_ARN') }));
@@ -128,6 +143,8 @@ export async function buildService() {
     adCallbacks: adUnits.length ? new AdMobCallbacks(adUnits, systemClock) : undefined,
     // a paid account can come from a pledge on Patreon (only where the secret with its settings is there)
     patreon: await patreonFrom(need('API_BASE'), store),
+    // and from a subscription bought in the Android app (only where the secret with its settings is there)
+    play: await playFrom(),
     // a report goes to the alarm topic, so that it reaches the operator's e-mail
     notify: async (text) => void (await sns.send(new PublishCommand({ TopicArn: need('ALERT_TOPIC_ARN'), Subject: 'PuzzleVidio: a puzzle was reported', Message: text }))),
   });

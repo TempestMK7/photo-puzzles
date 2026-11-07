@@ -2,7 +2,7 @@ import { adGives, earnsUncapped, mayStartVideos, photosAreFree, videosAreFree, t
 import { GUEST_ACCOUNT } from '../../src/online/protocol';
 export { GUEST_ACCOUNT as GUEST_SUMMARY } from '../../src/online/protocol';
 import { isGuestId } from './guest';
-import type { AccountRecord, Limits, PatreonMember } from './types';
+import type { AccountRecord, Limits, PatreonMember, PlayPurchase } from './types';
 
 /** The day, in UTC, that the ads watched in a day are counted for. */
 export const dayOf = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
@@ -73,19 +73,64 @@ export function guestSummaryOf(account: AccountRecord, limits: Limits, now: numb
  */
 export function applyPatreon(account: AccountRecord, member: PatreonMember, limits: Limits, now: number, charged?: string): { account: AccountRecord; charged?: string } {
   const a: AccountRecord = { ...account, patreon: { userId: member.userId, active: member.active, promoted: account.patreon?.promoted, checkedAt: now, ...(member.memberId ? { memberId: member.memberId } : {}) } };
-  if (member.active && a.type === 'free') {
-    a.type = 'paid';
-    a.patreon!.promoted = true;
-  } else if (!member.active && a.type === 'paid' && a.patreon!.promoted) {
-    a.type = 'free';
-    a.patreon!.promoted = false;
-  }
+  settleType(a, 'patreon');
   if (member.active && member.lastCharge && member.lastCharge !== charged) {
     a.video += limits.paidVideoCredits;
     return { account: a, charged: member.lastCharge };
   }
   return { account: a, charged };
 }
+
+/** Where a paid account can come from. An account is paid while any of them is paid up. */
+type Source = 'patreon' | 'play';
+const SOURCES: Source[] = ['patreon', 'play'];
+
+/**
+ * The account's type after the source `by` changed: while any source is paid up a free account is paid (the source that is paid up, `by` first, is marked as the one that made it so), and
+ * when none is, a paid account that a source made paid is free again (a paid type that the operator gave, and a family or admin account, stay as they are).
+ */
+function settleType(a: AccountRecord, by: Source): void {
+  const on = SOURCES.filter((s) => a[s]?.active);
+  if (on.length) {
+    if (a.type === 'free') {
+      a.type = 'paid';
+      a[on.includes(by) ? by : on[0]]!.promoted = true;
+    }
+  } else if (a.type === 'paid' && SOURCES.some((s) => a[s]?.promoted)) {
+    a.type = 'free';
+    for (const s of SOURCES) if (a[s]) a[s]!.promoted = false;
+  }
+}
+
+/**
+ * What Google Play says about the account's subscription, as the account's type and credits, by the same rules as a pledge (`applyPatreon`): each new order is a payment period, which gives
+ * `paidVideoCredits` video credits, once (`charged` is the last order that gave them, kept by the purchase token and not the account).
+ */
+export function applyPlay(account: AccountRecord, purchase: PlayPurchase, limits: Limits, now: number, charged?: string): { account: AccountRecord; charged?: string } {
+  const a: AccountRecord = {
+    ...account,
+    play: { token: purchase.token, productId: purchase.productId, active: purchase.active, promoted: account.play?.promoted, checkedAt: now, ...(purchase.expiresAt ? { expiresAt: purchase.expiresAt } : {}) },
+  };
+  settleType(a, 'play');
+  if (purchase.active && purchase.orderId && purchase.orderId !== charged) {
+    a.video += limits.paidVideoCredits;
+    return { account: a, charged: purchase.orderId };
+  }
+  return { account: a, charged };
+}
+
+/** The account lets a source go (its link is taken away): what it gave stays (the credits), and the paid type it made goes, unless another source that is paid up can keep it. */
+export function releaseSource(a: AccountRecord, source: Source): void {
+  const promoted = a[source]?.promoted;
+  delete a[source];
+  if (!promoted) return;
+  const other = SOURCES.map((s) => a[s]).find((l) => l?.active);
+  if (other) other.promoted = true;
+  else if (a.type === 'paid') a.type = 'free';
+}
+
+/** How long a subscription is believed without asking Google again (its push says when one changes; this is for the call that was lost). */
+export const PLAY_RECHECK_MS = 24 * 3600 * 1000;
 
 /** How long a pledge is believed without asking Patreon again (the webhook says when one changes; this is for the call that was lost). */
 export const PATREON_RECHECK_MS = 24 * 3600 * 1000;

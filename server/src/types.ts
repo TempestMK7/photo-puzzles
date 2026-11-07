@@ -124,6 +124,8 @@ export interface AccountRecord {
   carried?: boolean;
   /** The Patreon account joined to this one (see `Patreon`): what it pays for is what makes this account paid. */
   patreon?: PatreonLink;
+  /** The Google Play subscription joined to this one (see `Play`): while it is paid up the account is paid, like with a pledge. */
+  play?: PlayLink;
   createdAt: number;
   /** Counts up with every write, so that two writers cannot overwrite each other (a conditional write, as for a room). */
   rev: number;
@@ -139,6 +141,44 @@ export interface PatreonLink {
   /** This link is what made the account paid (so that it is the link that takes it back: a paid type that the operator gave is left alone). */
   promoted?: boolean;
   checkedAt: number;
+}
+
+/** The Google Play subscription joined to a player's account, and where it stands as of `checkedAt` (a time of the server's clock). */
+export interface PlayLink {
+  /** The purchase token that Google gave the app when the player subscribed: what Google's API is asked about. */
+  token: string;
+  productId: string;
+  /** The subscription is paid for now (Google's own states for a subscription that is on, in a grace period, or cancelled but not run out). */
+  active: boolean;
+  /** This link is what made the account paid (so that it is the link that takes it back: see `PatreonLink.promoted`). */
+  promoted?: boolean;
+  /** When the time that is paid for runs out (a time of Google's clock, in ms), if Google said. */
+  expiresAt?: number;
+  checkedAt: number;
+}
+
+/** What Google Play says about one purchase of the subscription. */
+export interface PlayPurchase {
+  token: string;
+  productId: string;
+  active: boolean;
+  expiresAt?: number;
+  /** The order of the latest payment (a renewal is a new order): each one is a payment period of the account. */
+  orderId?: string;
+  /** The purchase has been acknowledged to Google (one that is not is refunded after three days). */
+  acknowledged: boolean;
+}
+
+/** Google Play Billing (https://developer.android.com/google/play/billing): a subscription bought in the Android app, which makes the account paid. Nothing for a server that has none (the game does not offer it). */
+export interface Play {
+  /** The subscription that is for sale (the app asks Google for its price and starts the purchase). */
+  readonly productId: string;
+  /** Asks Google about a purchase token (nothing: Google does not know it, or it is of something else). Throws when Google cannot be asked. */
+  purchase(token: string): Promise<PlayPurchase | null>;
+  /** Tells Google that the purchase has been given to the player. */
+  acknowledge(token: string, productId: string): Promise<void>;
+  /** Google's push that something changed (the body is Pub/Sub's, `key` is the secret that the push address carries): null when it is not genuine, else the purchase token that it is about (none for a test). */
+  notification(body: string, key: string | null): { token?: string } | null;
 }
 
 /** The creator's tokens for Patreon's API (the access token runs out; the refresh token is single-use and each refresh gives a new pair, so the newest pair is kept). `from`: the refresh token in the deployment's secret that the pair came from (a pair from an older secret is not used). */
@@ -221,6 +261,9 @@ export interface Store {
   /** Which player's account a Patreon user is joined to (nothing for one that is joined to none), and the last payment of theirs that gave credits (kept after the link is taken away, so that joining again does not give them twice). */
   getPatreonUser(userId: string): Promise<{ playerId: string | null; charged?: string } | undefined>;
   putPatreonUser(userId: string, user: { playerId: string | null; charged?: string }): Promise<void>;
+  /** Which player's account a Play purchase token is joined to (nothing for one that is not joined to any), and the order of the last payment that gave credits (kept after the link is taken away, so that joining again does not give them twice). */
+  getPlayToken(token: string): Promise<{ playerId: string | null; charged?: string } | undefined>;
+  putPlayToken(token: string, user: { playerId: string | null; charged?: string }): Promise<void>;
   /** Writes the account if it is new (`rev` 0) or if the stored one still has `rev - 1`; false if someone else wrote in between. */
   putAccount(account: AccountRecord): Promise<boolean>;
   /** The display name a player chose (nothing if they have not). */
