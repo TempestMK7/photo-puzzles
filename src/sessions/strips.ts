@@ -287,10 +287,9 @@ export class StripsSession implements PuzzleSession {
   pointerDown(p: Pt, touch = false): void {
     this.cascade.flush();
     const g = this.game;
-    if (g.solved) return;
     const cx = Math.floor(p.x / S);
     const cy = Math.floor(p.y / S);
-    const id = g.stripAt(cx, cy, this.tab);
+    const id = g.solved ? -1 : g.stripAt(cx, cy, this.tab);       // (a solved board has no strips to take, but it can still be moved)
     if (id < 0) {
       this.selected = -1;
       this.cam.startPan(p);                                          // a drag on the bare board moves the camera

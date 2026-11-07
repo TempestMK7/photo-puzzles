@@ -59,7 +59,10 @@ export class Camera {
     return this.cur;
   }
 
-  /** Keeps the board in view: the camera may go as far as a margin past the board's edge, and a board that is smaller than the view in one direction stays in the middle of it. */
+  /**
+   * Keeps the board in view: the camera may go as far as a margin past the board's edge. A board that is smaller than the view in one direction may be moved within the room
+   * that is left (never out of view), and starts in the middle of it.
+   */
   private clampCentre(): void {
     const z = this.zoom;
     const m = (MARGIN * this.dpr) / z;
@@ -67,10 +70,16 @@ export class Camera {
       const half = shown / (2 * z);
       const lo = half - m;
       const hi = size - half + m;
-      return lo > hi ? size / 2 : Math.min(hi, Math.max(lo, c));
+      return lo > hi ? Math.min(lo, Math.max(hi, c)) : Math.min(hi, Math.max(lo, c));
     };
     this.cx = fit(this.cx, this.width, this.canvasW);
     this.cy = fit(this.cy, this.height, this.canvasH);
+  }
+
+  /** True when the board is smaller than the view in a direction, so that it can be moved there while it all shows. */
+  private get roomLeft(): boolean {
+    const room = (size: number, shown: number): boolean => size * this.zoom + 2 * MARGIN * this.dpr < shown - 0.5;
+    return room(this.width, this.canvasW) || room(this.height, this.canvasH);
   }
 
   /** Where a board point is on the canvas (canvas pixels), and the other way round, in the view of the last `view()`. */
@@ -146,7 +155,7 @@ export class Camera {
 
   /** A press at board point `p` that may turn into a move of the camera (only when there is somewhere to move it to). */
   startPan(p: Pt): void {
-    this.drag = this.canPan ? { anchor: p, moved: false } : null;
+    this.drag = this.canPan || this.roomLeft ? { anchor: p, moved: false } : null;
   }
 
   get panning(): boolean {

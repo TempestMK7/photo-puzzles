@@ -22,14 +22,14 @@ describe('Camera', () => {
   it('keeps the point under the pointer where it is when it zooms', () => {
     const { cam } = make();
     cam.view(1000, 800);
-    const at = { x: 300, y: 50 };
+    const at = { x: 300, y: 100 };
     const before = cam.screen(at);
     cam.zoomAt(at, 1.5);
     const v = cam.view(1000, 800);
     expect(v.scale).toBeCloseTo(((1000 - 24) / 400) * 1.5);
     const after = cam.screen(at);
     expect(after.x).toBeCloseTo(before.x);
-    expect(after.y).toBeCloseTo((800 - 200 * v.scale) / 2 + 50 * v.scale);      // (the board is still shorter than the canvas: it stays in the middle, so this point cannot stay)
+    expect(after.y).toBeCloseTo(before.y);
     expect(cam.zoomLabel()).toBe('150%');
     expect(cam.canPan).toBe(true);
     expect(cam.lineK()).toBeCloseTo(1 / 1.5);
@@ -44,7 +44,7 @@ describe('Camera', () => {
     expect(cam.view(1000, 800).scale).toBeCloseTo(Math.max(((1000 - 24) / 400) * 2, 2));
   });
 
-  it('keeps the board in view when it is moved, and in the middle where it is smaller than the view', () => {
+  it('keeps the board in view when it is moved, and in the middle where it is smaller than the view until it is moved', () => {
     const { cam } = make();
     cam.view(1000, 800);
     cam.zoomBy(3);
@@ -54,7 +54,21 @@ describe('Camera', () => {
     expect(v.oy + 200 * v.scale).toBeGreaterThanOrEqual(800 - 12 - 1e-6);
     cam.zoomFit();
     const w = cam.view(1000, 800);
-    expect(w.oy).toBeCloseTo((800 - 200 * w.scale) / 2);           // (the short side of the board stays in the middle)
+    expect(w.oy).toBeCloseTo((800 - 200 * w.scale) / 2);           // (the short side of the board is in the middle again)
+  });
+
+  it('lets a board that is smaller than the view in a direction be moved there, but never out of view', () => {
+    const { cam } = make();
+    cam.view(1000, 800);                                           // the whole board: 976 x 488 on a canvas that is 800 high
+    expect(cam.canPan).toBe(false);
+    cam.panBy(0, 1e6);                                             // the camera goes down: the board goes up, as far as the margin
+    let v = cam.view(1000, 800);
+    expect(v.oy).toBeCloseTo(12);
+    cam.panBy(0, -1e6);
+    v = cam.view(1000, 800);
+    expect(v.oy + 200 * v.scale).toBeCloseTo(800 - 12);
+    cam.panBy(1e6, 0);                                             // the width fits exactly: nothing to move that way
+    expect(cam.view(1000, 800).ox).toBeCloseTo(12);
   });
 
   it('moves with a pinch: what was under the first point is under the second', () => {
@@ -79,13 +93,22 @@ describe('Camera', () => {
   });
 
   describe('a press that may move it', () => {
-    it('is no pan when the whole board shows: nothing to move', () => {
+    it('is no pan when the whole board shows with no room round it: nothing to move', () => {
       const { cam } = make();
-      cam.view(1000, 800);
+      cam.view(424, 224);
       cam.startPan({ x: 100, y: 100 });
       expect(cam.panning).toBe(false);
       expect(cam.panTo({ x: 300, y: 100 })).toBe(false);
       expect(cam.endPan()).toBe(false);
+    });
+
+    it('is a pan where the board has room to move in the view', () => {
+      const { cam } = make();
+      cam.view(1000, 800);
+      cam.startPan({ x: 100, y: 100 });
+      expect(cam.panning).toBe(true);
+      expect(cam.panTo({ x: 100, y: 60 })).toBe(true);
+      expect(cam.view(1000, 800).oy).toBeLessThan((800 - 200 * (976 / 400)) / 2);        // (the board went up)
     });
 
     it('is a tap until it has moved a few pixels, then keeps the pressed point under the pointer', () => {
