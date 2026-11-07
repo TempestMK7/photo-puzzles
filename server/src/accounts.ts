@@ -104,7 +104,7 @@ function settleType(a: AccountRecord, by: Source): void {
 
 /**
  * What Google Play says about the account's subscription, as the account's type and credits, by the same rules as a pledge (`applyPatreon`): each new order is a payment period, which gives
- * `paidVideoCredits` video credits, once (`charged` is the last order that gave them, kept by the purchase token and not the account).
+ * `playVideoCredits` video credits (fewer than a pledge's: the subscription costs less), once (`charged` is the last order that gave them, kept by the purchase token and not the account).
  */
 export function applyPlay(account: AccountRecord, purchase: PlayPurchase, limits: Limits, now: number, charged?: string): { account: AccountRecord; charged?: string } {
   const a: AccountRecord = {
@@ -113,7 +113,7 @@ export function applyPlay(account: AccountRecord, purchase: PlayPurchase, limits
   };
   settleType(a, 'play');
   if (purchase.active && purchase.orderId && purchase.orderId !== charged) {
-    a.video += limits.paidVideoCredits;
+    a.video += limits.playVideoCredits;
     return { account: a, charged: purchase.orderId };
   }
   return { account: a, charged };

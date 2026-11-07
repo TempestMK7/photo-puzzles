@@ -405,8 +405,10 @@ export interface Limits {
   videoAdsPerDay: number;
   /** 1: an ad is believed without being checked (for trying things out). */
   adsTrusted: number;
-  /** The video credits a paid account is given for each payment period. */
+  /** The video credits a paid account is given for each payment period of a Patreon pledge. */
   paidVideoCredits: number;
+  /** The video credits it is given for each payment period of the Google Play subscription. */
+  playVideoCredits: number;
   /** The hints and bombs a new account starts with. */
   startHints: number;
   startBombs: number;
