@@ -44,6 +44,8 @@ export interface ApiStackProps extends StackProps {
   pexelsSecretName?: string;
   /** The secret that holds Patreon's settings (`puzzlevidio/<stage>/patreon` when not given: each stage has its own Patreon client and so its own secret): with it the game offers joining a Patreon account. */
   patreonSecretName?: string;
+  /** The secret that holds Google Play's settings (`puzzlevidio/<stage>/play` when not given): with it the game offers the subscription in the Android app. */
+  playSecretName?: string;
   /** The same for Pixabay (`pixabaySecretName`). */
   pixabaySecretName?: string;
 }
@@ -110,6 +112,9 @@ export class ApiStack extends Stack {
     // Patreon: the settings of the client and the campaign are read from a secret that only this function may read; without the secret (or with it empty) the game does not offer Patreon
     fn.addEnvironment('PATREON_SECRET_ID', props.patreonSecretName ?? `puzzlevidio/${props.stage}/patreon`);
     secretsmanager.Secret.fromSecretNameV2(this, 'PatreonSettings', props.patreonSecretName ?? `puzzlevidio/${props.stage}/patreon`).grantRead(fn);
+    // Google Play: the service account's key, the app and the subscription, and the word that Google's push carries, in a secret that only this function may read (without it the app does not offer the subscription)
+    fn.addEnvironment('PLAY_SECRET_ID', props.playSecretName ?? `puzzlevidio/${props.stage}/play`);
+    secretsmanager.Secret.fromSecretNameV2(this, 'PlaySettings', props.playSecretName ?? `puzzlevidio/${props.stage}/play`).grantRead(fn);
     if (props.admobAdUnits) fn.addEnvironment('ADMOB_AD_UNITS', props.admobAdUnits);
     const admin = serviceFunction('Admin', 'server/src/aws/admin.ts', 512, Duration.seconds(30));
     // the operator can delete an account for someone who cannot sign in (the same one thing to the user pool)
@@ -181,6 +186,9 @@ export class ApiStack extends Stack {
     this.api.addRoutes({ path: '/patreon/webhook', methods: [POST], integration });
     this.api.addRoutes({ path: '/me/patreon', methods: [POST], integration });
     this.api.addRoutes({ path: '/me/patreon/unlink', methods: [POST], integration });
+    // Google Play's: the app gives the purchase token of a subscription it has bought (the function wants an account's token), and Google's push that one changed (the address carries a key, checked in the function)
+    this.api.addRoutes({ path: '/me/play/verify', methods: [POST], integration });
+    this.api.addRoutes({ path: '/play/notify', methods: [POST], integration });
     this.api.addRoutes({ path: '/media/{id}', methods: [PUT], integration });
     this.api.addRoutes({ path: '/stock/search', methods: [GET], integration });
     // the admin page: nothing without a Cognito ID token (the function looks for the admin group besides)

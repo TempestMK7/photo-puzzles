@@ -42,6 +42,8 @@ const STATUS: Record<ApiError, number> = {
   'ad-refused': 409,
   'ads-off': 503,
   'patreon-off': 503,
+  'play-off': 503,
+  'purchase-taken': 409,
   limit: 409,
   full: 409,
   'rate-limited': 429,
@@ -143,6 +145,12 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
       return (await service.patreonWebhook(new TextDecoder().decode(req.body), req.headers?.['x-patreon-signature'])) ? { status: 200, body: { ok: true } } : { status: 403, body: { ok: false, error: 'unauthorized' } };
     }
 
+    // Google Play's push (through Pub/Sub) that a subscription changed: the address carries the deployment's key (there is no sign-in)
+    if (parts[0] === 'play' && parts[1] === 'notify' && parts.length === 2 && req.method === 'POST') {
+      if (req.body.length > MAX_JSON) return bad;
+      return (await service.playNotify(new TextDecoder().decode(req.body), req.query.get('key'))) ? { status: 200, body: { ok: true } } : { status: 403, body: { ok: false, error: 'unauthorized' } };
+    }
+
     // the library of stock pictures and videos: open to everyone (the game's single-player side has no sign-in), so how often an address may ask is limited, and the provider's own limit is shared by all
     if (parts[0] === 'stock' && parts[1] === 'search' && parts.length === 2 && req.method === 'GET') {
       const sites = stock ? stockSitesOf(stock) : [];
@@ -184,6 +192,11 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
     if (parts[0] === 'me' && parts[1] === 'providers' && parts.length === 2 && req.method === 'GET') return reply(await service.providers(player));
     // an account joins its Patreon account (the answer is where to send the player), or lets it go
     if (parts[0] === 'me' && parts[1] === 'patreon' && parts.length === 2 && req.method === 'POST') return reply(await service.patreonStart(player));
+    // the Android app has bought the subscription: it gives the purchase token, which the server checks with Google
+    if (parts[0] === 'me' && parts[1] === 'play' && parts[2] === 'verify' && parts.length === 3 && req.method === 'POST') {
+      const body = json<{ token?: unknown }>(req);
+      return body ? reply(await service.playVerify(player, body.token)) : bad;
+    }
     if (parts[0] === 'me' && parts[1] === 'patreon' && parts[2] === 'unlink' && parts.length === 3 && req.method === 'POST') return reply(await service.patreonUnlink(player));
     // a new account takes what the guest it was has left of hints and bombs
     if (parts[0] === 'me' && parts[1] === 'carry' && parts.length === 2 && req.method === 'POST') {

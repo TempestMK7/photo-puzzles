@@ -328,6 +328,8 @@ describe('api', () => {
         ['POST /me/patreon/unlink', 'NONE'],
         ['GET /patreon/callback', 'NONE'],       // the player coming back from Patreon's page: the one-time state says whose account
         ['POST /patreon/webhook', 'NONE'],       // Patreon's call that a pledge changed: signed, checked in the function
+        ['POST /me/play/verify', 'NONE'],        // the app gives the purchase token of a subscription (the function wants an account's token)
+        ['POST /play/notify', 'NONE'],           // Google Play's push that a subscription changed: the address carries a key, checked in the function
         ['GET /me/providers', 'NONE'],              // a new account takes a guest's hints and bombs (the function wants an account's token)
         ['POST /credits/ad', 'NONE'],            // ads and hints and bombs are a guest's too: the function checks the token, and turns a guest away from the ads for credits
         ['POST /credits/ad/start', 'NONE'],

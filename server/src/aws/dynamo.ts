@@ -1,5 +1,6 @@
 import { BatchGetCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand, ScanCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import type { AccountRecord, AdNonce, Ban, Clock, FileRecord, PatreonTokens, Presence, RateCounter, Report, RoomRecord, Store } from '../types';
+import { createHash } from 'node:crypto';
 import { isGuestId } from '../guest';
 
 /** The part of the document client that is used, so that a test can put a fake in its place. */
@@ -20,6 +21,7 @@ export interface Sender {
  *   PLAYER#<id>   / FILE#<id>       a file the player sent
  *   FILES         / <ms>#<id>       every kept file, in the order they were sent (to list them). The last three have a `ttl` a little after the file's own, put forward each time the file is used
  *   LINK#<email>  / INTENT          an account (made with a password) asked to add Google: who, until when (with a `ttl`; the sign-in function reads and deletes it)
+ *   PLAY#<sha256 of a purchase token> / TOKEN  the account that a Google Play purchase is joined to, and the order of the last payment that gave credits (no ttl)
  *   AD#<nonce>    / NONCE           what an ad was asked for, until it is watched (`body` is the record as JSON; with a `ttl`)
  *   ADTX#<id>     / TX              a reward that the ad network reported (with a `ttl`: the network may report one again for a while)
  *   REPORTS       / <ms>#<tag>      a report of a puzzle (with a `ttl`)
@@ -39,6 +41,7 @@ const ownerFileKey = (player: string, id: string) => ({ pk: `PLAYER#${player}`, 
 const pad = (ms: number) => String(Math.max(0, ms)).padStart(15, '0');
 
 const seconds = (ms: number) => Math.ceil(ms / 1000);
+const tokenKey = (token: string) => createHash('sha256').update(token).digest('hex');
 const HOUR = 3600 * 1000;
 /** The code and the memberships of a room outlive the room by up to this much, so that they are not written again for every move. */
 const SLACK = 6 * HOUR;
@@ -249,6 +252,16 @@ export class DynamoStore implements Store {
 
   async putPatreonUser(userId: string, user: { playerId: string | null; charged?: string }): Promise<void> {
     await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: `PATREON#${userId}`, sk: 'USER', playerId: user.playerId, ...(user.charged ? { charged: user.charged } : {}) } }));
+  }
+
+  /** A purchase token is long, so its item is keyed by a hash of it. */
+  async getPlayToken(token: string): Promise<{ playerId: string | null; charged?: string } | undefined> {
+    const { Item } = await this.db.send(new GetCommand({ TableName: this.table, Key: { pk: `PLAY#${tokenKey(token)}`, sk: 'TOKEN' }, ConsistentRead: true }));
+    return Item ? { playerId: (Item.playerId as string | null) ?? null, ...(typeof Item.charged === 'string' ? { charged: Item.charged } : {}) } : undefined;
+  }
+
+  async putPlayToken(token: string, user: { playerId: string | null; charged?: string }): Promise<void> {
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: `PLAY#${tokenKey(token)}`, sk: 'TOKEN', playerId: user.playerId, ...(user.charged ? { charged: user.charged } : {}) } }));
   }
 
   async putAdNonce(nonce: AdNonce): Promise<void> {

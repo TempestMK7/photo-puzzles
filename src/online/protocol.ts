@@ -169,6 +169,10 @@ export type ApiError =
   /** Ads are not accepted by this server (it cannot tell that one was watched). */
   | 'ads-off'
   | 'patreon-off'
+  /** This server cannot check a Google Play purchase (the game does not offer one). */
+  | 'play-off'
+  /** The purchase belongs to another account here. */
+  | 'purchase-taken'
   /** Joining by code waits for a member to say yes. */
   | 'knock-pending'
   | 'knock-denied'
@@ -475,6 +479,8 @@ export interface AccountSummary {
   helpAdNoAd: boolean;
   /** Patreon: `on` when the server can join accounts to it; `linked` when this account is joined to a Patreon account, and `active` when that one's pledge is paid up (and so makes this account paid). */
   patreon?: { on: boolean; linked: boolean; active: boolean };
+  /** Google Play: `on` when the server can check a purchase of `productId` (the subscription that the Android app sells); `active` when this account's subscription is paid up (and so makes it paid), until `expiresAt` (ms) if Google said. */
+  play?: { on: boolean; productId: string; active: boolean; expiresAt?: number };
 }
 
 /** The answer to `POST /me/patreon`: where to send the player to join their Patreon account. */

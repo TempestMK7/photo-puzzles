@@ -57,12 +57,12 @@ import {
   type ReportRequest,
   type RoomSummary,
 } from '../../src/online/protocol';
-import { adsToday, applyPatreon, dayOf, earnedToday, guestSummaryOf, helpAdAtOf, helpHeld, LINK_INTENT_MS, newAccount, PATREON_RECHECK_MS, summaryOf } from './accounts';
+import { adsToday, applyPatreon, applyPlay, dayOf, earnedToday, guestSummaryOf, helpAdAtOf, helpHeld, LINK_INTENT_MS, newAccount, PATREON_RECHECK_MS, PLAY_RECHECK_MS, releaseSource, summaryOf } from './accounts';
 import { isGuestId } from './guest';
 import { sniffImage } from './image';
 import type { AdminFile, AdminRoomSummary } from '../../src/online/adminProtocol';
 import { playedMs } from './played';
-import type { AccountRecord, Accounts, AdCallbacks, Clock, FileRecord, Limits, Media, Moderation, Patreon, PatreonMember, Player, Presence, PubSub, Random, Report, RoomRecord, Store, VideoModeration } from './types';
+import type { AccountRecord, Accounts, AdCallbacks, Clock, FileRecord, Limits, Media, Moderation, Patreon, PatreonMember, Play, PlayPurchase, Player, Presence, PubSub, Random, Report, RoomRecord, Store, VideoModeration } from './types';
 
 export interface Deps {
   store: Store;
@@ -86,6 +86,8 @@ export interface Deps {
   adCallbacks?: AdCallbacks;
   /** Patreon, where a paid account comes from a pledge. Nothing for a server that has none: the game does not offer it. */
   patreon?: Patreon;
+  /** Google Play, where a paid account comes from a subscription bought in the Android app. Nothing for a server that has none: the game does not offer it. */
+  play?: Play;
 }
 
 const DAY = 24 * 3600 * 1000;
@@ -179,7 +181,10 @@ export class RoomService {
 
   /** What the server knows about the player: the name they chose, if they have. (The token only says who they are.) */
   async profile(player: Player): Promise<MeResponse> {
-    if (!player.guest) await this.recheckPatreon(player.id);
+    if (!player.guest) {
+      await this.recheckPatreon(player.id);
+      await this.recheckPlay(player.id);
+    }
     return { ok: true, id: player.id, name: (await this.d.store.getName(player.id)) ?? null, guest: player.guest === true, account: await this.summary(player) };
   }
 
@@ -197,6 +202,7 @@ export class RoomService {
   async deleteAccount(player: Player): Promise<{ ok: true } | ApiFailure> {
     const { store, accounts } = this.d;
     await this.letGoOfPatreon(player.id);
+    await this.letGoOfPlay(player.id);
     await this.releaseRooms(player);
     await this.releaseFiles(player.id);
     await store.forgetPlayer(player.id);
@@ -430,7 +436,12 @@ export class RoomService {
     const { limits, clock } = this.d;
     if (player.guest) return guestSummaryOf(account, limits, clock.now());
     const summary = summaryOf(type, account, limits, clock.now());
-    return this.d.patreon ? { ...summary, patreon: { on: true, linked: !!account.patreon, active: !!account.patreon?.active } } : summary;
+    const { patreon, play } = this.d;
+    return {
+      ...summary,
+      ...(patreon ? { patreon: { on: true, linked: !!account.patreon, active: !!account.patreon?.active } } : {}),
+      ...(play ? { play: { on: true, productId: play.productId, active: !!account.play?.active, ...(account.play?.expiresAt ? { expiresAt: account.play.expiresAt } : {}) } } : {}),
+    };
   }
 
   // ---------------------------------------------------------------------------------------------------------------- Patreon
@@ -495,8 +506,7 @@ export class RoomService {
     const user = await store.getPatreonUser(had.userId);
     await store.putPatreonUser(had.userId, { playerId: null, charged: user?.charged });          // (the last payment that gave credits is remembered: joining again does not give them twice)
     await this.changeAccount(playerId, (a) => {
-      if (a.patreon?.promoted && a.type === 'paid') a.type = 'free';
-      delete a.patreon;
+      releaseSource(a, 'patreon');
       return a;
     });
   }
@@ -524,6 +534,98 @@ export class RoomService {
     try {
       const member = (await patreon.member(link.memberId)) ?? { userId: link.userId, active: false };
       await this.applyPatreonMember(playerId, member);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- Google Play
+
+  /**
+   * The Android app has bought the subscription and gives the purchase token (or finds one that Play still has for the player when it starts): the purchase is checked with Google, joined to the
+   * account (one purchase to one account), and what it says makes the account paid. A purchase that has been paid for is acknowledged to Google once it is the account's (one that is not is
+   * refunded after three days, so a purchase that is turned away here is not acknowledged).
+   */
+  async playVerify(player: Player, token: unknown): Promise<MeResponse | ApiFailure> {
+    const { play, store } = this.d;
+    if (!play) return fail('play-off');
+    if (player.guest) return fail('account-required');
+    if (typeof token !== 'string' || token.length < 1 || token.length > 4096) return fail('bad-request');
+    let purchase: PlayPurchase | null;
+    try {
+      purchase = await play.purchase(token);
+    } catch (e) {
+      console.error(e);
+      return fail('busy');
+    }
+    if (!purchase) return fail('bad-request');
+    const had = await store.getPlayToken(token);
+    if (had?.playerId && had.playerId !== player.id) return fail('purchase-taken');
+    const current = (await this.accountOf(player.id)).play;
+    if (current && current.token !== token) await this.letGoOfPlay(player.id);                  // (this account had another purchase: it lets that one go first)
+    await this.applyPlayPurchase(player.id, purchase);
+    if (purchase.active && !purchase.acknowledged) {
+      try {
+        await play.acknowledge(token, purchase.productId);
+      } catch (e) {
+        console.error(e);                                                                       // (the app sends the token again when it starts: the next call acknowledges it)
+      }
+    }
+    return this.profile(player);
+  }
+
+  /**
+   * Google's push that a subscription changed (genuine: the address carries our key): the account that the purchase token is joined to is brought up to date with what Google says now. False
+   * when the push is not Google's. A Google that cannot be asked makes this throw, so that the push is made again later.
+   */
+  async playNotify(body: string, key: string | null): Promise<boolean> {
+    const { play, store } = this.d;
+    if (!play) return false;
+    const notice = play.notification(body, key);
+    if (!notice) return false;
+    if (!notice.token) return true;                                                             // (a test, or about something that is not ours)
+    const user = await store.getPlayToken(notice.token);
+    if (!user?.playerId) return true;                                                           // (nobody has joined it yet: the app does when it finds it)
+    const purchase = await play.purchase(notice.token);
+    if (purchase) await this.applyPlayPurchase(user.playerId, purchase);
+    return true;
+  }
+
+  private async letGoOfPlay(playerId: string): Promise<void> {
+    const { store } = this.d;
+    const had = (await store.getAccount(playerId))?.play;
+    if (!had) return;
+    const user = await store.getPlayToken(had.token);
+    await store.putPlayToken(had.token, { playerId: null, charged: user?.charged });            // (the last order that gave credits is remembered: joining again does not give them twice)
+    await this.changeAccount(playerId, (a) => {
+      releaseSource(a, 'play');
+      return a;
+    });
+  }
+
+  private async applyPlayPurchase(playerId: string, purchase: PlayPurchase): Promise<void> {
+    const { store, limits, clock } = this.d;
+    const user = await store.getPlayToken(purchase.token);
+    let charged = user?.charged;
+    await store.putPlayToken(purchase.token, { playerId, charged });                           // (taken first: a second account cannot join the same purchase in the meantime)
+    const done = await this.changeAccount(playerId, (a) => {
+      const r = applyPlay(a, purchase, limits, clock.now(), user?.charged);
+      charged = r.charged;
+      return r.account;
+    });
+    if ('error' in done) throw new Error('the account could not be changed');
+    if (charged !== user?.charged) await store.putPlayToken(purchase.token, { playerId, charged });
+  }
+
+  /** A subscription that has not been looked at for a day is asked about again (the push says when it changes; this is for one that was lost). A Google that cannot be asked leaves it as it was. */
+  private async recheckPlay(playerId: string): Promise<void> {
+    const { play, store, clock } = this.d;
+    if (!play) return;
+    const link = (await store.getAccount(playerId))?.play;
+    if (!link || clock.now() - link.checkedAt < PLAY_RECHECK_MS) return;
+    try {
+      const purchase = (await play.purchase(link.token)) ?? { token: link.token, productId: link.productId, active: false, acknowledged: true };
+      await this.applyPlayPurchase(playerId, purchase);
     } catch (e) {
       console.error(e);
     }

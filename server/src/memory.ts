@@ -90,6 +90,17 @@ export class MemoryStore implements Store {
     this.patreonUsers.set(userId, { ...user });
   }
 
+  readonly playTokens = new Map<string, { playerId: string | null; charged?: string }>();
+
+  async getPlayToken(token: string): Promise<{ playerId: string | null; charged?: string } | undefined> {
+    const u = this.playTokens.get(token);
+    return u && { ...u };
+  }
+
+  async putPlayToken(token: string, user: { playerId: string | null; charged?: string }): Promise<void> {
+    this.playTokens.set(token, { ...user });
+  }
+
   async putAdNonce(nonce: AdNonce): Promise<void> {
     this.nonces.set(nonce.nonce, { ...nonce });
   }

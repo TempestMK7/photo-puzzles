@@ -107,6 +107,11 @@ export class OnlineApi implements RoomApi {
     return this.call('POST', '/me/patreon', {});
   }
 
+  /** The Android app has bought the subscription: the server checks the purchase with Google and, if it is a good one, makes the account paid. */
+  playVerify(token: string): Promise<MeResponse | ApiFailure | Offline> {
+    return this.call('POST', '/me/play/verify', { token });
+  }
+
   /** The account lets its Patreon account go (the paid type that it gave goes with it). */
   patreonUnlink(): Promise<MeResponse | ApiFailure | Offline> {
     return this.call('POST', '/me/patreon/unlink', {});
