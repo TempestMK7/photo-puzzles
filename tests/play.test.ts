@@ -61,7 +61,7 @@ describe.each(stores)('Google Play on %s', (_name, store) => {
     const play = new FakePlay();
     play.purchases.set('t1', sub('t1'));
     const w = build(store, play);
-    expect(await w.service.playVerify(ann, 't1')).toMatchObject({ ok: true, account: { type: 'paid', video: limits.paidVideoCredits, play: { on: true, active: true, expiresAt: 5_000_000 } } });
+    expect(await w.service.playVerify(ann, 't1')).toMatchObject({ ok: true, account: { type: 'paid', video: limits.playVideoCredits, play: { on: true, active: true, expiresAt: 5_000_000 } } });
     expect(play.acknowledged).toEqual(['t1']);
   });
 
@@ -76,7 +76,7 @@ describe.each(stores)('Google Play on %s', (_name, store) => {
     expect(await w.service.summary(bob)).toMatchObject({ type: 'free', video: 0, play: { active: false } });
     play.purchases.set('t2', sub('t2', { orderId: 'GPA.9' }));                                        // (the payment goes through: Google says so)
     expect(await w.service.playNotify(JSON.stringify({ token: 't2' }), 'k')).toBe(true);
-    expect(await w.service.summary(bob)).toMatchObject({ type: 'paid', video: limits.paidVideoCredits });
+    expect(await w.service.summary(bob)).toMatchObject({ type: 'paid', video: limits.playVideoCredits });
   });
 
   it('turns away a token that Google does not know, one that is not a string, and one that is another account\'s', async () => {
@@ -90,7 +90,7 @@ describe.each(stores)('Google Play on %s', (_name, store) => {
     expect(await w.service.summary(bob)).toMatchObject({ type: 'free', video: 0, play: { active: false } });
     expect(play.acknowledged).toEqual(['t1']);                                                         // (once: bob's attempt was not acknowledged)
     expect(await w.service.playVerify(ann, 't1')).toMatchObject({ ok: true });                         // (the same account may say it again: restoring)
-    expect((await w.service.summary(ann)).video).toBe(limits.paidVideoCredits);
+    expect((await w.service.summary(ann)).video).toBe(limits.playVideoCredits);
   });
 
   it('says busy when Google cannot be asked, and changes nothing', async () => {
@@ -109,7 +109,7 @@ describe.each(stores)('Google Play on %s', (_name, store) => {
     await w.service.playVerify(ann, 't1');
     play.purchases.set('t1', sub('t1', { active: false }));
     await w.service.playNotify(JSON.stringify({ token: 't1' }), 'k');
-    expect(await w.service.summary(ann)).toMatchObject({ type: 'free', video: limits.paidVideoCredits, play: { on: true, active: false } });
+    expect(await w.service.summary(ann)).toMatchObject({ type: 'free', video: limits.playVideoCredits, play: { on: true, active: false } });
   });
 
   it('gives a period of video credits for each new order, and once for each', async () => {
@@ -118,10 +118,10 @@ describe.each(stores)('Google Play on %s', (_name, store) => {
     const w = build(store, play);
     await w.service.playVerify(ann, 't1');
     await w.service.playNotify(JSON.stringify({ token: 't1' }), 'k');                                  // (the same order said again)
-    expect((await w.service.summary(ann)).video).toBe(limits.paidVideoCredits);
+    expect((await w.service.summary(ann)).video).toBe(limits.playVideoCredits);
     play.purchases.set('t1', sub('t1', { orderId: 'GPA.1..0', expiresAt: 9_000_000 }));
     await w.service.playNotify(JSON.stringify({ token: 't1' }), 'k');
-    expect((await w.service.summary(ann)).video).toBe(2 * limits.paidVideoCredits);
+    expect((await w.service.summary(ann)).video).toBe(2 * limits.playVideoCredits);
     expect((await w.service.summary(ann)).play?.expiresAt).toBe(9_000_000);
   });
 

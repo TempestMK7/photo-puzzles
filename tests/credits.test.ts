@@ -169,7 +169,7 @@ describe('what the credit dialogs say', () => {
   it('says that a paid account has no limit on pictures, and gives it video credits and ads for them in an app', () => {
     expect(text(explainCredits('photo', paid(), 'android'))).toContain('as many puzzles from pictures as you like');
     const v = explainCredits('video', paid({ video: 4 }), 'android');
-    expect(text(v)).toContain('20 video credits for each payment period');
+    expect(text(v)).toContain('10 with the subscription in the Android app, 20 with Patreon');
     expect(text(v)).toContain('carry over for ever');
     expect(v.ad).toBeUndefined();
     expect(explainCredits('video', paid({ video: 0 }), 'android').ad).toEqual({ label: 'Watch an ad for 1 video credit', note: '5 ads left today' });

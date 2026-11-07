@@ -86,6 +86,8 @@ dependencies {
     implementation 'com.google.android.ump:user-messaging-platform:4.0.0'
     // the phone's browser, opened inside the app: where signing in with Google happens (Google does not let its page open in an app's web view)
     implementation 'androidx.browser:browser:1.8.0'
+    // the subscription (Google Play Billing)
+    implementation 'com.android.billingclient:billing:8.0.0'
     // achievements (Google Play Games Services)
     implementation 'com.google.android.gms:play-services-games-v2:21.0.0'
 }

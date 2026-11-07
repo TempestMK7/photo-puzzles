@@ -6,6 +6,7 @@ A thin shell around the game: one `WebView` that shows the web build packed in `
 |---|---|
 | `app/src/main/java/com/tempest/photopuzzles/MainActivity.java` | the WebView, the file picker, what other apps share, haptics, and `window.PhotoPuzzlesNative` (what the page can ask of the app) |
 | `app/src/main/java/com/tempest/photopuzzles/Ads.java` | AdMob rewarded ads and Google's consent form (UMP) |
+| `app/src/main/java/com/tempest/photopuzzles/Billing.java` | the subscription (Google Play Billing): the price, the purchase sheet, the purchases that Play still has, Play's page for managing it. It only hands purchase tokens to the page: the server decides who has paid |
 | `app/src/main/java/com/tempest/photopuzzles/Games.java` | Google Play Games achievements: maps our achievement ids to the Console's (`res/values/games-ids.xml`, which holds Google's ids; they are not secret) |
 | `app/build.gradle` | the ids of AdMob, release signing, the guard against a release with test ads |
 
@@ -56,6 +57,14 @@ gh variable set ANDROID_REGISTRATION < adi-registration.properties         # pro
 ```
 
 The Google sign-in button and the legal pages use the Deploy workflow's variables (`GOOGLE_CLIENT_ID`, `GOOGLE_SECRET_NAME`, `LEGAL_*`). The upload key is written to the runner for the run and deleted after it. The **version code** of every build is the run number plus 10 (the workflow passes `-PversionCode` and `-PversionName`), so each upload to the Play Console is higher than the one before; a build on your own machine is version 1 unless you pass them yourself.
+
+## The subscription
+
+The app sells one subscription with Google Play Billing (`Billing.java`; the page's side is `src/online/play.ts` and the profile dialog). The page asks the shell for the price (`queryProduct`), opens the purchase sheet (`buySubscription`: only a SHA-256 of the account id goes to Google, as the obfuscated account id), asks for the purchases that Play still has (`restorePurchases`, which the page does once for a signed-in account that is not paid up) and opens Play's page for it (`manageSubscription`); the shell tells the page with the window event `photopuzzles-billing`. **The app never decides who has paid:** each purchase token goes to the server (`POST /me/play/verify`), which asks Google, acknowledges the purchase and makes the account paid (`docs/online-protocol.md`, *Google Play subscription*). Nothing talks to Google Play until the page asks, which it does only for a signed-in account on a server that sells the subscription (`AccountSummary.play`).
+
+- **Where it can be bought:** only from a build that Google Play installed (an internal, closed or open testing release, or production) and whose package id has the subscription in the Play Console: the **dev app** (`com.tempest.photopuzzles.dev`) is not in the Console, so its Subscribe button says that Google Play could not be reached. Test on an internal testing release of the real package, signed in as a licence tester (Play Console > Settings > License testing): a test purchase costs nothing and renews every few minutes. Setting the Console, Google Cloud and the server's secret up is `docs/runbook.md` > Google Play.
+- The Billing Library is `com.android.billingclient:billing` (version in `app/build.gradle`); it adds the `com.android.vending.BILLING` permission by itself.
+- Patreon is not offered in the app (a store wants its own way to pay): only an account that already has it joined sees it.
 
 ## Ads
 

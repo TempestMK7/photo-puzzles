@@ -198,7 +198,7 @@ A pledge that has not been looked at for a day is asked about again when the pla
 
 ## Google Play (the subscription in the Android app)
 
-The Android app sells one subscription (`productId` in the secret below; $2.99 a month). While Google says it is paid up (on, in a grace period, or cancelled but not yet run out) the account is **paid**, exactly as with a Patreon pledge (video credits `paidVideoCredits` for each new payment, once; the paid type goes when it ends and the credits stay). One purchase joins one account. Without the secret the game does not offer it. The app is the same package for every stage's server: Google does not know about dev and prod, so the **dev** stage's secret can name the dev app (`com.tempest.photopuzzles.dev`, if it is in Play Console too) and prod's the real one.
+The Android app sells one subscription (`productId` in the secret below; $2.99 a month). While Google says it is paid up (on, in a grace period, or cancelled but not yet run out) the account is **paid**, exactly as with a Patreon pledge (video credits for each new payment, once: `playVideoCredits`, 10, where a Patreon pledge's `paidVideoCredits` is 20 because it costs more; the paid type goes when it ends and the credits stay). One purchase joins one account. Without the secret the game does not offer it. The app is the same package for every stage's server: Google does not know about dev and prod, so the **dev** stage's secret can name the dev app (`com.tempest.photopuzzles.dev`, if it is in Play Console too) and prod's the real one.
 
 To set it up, once for each stage (most of it in Play Console and Google Cloud, in a browser):
 1. **Payments:** Play Console > Setup > Payments profile (the merchant account that is paid).

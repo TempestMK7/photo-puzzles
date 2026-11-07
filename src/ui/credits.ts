@@ -48,7 +48,7 @@ export function explainCredits(kind: CreditKind, a: AccountSummary, where: Platf
 
   const paragraphs = [lead];
   if (photo) paragraphs.push(`Each puzzle you start from a picture costs 1 photo credit. You have ${held}. Credits never expire: they stay until you use them.`);
-  else if (a.type === 'paid') paragraphs.push(`Each puzzle you start from a video costs 1 video credit. You have ${held}. A paid account gets ${DEFAULT_LIMITS.paidVideoCredits} video credits for each payment period, and credits you do not use carry over for ever.`);
+  else if (a.type === 'paid') paragraphs.push(`Each puzzle you start from a video costs 1 video credit. You have ${held}. A paid account gets video credits each month (${DEFAULT_LIMITS.playVideoCredits} with the subscription in the Android app, ${DEFAULT_LIMITS.paidVideoCredits} with Patreon), and credits you do not use carry over for ever.`);
   else paragraphs.push(`Video puzzles are for paid accounts. You have ${held} video credits: they are kept, and can be used again if your account becomes a paid one.`);
 
   // ads: a free account gets photo credits and a paid account video credits (the server decides: this only says what it will do)

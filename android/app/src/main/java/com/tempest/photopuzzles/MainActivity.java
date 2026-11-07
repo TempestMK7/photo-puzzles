@@ -56,6 +56,7 @@ public class MainActivity extends Activity {
     private WebView web;
     private Ads ads;
     private Games games;
+    private Billing billing;
     private ValueCallback<Uri[]> chooser;
 
     /** What other apps shared with this one: the files by number (the page reads them from /shared/<number>/<name>), and the list the page has not taken yet. */
@@ -169,6 +170,7 @@ public class MainActivity extends Activity {
                 web.evaluateJavascript("window.dispatchEvent(new Event('photopuzzles-ads-ready'))", null);
             }
         });
+        billing = new Billing(this, detail -> web.evaluateJavascript("window.dispatchEvent(new CustomEvent('photopuzzles-billing',{detail:" + detail + "}))", null));
         games = new Games(this, BuildConfig.GAMES_ENABLED);
         web.addJavascriptInterface(new Bridge(), "PhotoPuzzlesNative");
         // started from "Share > PuzzleVidio": the page takes what was shared when it has started (not again when the system makes this activity anew)
@@ -396,6 +398,30 @@ public class MainActivity extends Activity {
             } catch (org.json.JSONException e) {
                 /* not a list: nothing to unlock */
             }
+        }
+
+        /** Asks Google Play for the price of the subscription `productId`; the page is told with the window event photopuzzles-billing (`kind` 'product'). Nothing talks to Google Play before the page asks. */
+        @JavascriptInterface
+        public void queryProduct(String productId) {
+            if (productId != null && productId.matches("[A-Za-z0-9_.-]{1,100}")) billing.queryProduct(productId);
+        }
+
+        /** Opens Google Play's purchase sheet for the subscription; `accountId` is the game account's id (only a hash of it goes to Google). The page is told how it went with photopuzzles-billing ('purchase' or 'error'). */
+        @JavascriptInterface
+        public void buySubscription(String productId, String accountId) {
+            if (productId != null && productId.matches("[A-Za-z0-9_.-]{1,100}") && accountId != null && !accountId.isEmpty() && accountId.length() <= 200) billing.buy(productId, accountId);
+        }
+
+        /** Tells the page (as 'purchase' events) the subscriptions that Google Play still has for the player, so that the server can be given them. */
+        @JavascriptInterface
+        public void restorePurchases() {
+            billing.restore();
+        }
+
+        /** Opens Google Play's page for managing the subscription. */
+        @JavascriptInterface
+        public void manageSubscription(String productId) {
+            if (productId != null && productId.matches("[A-Za-z0-9_.-]{1,100}")) billing.manage(productId);
         }
 
         @JavascriptInterface

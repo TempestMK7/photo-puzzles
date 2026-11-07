@@ -93,6 +93,10 @@ export function sayError(error: CallError, failure?: { retryAt?: number; credits
       return 'Ads cannot be counted for credits yet.';
     case 'patreon-off':
       return 'Patreon cannot be joined to accounts yet.';
+    case 'play-off':
+      return 'The subscription cannot be bought yet.';
+    case 'purchase-taken':
+      return 'That subscription belongs to another account here.';
     case 'limit':
       return 'You are in as many online puzzles as you can be (leave one first), or the puzzle is too big.';
     case 'full':

@@ -9,6 +9,7 @@ import { DevAccount, DevIdentity, type Account } from './online/identity';
 import { IotRealtime } from './online/iotRealtime';
 import { parseInvite } from './online/protocol';
 import { WsRealtime, type Realtime } from './online/realtime';
+import { PlayBilling } from './online/play';
 import { OnlineSession } from './online/session';
 import { SaveStore } from './store/saves';
 import { AchievementStore } from './store/achievements';
@@ -156,6 +157,8 @@ async function main(): Promise<void> {
     ? new ProfileDialog({
         identity: player,
         api,
+        // the subscription of the Android app: what Google Play says was bought is given to the server (which checks it), and what Play still has for the player is looked for when they are signed in
+        billing: new PlayBilling(player, api),
         signIn,
         changed: () => {
           profile?.refreshBadge();
