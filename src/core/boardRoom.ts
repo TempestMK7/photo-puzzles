@@ -54,7 +54,7 @@ export function buildBoard(setup: RoomSetup & { kind: BoardKind }): Board {
   const { seed, width, height, opts } = setup;
   switch (setup.kind) {
     case 'focus':
-      return { kind: 'focus', game: new FocusGame(width, height, { seed, pieces: opts.pieces, irregular: opts.irregular === 1 }) };
+      return { kind: 'focus', game: new FocusGame(width, height, { seed, pieces: opts.pieces, irregular: opts.irregular !== 0 }) };
     case 'overlap':
       return { kind: 'overlap', ...makeOverlap(seed, width, height, opts) };
     case 'strips':

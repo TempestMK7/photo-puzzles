@@ -83,7 +83,7 @@ A lock's `until` is on the server's clock. The descriptor carries `serverTime`; 
 ## Tile Swap, Overlap and Strips
 
 `RoomSettings.kind` says which puzzle a room has (`jigsaw`, `focus`, `overlap` or `strips`); the rest of `settings` is the same: `{ seed, width, height, opts }`, and `opts` holds what the size sets as plain numbers
-(Tile Swap `pieces`; Overlap `total` and `stacks`; Strips `cells`, `length` and `tabs`) with the puzzle's own options (`irregular`; `turned`, `windows`, `placed`; `placed`). `buildBoard(setup)` in `src/core/boardRoom.ts`
+(Tile Swap `pieces`; Overlap `total` and `stacks`; Strips `cells`, `length` and `tabs`) with the puzzle's own options (none; `turned`, `placed`; `placed`: Tile Swap pieces are always irregular and Overlap always has window pieces, so a room that says otherwise has the old option dropped). `buildBoard(setup)` in `src/core/boardRoom.ts`
 makes the board from that and nothing else, as `buildJigsaw` does for a Jigsaw; the server refuses (`bad-request`) a size it will not keep (over `jigsawPieces` pieces or cells is `limit`) and a picture that cannot be cut.
 
 **Nobody holds a piece.** These puzzles have no hand, no lock and no reservation (`lock` is always `null`, `reserved` empty, `renew` is `not-holder`, and there are no hand messages): everybody may move anything at any time,

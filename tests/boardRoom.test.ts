@@ -216,8 +216,8 @@ describe('the service with the other puzzles', () => {
 
   it('makes a puzzle only of a size the server will keep, with options it knows', () => {
     const ok = (kind: BoardKind, opts: Record<string, number>, w = 400, h = 300) => checkSettings({ kind, seed: 1, width: w, height: h, opts }, limits);
-    expect(ok('focus', { pieces: 100, irregular: 0 })).toMatchObject({ kind: 'focus', opts: { pieces: 100, irregular: 0 } });
-    expect(ok('overlap', { total: 200, stacks: 5, turned: 0 })).toMatchObject({ kind: 'overlap', opts: { total: 200, stacks: 5, turned: 0, windows: 1, placed: 0 } });
+    expect(ok('focus', { pieces: 100, irregular: 0 })).toEqual({ kind: 'focus', seed: 1, width: 400, height: 300, opts: { pieces: 100 } });      // (pieces are always irregular: the old option is not kept)
+    expect(ok('overlap', { total: 200, stacks: 5, turned: 0 })).toMatchObject({ kind: 'overlap', opts: { total: 200, stacks: 5, turned: 0, placed: 0 } });
     expect(ok('strips', { cells: 100, length: 6, tabs: 6 })).toMatchObject({ kind: 'strips', opts: { cells: 100, length: 6, tabs: 6 } });
     for (const bad of [{}, { pieces: 3 }, { pieces: 1.5 }, { pieces: '100' as unknown as number }, { pieces: 100000 }] as Record<string, number>[]) expect(ok('focus', bad)).toMatchObject({ ok: false });
     expect(ok('focus', { pieces: 100000 })).toMatchObject({ error: 'bad-request' });

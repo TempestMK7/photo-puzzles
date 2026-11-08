@@ -21,7 +21,7 @@ describe('kinds', () => {
     expect(optionValue({ 'focus.size': 1000 }, 'focus', size)).toBe(size.max);
     expect(optionValue({ 'focus.size': -3 }, 'focus', size)).toBe(size.min);
     expect(optionValue({ 'focus.size': NaN }, 'focus', size)).toBe(size.def);
-    expect(optionsOf({}, focus)).toEqual({ size: 1, pieces: 50, irregular: 1 });
+    expect(optionsOf({}, focus)).toEqual({ size: 1, pieces: 50 });
   });
 
   it('a record belongs to photo, type and difficulty - not to the seed', () => {
