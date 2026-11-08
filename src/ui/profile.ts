@@ -1,6 +1,8 @@
 import type { OnlineApi } from '../online/api';
-import { NAME_MAX, cleanName } from '../online/protocol';
+import { DEFAULT_LIMITS, NAME_MAX, cleanName } from '../online/protocol';
+import type { PlayBilling } from '../online/play';
 import type { OnlineSession } from '../online/session';
+import { platform } from '../platform';
 import { h } from './dom';
 import { sayError } from './online';
 
@@ -25,6 +27,8 @@ export interface ProfileDeps {
   api: OnlineApi;
   /** Asks the player to sign in (the pop-up for it); true when they have. */
   signIn(): Promise<boolean>;
+  /** The subscription of the Android app (nothing in a build that cannot sell one). */
+  billing?: PlayBilling;
   /** Called when who the player is has changed (signed in or out, a new name), so that the rest of the screen can follow. */
   changed(): void;
 }
@@ -70,6 +74,10 @@ export class ProfileDialog {
     );
     this.refreshBadge();
     document.addEventListener('visibilitychange', () => this.comeBackFromPatreon());
+    deps.billing?.onUpdate((text) => {
+      if (text) this.say(text);
+      if (!this.el.hidden && !this.loading) this.render();
+    });
   }
 
   /** Pictures that could not be shown (so the letter stays, and the same address is not tried again every time). */
@@ -213,6 +221,8 @@ export class ProfileDialog {
     this.loading = !s.profileLoaded();
     this.providers = null;
     void this.loadProviders();
+    const play = s.summary().play;
+    if (play?.on) this.deps.billing?.loadPrice(play.productId);
     this.render();
     if (this.loading) {
       void s.refreshProfile().then(() => {
@@ -268,8 +278,13 @@ export class ProfileDialog {
               ),
         );
       }
+      const play = s.summary().play;
+      const billing = this.deps.billing;
+      if (play?.on && billing?.available) parts.push(this.subscription(play, billing));
+      // (in an app from a store the way to pay is the store's own: Patreon is only shown to an account that has it joined already)
       const patreon = s.summary().patreon;
-      if (patreon?.on) {
+      const inStore = platform() === 'android' || platform() === 'ios';
+      if (patreon?.on && (patreon.linked || !inStore)) {
         parts.push(
           patreon.linked
             ? h(
@@ -291,6 +306,7 @@ export class ProfileDialog {
           h(
             'div',
             { class: 'warn', role: 'alertdialog', 'aria-label': 'Delete your account' },
+            ...(s.summary().play?.active ? [h('p', {}, 'Deleting your account does not cancel your subscription: Google Play keeps charging until you cancel it (Manage subscription).')] : []),
             h('p', {}, 'This deletes your account for good. The puzzles you made end (and their pictures are deleted from the server), you are taken out of the puzzles you joined, and your name is forgotten. Your own pictures on this device stay.'),
             h('div', { class: 'row' }, h('button', { type: 'button', class: 'danger', onclick: () => void this.deleteAccount() }, 'Delete my account'), h('button', { type: 'button', onclick: () => ((this.deleting = false), this.render()) }, 'Keep it')),
           ),
@@ -303,6 +319,21 @@ export class ProfileDialog {
       );
     }
     this.accountEl.replaceChildren(...parts);
+  }
+
+  /** The subscription that the Android app sells: what it gives, and the button to buy it or to manage it in Google Play. */
+  private subscription(play: NonNullable<ReturnType<OnlineSession['summary']>['play']>, billing: PlayBilling): HTMLElement {
+    if (play.active) {
+      const until = play.expiresAt ? ` It is paid until ${new Date(play.expiresAt).toLocaleDateString()}, and renews unless you cancel it in Google Play.` : '';
+      return h('div', { class: 'row' }, h('p', { class: 'chosen' }, `Your subscription makes this a paid account.${until}`), h('button', { type: 'button', onclick: () => billing.manage(play.productId) }, 'Manage subscription'));
+    }
+    const price = billing.priceOf(play.productId);
+    return h(
+      'div',
+      { class: 'row' },
+      h('button', { type: 'button', class: 'primary', onclick: () => billing.subscribe(play.productId) }, price ? `Subscribe for ${price} a month` : 'Subscribe'),
+      h('span', { class: 'dim' }, `A paid account: video puzzles, and ${DEFAULT_LIMITS.playVideoCredits} video credits every month`),
+    );
   }
 
   private say(text: string): void {

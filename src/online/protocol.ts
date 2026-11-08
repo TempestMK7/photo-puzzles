@@ -27,8 +27,10 @@ export const DEFAULT_LIMITS = {
   videoAdsPerDay: 5,
   /** 1: take the game's word that an ad was watched (for trying things out: there is no check with the ad network yet). 0: refuse, unless the server has a way to check. */
   adsTrusted: 0,
-  /** The video credits a paid account is given for each payment period (what the payments, when they are built, will add). */
+  /** The video credits a paid account is given for each payment period of a Patreon pledge (the $5 tier). */
   paidVideoCredits: 20,
+  /** The same for each payment period of the Google Play subscription, which costs less ($2.99 a month). */
+  playVideoCredits: 10,
   /** The hints and bombs every new account starts with, whatever its type (see `HelpItem`). */
   startHints: 10,
   startBombs: 2,

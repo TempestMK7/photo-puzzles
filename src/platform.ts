@@ -10,6 +10,10 @@ import type { AdKind, AdPlatform } from './online/protocol';
  *   report to the server, not from the page. A shell may also offer `platform()` ('android' or 'ios'; one that does not is taken for Android's), and, where the law asks that the
  *   player can change their mind about ads, `privacyOptionsRequired()` and `showPrivacyOptions()`. Nothing in the app talks to the ad network before the page calls `prepareAds()`
  *   (when the player looks at the credits), which makes the app find out about the player's consent and get an ad ready, and fires the window event `photopuzzles-ads-ready` when it knows.
+ * - The subscription (Google Play Billing, in the Android app only): the shell offers `queryProduct(productId)` (asks Google Play for the price), `buySubscription(productId, accountId)` (opens the purchase
+ *   sheet; only a hash of the account id goes to Google), `restorePurchases()` (the purchases that Play still has for the player) and `manageSubscription(productId)` (Play's page for it), and tells the page
+ *   what happens with the window event `photopuzzles-billing`: `detail` is `{ kind: 'product', productId, price }`, `{ kind: 'purchase', token, pending }` or `{ kind: 'error', error }` (`canceled`,
+ *   `unavailable` or `error`). **The page never makes itself paid:** it gives each purchase token to the server (`POST /me/play/verify`), which asks Google.
  * - A build for Steam or itch says so with `VITE_PLATFORM` (`steam` or `itch`) when it is built. Anything else is the web page.
  */
 export type Platform = 'android' | 'ios' | 'steam' | 'itch' | 'web';
@@ -24,6 +28,10 @@ interface Native {
   privacyOptionsRequired?: () => boolean;
   showPrivacyOptions?: () => void;
   unlockAchievements?: (idsJson: string) => void;
+  queryProduct?: (productId: string) => void;
+  buySubscription?: (productId: string, accountId: string) => void;
+  restorePurchases?: () => void;
+  manageSubscription?: (productId: string) => void;
 }
 
 const nativeHost = (): Native | undefined => (typeof window === 'undefined' ? undefined : (window as unknown as { PhotoPuzzlesNative?: Native }).PhotoPuzzlesNative);
@@ -145,4 +153,63 @@ export function watchAd(kind: AdKind, nonce: string, host: Native | undefined = 
       done({ rewarded: false });
     }
   });
+}
+
+/** Whether the subscription can be bought here: in an app whose shell has Google Play Billing. */
+export function billingAvailable(host: Native | undefined = nativeHost(), built?: string): boolean {
+  const p = platform(host, built);
+  return (p === 'android' || p === 'ios') && typeof host?.buySubscription === 'function' && typeof host.queryProduct === 'function';
+}
+
+/** What the shell says about the subscription (the window event `photopuzzles-billing`). */
+export type BillingEvent = { kind: 'product'; productId: string; price: string } | { kind: 'purchase'; token: string; pending: boolean } | { kind: 'error'; error: 'canceled' | 'unavailable' | 'error' };
+
+/** Listens for what the shell says about the subscription. Returns the way to stop. */
+export function onBilling(handler: (event: BillingEvent) => void, target: Pick<Window, 'addEventListener' | 'removeEventListener'> | undefined = typeof window === 'undefined' ? undefined : window): () => void {
+  if (!target) return () => {};
+  const listener = (e: CustomEvent<Record<string, unknown> | null>): void => {
+    const d = e.detail;
+    if (d?.kind === 'product' && typeof d.productId === 'string' && typeof d.price === 'string') handler({ kind: 'product', productId: d.productId, price: d.price });
+    else if (d?.kind === 'purchase' && typeof d.token === 'string' && d.token) handler({ kind: 'purchase', token: d.token, pending: d.pending === true });
+    else if (d?.kind === 'error') handler({ kind: 'error', error: d.error === 'canceled' || d.error === 'unavailable' ? d.error : 'error' });
+  };
+  target.addEventListener('photopuzzles-billing', listener as EventListener);
+  return () => target.removeEventListener('photopuzzles-billing', listener as EventListener);
+}
+
+/** Asks the shell for the subscription's price (it answers with an event). The calls below do nothing where the shell has no billing, and never throw. */
+export function queryProduct(productId: string, host: Native | undefined = nativeHost()): void {
+  try {
+    host?.queryProduct?.(productId);
+  } catch {
+    /* no price: the button says Subscribe */
+  }
+}
+
+/** Opens the purchase sheet (the shell answers with an event). `accountId` is only hashed before it goes to Google. */
+export function buySubscription(productId: string, accountId: string, host: Native | undefined = nativeHost()): boolean {
+  try {
+    host?.buySubscription?.(productId, accountId);
+    return typeof host?.buySubscription === 'function';
+  } catch {
+    return false;
+  }
+}
+
+/** Asks for the purchases that Google Play still has for the player (each comes as an event). */
+export function restorePurchases(host: Native | undefined = nativeHost()): void {
+  try {
+    host?.restorePurchases?.();
+  } catch {
+    /* nothing to restore */
+  }
+}
+
+/** Opens Google Play's page for managing the subscription. */
+export function manageSubscription(productId: string, host: Native | undefined = nativeHost()): void {
+  try {
+    host?.manageSubscription?.(productId);
+  } catch {
+    /* the player can find it in the Play Store */
+  }
 }
