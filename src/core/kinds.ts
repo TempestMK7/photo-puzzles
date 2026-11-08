@@ -95,7 +95,7 @@ export const KINDS: readonly KindDef[] = [
     name: 'Tile Swap',
     blurb: 'Pieces of different sizes are shuffled. Click two to trade places and sizes. A piece that is in the right place locks there. Wheel or pinch to zoom, drag the board to move it.',
     available: true,
-    options: [sizeOption(5), { key: 'irregular', label: 'Irregular pieces', min: 0, max: 1, def: 1, toggle: true }],
+    options: [sizeOption(5)],            // (pieces are always irregular; a saved or shared puzzle that says `irregular: 0` keeps its grid)
     sizes: sizesOf(['pieces'], [[20], [50], [100], [200], [500]], (v) => `about ${v.pieces} pieces`),
   },
   {
@@ -106,7 +106,6 @@ export const KINDS: readonly KindDef[] = [
     options: [
       sizeOption(5),
       { key: 'turned', label: 'Turned pieces', min: 0, max: 1, def: 1, toggle: true },
-      { key: 'windows', label: 'Window pieces', min: 0, max: 1, def: 1, toggle: true },
       { key: 'placed', label: 'Cells filled in at the start (%)', min: 0, max: 50, def: 0, step: 5, note: 'A puzzle that starts with pieces placed does not count towards best times.' },
     ],
     sizes: sizesOf(['total', 'stacks'], [[50, 3], [100, 4], [200, 5], [500, 6], [1000, 7]], (v) => `about ${v.total} cells`),

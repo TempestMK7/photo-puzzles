@@ -34,7 +34,7 @@ export class FocusSession implements PuzzleSession {
 
   constructor(private readonly init: SessionInit) {
     this.cam = new Camera(init.width, init.height, 2, () => init.requestDraw());
-    this.game = new FocusGame(init.width, init.height, { seed: init.seed, pieces: init.opts.pieces, irregular: init.opts.irregular === 1 });
+    this.game = new FocusGame(init.width, init.height, { seed: init.seed, pieces: init.opts.pieces, irregular: init.opts.irregular !== 0 });
     this.board = { kind: 'focus', game: this.game };
     if (init.restore) this.game.restore(init.restore as FocusState);
     if (init.video && videoGlAvailable()) {
