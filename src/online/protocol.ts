@@ -60,10 +60,11 @@ export const DEFAULT_LIMITS = {
 } as const;
 
 /**
- * The kinds of video file an online puzzle may be made from: MP4 and MOV, because those are what Amazon's check of a whole video reads (and only with H.264 inside: a file that the check
- * cannot read is refused with `unreadable`). WebM and MKV play on your own screen but cannot be checked, so they cannot be shared.
+ * The kinds of video file an online puzzle may be made from. The check cuts frames out of the video itself (ffmpeg), so it reads whatever the maker's own browser can play; MP4, MOV, WebM
+ * and MKV are the ones that the game and the server can tell apart. (The other players' browsers still have to play the file: the maker's game warns when it may not.) A file that cannot
+ * be read is `unreadable`.
  */
-export const VIDEO_TYPES = ['video/mp4', 'video/quicktime'] as const;
+export const VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-matroska'] as const;
 export type VideoType = (typeof VIDEO_TYPES)[number];
 
 /** How often the player who holds a piece says where it is, and how often a hold is renewed. */
@@ -198,8 +199,10 @@ export type ApiError =
   | 'helpers-off'
   /** The video is longer or larger than the limits allow. */
   | 'too-big'
-  /** The automatic check could not read the video (it reads MP4 and MOV made with H.264). */
+  /** The automatic check could not read the video. Nothing was charged. */
   | 'unreadable'
+  /** Something went wrong on the server's side while the picture or video was being checked. Nothing was charged. */
+  | 'check-failed'
   /** The library of stock pictures and videos cannot be used right now (it is not set up, or its provider does not answer). */
   | 'stock-off'
   /** The file that a puzzle was to be made from is not held any more (it was kept for a week after it was last used), or is not the size the puzzle says: send it again. */
@@ -481,10 +484,24 @@ export interface AccountSummary {
   helpAdNoAd: boolean;
   /** Patreon: `on` when the server can join accounts to it; `linked` when this account is joined to a Patreon account, and `active` when that one's pledge is paid up (and so makes this account paid). */
   patreon?: { on: boolean; linked: boolean; active: boolean };
+  /** What the operator wants this player told, shown once on the next sign-in and then acknowledged (`POST /me/notices/ack`). */
+  notices?: AccountNotice[];
   /** Google Play: `on` when the server can check a purchase of `productId` (the subscription that the Android app sells); `active` when this account's subscription is paid up (and so makes it paid), until `expiresAt` (ms) if Google said. */
   play?: { on: boolean; productId: string; active: boolean; expiresAt?: number };
   /** The puzzle options the player used last (`cleanPuzzleSettings`), kept for the account so that any device starts with them. Nothing until the first has been kept; a guest has none. */
   settings?: Record<string, number>;
+}
+
+/**
+ * Something to tell the player the next time the game is open (a moderator approved a picture or video that the automatic check turned down). `fileId` and `sourceId` say which kept file
+ * (`CreateRoomRequest.fileId`) is now the player's for the photo or video that they sent from their library entry `sourceId`, so that the next puzzle from it needs no check.
+ */
+export interface AccountNotice {
+  id: string;
+  text: string;
+  at: number;
+  fileId?: string;
+  sourceId?: string;
 }
 
 /** The answer to `POST /me/patreon`: where to send the player to join their Patreon account. */

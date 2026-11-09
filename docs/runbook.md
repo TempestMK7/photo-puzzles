@@ -88,13 +88,40 @@ What the logs hold: errors with ids, never pictures and never e-mail addresses. 
 
 ## Pictures the server keeps (for another puzzle)
 
-A picture or video that has passed the automatic check is kept as a **file**, so that its owner, and the players who joined a puzzle made from it, can make another puzzle from it without sending it again (and without paying for another check: a video costs about ten cents a minute to check). It lives apart from the puzzle: a puzzle ends and deletes its own copy as before, the file stays.
+A picture or video that has passed the automatic check is kept as a **file**, so that its owner, and the players who joined a puzzle made from it, can make another puzzle from it without sending it again (and without paying for another check). It lives apart from the puzzle: a puzzle ends and deletes its own copy as before, the file stays.
 
 - **How long:** `fileKeepMs` (a week) after it was last used to make a puzzle, and there is no longest (a picture that keeps being used is kept, and is not checked again). It is a limit (below); `fileKeepMs` = `0` switches keeping off (nothing new is kept; files that are there are used until they run out). The table's expiry removes the record and a stream function removes the storage's copy, which can be up to two days late; the service itself never uses or lists a file after its time. The bucket's rules are backstops only: `rooms/` after 35 days, and `files/` after a year (a file used for longer than that is simply sent again).
 - **Who may use a file:** its owner, and any signed-in player who joined a puzzle made from it (the server keeps who). Anyone else is refused (`unauthorized`). A guest cannot make puzzles.
 - **What it costs:** one more copy of each picture and video for a week (a 250 MB video is about a cent a month of storage), and a puzzle made from a file still costs the player's credits like any other.
 - **Looking, deleting:** the **Files** tab of the admin page (above). Ending a puzzle from the page, or with `remove-room`, deletes the file that puzzle's picture was kept as, and ends the other puzzles made from it; **a puzzle's owner closing it does not**. A ban or a deleted account deletes everything the player sent.
 - **Privacy:** the privacy policy and the terms say that a copy is kept for a week after the last puzzle made from it, and the box a player ticks says so too (it also says that sexual and adult content is not allowed, and links to the terms).
+
+## Rejected files (when the automatic check turns something down)
+
+When Rekognition turns a picture or video down, the puzzle ends **but the file is kept**, and you get the e-mail (what was found, the room and the player; for a video also at what time). The **Rejected** tab of the admin page lists every file waiting for you, newest first, with the picture or the video to look at, what was found, who sent it, and what they paid. You rule on each:
+
+- **Valid** (the check was right): the file is deleted from the server and the credit stays spent. The case is closed. Nothing is said to the player.
+- **Invalid** (the check was wrong): the credit is given back, the player is shown a message the next time they open the game signed in ("after manual review, your photo or video has been approved by a moderator…"), and the file is kept like any checked file (`fileKeepMs`, a week after it was last used) so that they can make a puzzle from it again without another look (the message also tells their game which file it is). A second press on the same case does nothing, so the credit is not given back twice.
+- **Nobody rules:** after a month the case closes as valid (the file goes, the credit stays spent). A held file cannot be used for a puzzle while it waits.
+
+A banned player's or a deleted account's files go with them, held ones included. Pressing *Delete it and ban the player* in the Files tab is for files that passed the check; for a held one, rule on it first.
+
+**When it is our fault the player is not charged:** a file that cannot be read, a check that breaks or does not answer within 15 minutes, or a picture or video that is not the one the puzzle was made for ends the puzzle, gives the credit back at once, and tells the player (`unreadable` or `check-failed`) that it was an error on our side. A look at a picture that fails is asked once more first.
+
+### Looking at a video by its frames (the ffmpeg layer)
+
+With a Lambda layer that has **ffmpeg**, the `VideoCheck` function copies the video to its own disk, cuts one random frame out of every two seconds (60 for the longest video), and has each looked at by Rekognition as a picture is (`DetectModerationLabels`, at most 1280 pixels on a side). Any file that ffmpeg can read works, so MP4, MOV, WebM and MKV (iPhone HEVC too). The players' own browsers still have to play the file. Without the layer, Rekognition Video looks at the whole file instead (MP4 and MOV with H.264 only), as before.
+
+The layer is made once (the function runs on **arm64**; ffmpeg's static builds are GPL: they are only run on the server, never given to anyone):
+
+```bash
+curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz -o ffmpeg.tar.xz
+mkdir -p layer/bin && tar xf ffmpeg.tar.xz --strip-components=1 -C layer/bin --wildcards '*/ffmpeg' && chmod +x layer/bin/ffmpeg
+(cd layer && zip -r ../ffmpeg-layer.zip bin)
+aws lambda publish-layer-version --layer-name ffmpeg --zip-file fileb://ffmpeg-layer.zip --compatible-architectures arm64 --compatible-runtimes nodejs22.x
+```
+
+Put the `LayerVersionArn` that it prints in the repository variable `FFMPEG_LAYER_ARN` (the deploy passes it as `-c ffmpegLayerArn=...`) and deploy: the stack then makes the `VideoCheck` function (2 GB of memory and disk, five minutes) and the API starts it for each video. The function writes each verdict to `checks/<room>.json` in the media bucket (cleared after two days). Its logs are in the `VideoCheck` log group.
 
 ## Ads
 
@@ -109,7 +136,7 @@ Rewarded ads are AdMob's, shown by the Android app (`android/README.md`); nothin
 
 **What an ad pays:** the AdMob console says it all: *Reports* by ad unit and by country shows the estimated earnings, the number of impressions and the **eCPM** (what 1,000 of them pay). The server writes a log line for each ad it rewarded (`{"ad":"rewarded","kind":"photo","given":true,...}`, in the Api function's log; `ad: reward-unclaimed` for one it did not): compare the two to see what one rewarded ad is worth. Expect it to vary a great deal by country, by time of day and by ad format.
 
-**Cost to set against it:** a picture costs a fraction of a cent to check; a video costs about **ten cents a minute** to check (Rekognition Video), so a video credit for one ad can lose money on anything but a short clip. That is the reason for `videoAdsPerDay` (and for deciding what a video credit is worth before more are given).
+**Cost to set against it:** a picture costs a tenth of a cent to check; a video costs about **6 cents** to check by its frames (60 frames of a two-minute video at a tenth of a cent each, plus about a tenth of a cent of ffmpeg), or about **ten cents a minute** if there is no ffmpeg layer and Rekognition has to look at the whole video, so a video credit for one ad can lose money on anything but a short clip. That is the reason for `videoAdsPerDay` (and for deciding what a video credit is worth before more are given).
 
 **Trying it on dev:** with the test ids the app shows test ads; AdMob sends the callback for them too (the console's tester will, at least). `adsTrusted` (a limit) believes the game instead of AdMob and is only for trying the page without any ad network.
 
@@ -123,7 +150,7 @@ The limits of the service are numbers with defaults (`DEFAULT_LIMITS` in `src/on
 
 **Account types and credits.** Everybody, guests too, plays alone and joins any puzzle without limit; *starting* a puzzle costs credits (`docs/online-protocol.md`, *Accounts and credits*). A **free** account starts with `freePhotoCredits` (5) photo credits and pays one for each puzzle from a picture; a **paid** one starts pictures for nothing and pays a video credit for each video (`paidVideoCredits`, 20, are for each payment period: nothing gives them yet, because payment is not built: set the credits by hand on the admin page); **family** and **admin** pay nothing, and **what they send is not looked at by Rekognition** (it is yours to look at: the **Files** tab lists what is kept, and every file of such an account is marked as not looked at). Only these two can use a file that was not looked at, so the family cannot pass an unchecked picture to a free account. A new account is made free the first time it is asked about, so the way to make one the family's or an admin is the **Type** box on the Players tab (an account that is in the Cognito group `admins` is an admin whatever its record says, and an account whose record says admin can use the admin page without being in the group). **Ads:** only in the Android and iOS apps, when an account has none of that kind left (`adsPerDay` 5 for a free account's photo credits, `videoAdsPerDay` 5 for a paid account's video credits; 5 and 1 credits: `adPhotoCredits`, `adVideoCredits`); see *Ads*, below. `hostingPaused` = `1` stops the starting of new puzzles (below).
 
-**Puzzles made from a video** are for paid accounts (and the family and admins): a free account is refused (`plan-required`). `videoBytes` (250 MB) and `videoMs` (2 minutes) are the largest and longest video; MP4 and MOV only. **Each one costs about ten cents a minute of video to check** (Amazon Rekognition Video looks at all of it: a two-minute video is about 20 cents, once, when it is made), and storage and bandwidth (each player downloads the whole file once: about 2 GB of transfer, some 18 cents, for a 250 MB video and eight players). The check takes a minute or two; a video it turns down ends the puzzle and e-mails you what it found (the same categories as for pictures); one it cannot read (not H.264) ends the puzzle with a message to the maker. A puzzle whose maker walks away while the check runs stays unjoinable and ends by itself (a day idle). The admin page plays a video puzzle's video.
+**Puzzles made from a video** are for paid accounts (and the family and admins): a free account is refused (`plan-required`). `videoBytes` (250 MB) and `videoMs` (2 minutes) are the largest and longest video; MP4, MOV, WebM and MKV (with the ffmpeg layer, below: without it, only MP4 and MOV made with H.264). **Each one costs about 6 cents to check** (one random frame from every two seconds, 60 for a two-minute video, each looked at by Rekognition as a picture is, once, when it is made; with no ffmpeg layer, Rekognition Video looks at all of it for about ten cents a minute), and storage and bandwidth (each player downloads the whole file once: about 2 GB of transfer, some 18 cents, for a 250 MB video and eight players). The check takes a minute or less; a video it turns down ends the puzzle and e-mails you what it found and at what time of the video (the same categories as for pictures), and the file is held for you to rule on (*Rejected files*, below); one that cannot be read, or a check that breaks on our side, ends the puzzle, gives the credit back and tells the maker it was an error here. A puzzle whose maker walks away while the check runs stays unjoinable and ends by itself (a day idle). The admin page plays a video puzzle's video.
 
 **AI-generated items in the stock library** are kept in and **badged**: Pixabay says which ones an AI made (`isAiGenerated`, with an "ai generated" tag), and the game shows a small "AI" mark on them in the list and the library and "AI generated" under the picture; Pexels has no such flag. The badge stays with a picture that is added to the library (it is part of its credit).
 

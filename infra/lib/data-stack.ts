@@ -61,6 +61,7 @@ export class DataStack extends Stack {
       lifecycleRules: [
         { prefix: 'rooms/', expiration: Duration.days(35), abortIncompleteMultipartUploadAfter: Duration.days(1) },
         { prefix: 'files/', expiration: Duration.days(365), abortIncompleteMultipartUploadAfter: Duration.days(1) },
+        { prefix: 'checks/', expiration: Duration.days(2) },                   // (the verdicts of the look at a video: read within minutes)
       ],
       removalPolicy: removal,
       autoDeleteObjects: !prod,

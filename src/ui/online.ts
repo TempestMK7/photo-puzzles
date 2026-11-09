@@ -108,9 +108,11 @@ export function sayError(error: CallError, failure?: { retryAt?: number; credits
       }
       return 'Too many tries. Wait a little.';
     case 'rejected':
-      return 'That picture or video cannot be used for an online puzzle.';
+      return 'The automatic check turned that picture or video down, so it cannot be used for an online puzzle. If that was a mistake, a moderator will look at it.';
     case 'unreadable':
-      return 'The check could not read that video. Online puzzles take MP4 or MOV made with H.264.';
+      return 'We could not read that file, so it could not be checked. You have not been charged.';
+    case 'check-failed':
+      return 'Something went wrong on our side while the file was being checked. You have not been charged: please try again in a little while.';
     case 'too-big':
       return 'That video is longer or larger than an online puzzle allows.';
     case 'paused':
@@ -531,7 +533,7 @@ export class OnlinePanel {
       src = await photos.load(entry);
       const file = await (await fetch(entry.previewUrl)).blob();
       const type = videoTypeOf(file, entry.name);
-      if (!(VIDEO_TYPES as readonly string[]).includes(type)) throw new Error('Online puzzles take MP4 or MOV videos (made with H.264). Others play here, but cannot be checked to share.');
+      if (!(VIDEO_TYPES as readonly string[]).includes(type)) throw new Error('Online puzzles take MP4, MOV, WebM or MKV videos. Other kinds play here, but cannot be shared.');
       const seconds = src.video?.duration ?? 0;
       if (!(seconds > 0) || !Number.isFinite(seconds)) throw new Error('This browser cannot tell how long that video is.');
       if (!this.deps.identity.isAdmin() && (seconds * 1000 > DEFAULT_LIMITS.videoMs || file.size > DEFAULT_LIMITS.videoBytes)) throw new Error(sayError('too-big'));

@@ -1,4 +1,5 @@
 import './style.css';
+import { NoticesUi } from './ui/notices';
 import { SettingsSync } from './online/settingsSync';
 import { Prefs } from './core/prefs';
 import { PhotoLibrary } from './store/photos';
@@ -215,6 +216,8 @@ async function main(): Promise<void> {
   if (panel) root.append(panel.el);
   if (hostPanel) root.append(hostPanel.el);
   if (inventory) root.append(inventory.dialog);
+  const notices = api ? new NoticesUi(player, api, photos) : null;          // (what the server wants the player told: shown when the account is signed in)
+  if (notices) root.append(notices.dialog);
   root.append(achievementsUi.dialog, achievementsUi.toast, bestTimesUi.dialog);
   if (profile) root.append(profile.el);
   if (signInDialog) root.append(signInDialog.el);

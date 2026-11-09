@@ -24,6 +24,8 @@ import { playerFrom } from './claims';
 import { CognitoAccounts } from './cognito';
 import { RekognitionModeration } from './rekognition';
 import { RekognitionVideoModeration } from './rekognitionVideo';
+import { FrameVideoModeration } from './frameVideo';
+import { LambdaClient } from '@aws-sdk/client-lambda';
 import { DynamoPresence, DynamoRates, DynamoStore } from './dynamo';
 import { CognitoVerifier, fetchJson } from './jwt';
 import { IotPubSub } from './iot';
@@ -138,7 +140,10 @@ export async function buildService() {
     // every picture is looked at before anyone else can see it
     moderation: new RekognitionModeration(new RekognitionClient({})),
     // and every video, whole (a minute or two, asked about until it is done)
-    videoModeration: new RekognitionVideoModeration(new RekognitionClient({}), need('MEDIA_BUCKET')),
+    // by its frames (a function with ffmpeg cuts a random frame out of every two seconds and has each looked at) where there is one, else Rekognition looks at the whole of it (MP4 and MOV with H.264 only)
+    videoModeration: process.env.VIDEO_CHECK_FUNCTION
+      ? new FrameVideoModeration(new LambdaClient({}), new S3Client({}), need('MEDIA_BUCKET'), process.env.VIDEO_CHECK_FUNCTION)
+      : new RekognitionVideoModeration(new RekognitionClient({}), need('MEDIA_BUCKET')),
     // AdMob tells the server when a rewarded ad was watched (only for the ad units named in the deployment: without them no ad is accepted)
     adCallbacks: adUnits.length ? new AdMobCallbacks(adUnits, systemClock) : undefined,
     // a paid account can come from a pledge on Patreon (only where the secret with its settings is there)

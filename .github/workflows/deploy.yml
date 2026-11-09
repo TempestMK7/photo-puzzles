@@ -125,12 +125,13 @@ jobs:
           CTX_PIXABAY_SECRET: ${{ vars.PIXABAY_SECRET_NAME }}
           CTX_LIMITS: ${{ vars.LIMITS }}
           CTX_ADMOB_UNITS: ${{ vars.ADMOB_AD_UNITS }}
+          CTX_FFMPEG_LAYER: ${{ vars.FFMPEG_LAYER_ARN }}
           CTX_COGNITO_EMAIL: ${{ vars.COGNITO_EMAIL }}
         run: |
           npm ci --prefix ..
           npm ci
           npx cdk deploy "PuzzleVidio-$STAGE-*" --require-approval never \
-            -c "hostedZoneId=$CTX_ZONE" -c "alertEmail=$CTX_EMAIL" -c "googleClientId=$CTX_GOOGLE_ID" -c "googleSecretName=$CTX_GOOGLE_SECRET" -c "pexelsSecretName=$CTX_PEXELS_SECRET" -c "pixabaySecretName=$CTX_PIXABAY_SECRET" -c "limits=$CTX_LIMITS" -c "admobAdUnits=$CTX_ADMOB_UNITS" -c "cognitoEmail=$CTX_COGNITO_EMAIL"
+            -c "hostedZoneId=$CTX_ZONE" -c "alertEmail=$CTX_EMAIL" -c "googleClientId=$CTX_GOOGLE_ID" -c "googleSecretName=$CTX_GOOGLE_SECRET" -c "pexelsSecretName=$CTX_PEXELS_SECRET" -c "pixabaySecretName=$CTX_PIXABAY_SECRET" -c "limits=$CTX_LIMITS" -c "admobAdUnits=$CTX_ADMOB_UNITS" -c "ffmpegLayerArn=$CTX_FFMPEG_LAYER" -c "cognitoEmail=$CTX_COGNITO_EMAIL"
 
       # Where everything is, from what the stacks said, goes into the build of the game (none of it is secret: it is in the page that every visitor gets).
       - name: Find where everything is

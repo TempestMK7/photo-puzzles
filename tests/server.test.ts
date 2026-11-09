@@ -75,12 +75,13 @@ describe.each(stores)('the room service on %s', (_name, store) => {
     it('throws away a room whose picture is not the size the puzzle was made for, and frees its code', async () => {
       const made = await w.service.createRoom(ann, request());
       if (!made.ok) throw new Error();
-      expect(await w.service.finishUpload(made.roomId, jpeg(401, 300))).toMatchObject({ ok: false, error: 'bad-request' });
+      const before = (await w.service.profile(ann)).account.photo;
+      expect(await w.service.finishUpload(made.roomId, jpeg(401, 300))).toMatchObject({ ok: false, error: 'unreadable', account: { photo: before + 1 } });          // (paid when the puzzle was made, and given back)
       expect(await w.store.getRoom(made.roomId)).toBeUndefined();
       expect(await w.store.roomOfCode(made.invite.code)).toBeUndefined();
       const other = await w.service.createRoom(ann, request());
       if (!other.ok) throw new Error();
-      expect(await w.service.finishUpload(other.roomId, new TextEncoder().encode('not a picture'))).toMatchObject({ ok: false, error: 'bad-request' });
+      expect(await w.service.finishUpload(other.roomId, new TextEncoder().encode('not a picture'))).toMatchObject({ ok: false, error: 'unreadable' });
       expect(w.media.has(other.roomId)).toBe(false);
     });
   });
@@ -328,25 +329,104 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       const check = vi.fn(async () => ({ ok: true as const }));
       const w = make(check);
       const made = await create(w);
-      expect(await w.service.finishUpload(made.roomId, jpeg(401, 300))).toMatchObject({ ok: false, error: 'bad-request' });
+      expect(await w.service.finishUpload(made.roomId, jpeg(401, 300))).toMatchObject({ ok: false, error: 'unreadable' });
       expect(check).not.toHaveBeenCalled();
     });
 
-    it('shows nothing when the look could not be made, and lets the creator send the picture again', async () => {
+    it('asks again when the look could not be made, and when it still cannot the puzzle ends, the credit comes back and the creator is told it was an error here', async () => {
       const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-      let working = false;
-      const w = make(async () => {
-        if (!working) throw new Error('throttled');
+      let calls = 0;
+      const flaky = make(async () => {
+        if (++calls === 1) throw new Error('throttled');
         return { ok: true };
       });
+      const once = await create(flaky);
+      expect(await flaky.service.finishUpload(once.roomId, jpeg(400, 300))).toEqual({ ok: true });         // (the second asking worked)
+      expect(calls).toBe(2);
+      const w = make(async () => {
+        throw new Error('down');
+      });
+      const before = (await w.service.profile(ann)).account.photo;
       const made = await create(w);
-      expect(await w.service.finishUpload(made.roomId, jpeg(400, 300))).toMatchObject({ ok: false, error: 'busy' });
-      expect(w.media.has(made.roomId)).toBe(false);                                   // the picture was not stored
-      expect(await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret })).toMatchObject({ ok: false, error: 'not-ready' });
-      working = true;
-      expect(await w.service.finishUpload(made.roomId, jpeg(400, 300))).toEqual({ ok: true });
-      expect((await w.service.join(bob, { protocol: PROTOCOL_VERSION, code: made.invite.code, secret: made.invite.secret })).ok).toBe(true);
+      expect((await w.service.profile(ann)).account.photo).toBe(before - 1);
+      expect(await w.service.finishUpload(made.roomId, jpeg(400, 300))).toMatchObject({ ok: false, error: 'check-failed', account: { photo: before } });
+      expect((await w.service.profile(ann)).account.photo).toBe(before);
+      expect(await w.store.getRoom(made.roomId)).toBeUndefined();
+      expect(w.media.has(made.roomId)).toBe(false);
+      expect(told).toEqual([]);                                                                             // (nothing was found: the operator is not told)
       log.mockRestore();
+    });
+
+    it('holds a picture that was turned down, for the operator to rule on', async () => {
+      const w = make(async () => ({ ok: false, label: 'Explicit / Explicit Nudity' }));
+      const before = (await w.service.profile(ann)).account.photo;
+      const made = await create(w);
+      expect(await w.service.finishUpload(made.roomId, jpeg(400, 300))).toMatchObject({ ok: false, error: 'rejected' });
+      expect((await w.service.profile(ann)).account.photo).toBe(before - 1);                               // (the credit stays spent until the operator rules)
+      const held = await w.service.adminRejected();
+      expect(held).toHaveLength(1);
+      expect(held[0]).toMatchObject({ ownerId: 'ann', type: 'image', label: 'Explicit / Explicit Nudity', paid: 'photo', width: 400, height: 300 });
+      expect(held[0].url).toContain(held[0].id);
+      expect(told[0]).toContain('Rejected tab');
+      expect(await w.service.adminFiles()).toMatchObject({ files: [] });                                     // (not among the files that can be used)
+    });
+
+    describe('the operator rules on a rejection', () => {
+      const rejected = async () => {
+        const w = make(async () => ({ ok: false, label: 'Violence' }));
+        const made = await w.service.createRoom(ann, { ...request(), sourceId: 'photo-1' });
+        if (!made.ok) throw new Error('create failed');
+        await w.service.finishUpload(made.roomId, jpeg(400, 300));
+        const [held] = await w.service.adminRejected();
+        return { w, id: held.id };
+      };
+
+      it('valid: the file is deleted, the credit stays spent, and nothing is told to the player', async () => {
+        const { w, id } = await rejected();
+        const before = (await w.service.profile(ann)).account;
+        expect(await w.service.adminReview(id, 'valid')).toBe(true);
+        expect(await w.store.getFile(id)).toBeUndefined();
+        expect(w.media.hasFile(id)).toBe(false);
+        expect(await w.service.adminRejected()).toEqual([]);
+        const after = (await w.service.profile(ann)).account;
+        expect(after.photo).toBe(before.photo);
+        expect(after.notices).toBeUndefined();
+        expect(await w.service.adminReview(id, 'valid')).toBe(false);                                        // (closed)
+      });
+
+      it('invalid: the credit comes back once, the player is told on their next sign-in, and the file is kept for another puzzle without another look', async () => {
+        const { w, id } = await rejected();
+        const before = (await w.service.profile(ann)).account.photo;
+        expect(await w.service.adminReview(id, 'invalid')).toBe(true);
+        expect(await w.service.adminReview(id, 'invalid')).toBe(false);                                       // (a second press gives nothing back)
+        expect(await w.service.adminReview(id, 'valid')).toBe(false);
+        const account = (await w.service.profile(ann)).account;
+        expect(account.photo).toBe(before + 1);
+        expect(account.notices).toHaveLength(1);
+        expect(account.notices![0]).toMatchObject({ fileId: id, sourceId: 'photo-1' });
+        expect(account.notices![0].text).toContain('approved by a moderator');
+        expect((await w.store.getFile(id))!.held).toBeUndefined();
+        expect(await w.service.adminRejected()).toEqual([]);
+        // a puzzle from that file: nothing is sent or looked at
+        const checked = vi.fn();
+        const again = await w.service.createRoom(ann, { ...request(), fileId: id });
+        expect(again).toMatchObject({ ok: true });
+        expect(checked).not.toHaveBeenCalled();
+        if (again.ok) expect((await w.service.getRoom(ann, again.roomId)).ok).toBe(true);
+        // the game says it has shown the message
+        const done = await w.service.ackNotices(ann, [account.notices![0].id]);
+        expect(done).toMatchObject({ ok: true });
+        expect((await w.service.profile(ann)).account.notices).toBeUndefined();
+        expect(await w.service.ackNotices({ id: 'g1', name: 'G', guest: true }, [])).toMatchObject({ error: 'account-required' });
+      });
+
+      it('cannot be used for a puzzle while it waits, and a case nobody rules on ends as valid after a month', async () => {
+        const { w, id } = await rejected();
+        expect(await w.service.createRoom(ann, { ...request(), fileId: id })).toMatchObject({ ok: false, error: 'file-gone' });
+        w.clock.t += 31 * 24 * 3600 * 1000;
+        expect(await w.service.adminRejected()).toEqual([]);
+        expect(await w.service.adminReview(id, 'invalid')).toBe(false);                                       // (too late: the credit stays spent)
+      });
     });
   });
 

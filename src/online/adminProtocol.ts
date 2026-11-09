@@ -76,6 +76,30 @@ export interface AdminFile {
   url: string;
 }
 
+/** A picture or video that the automatic check turned down, waiting for the operator to say whether the check was right (the Rejected tab). */
+export interface AdminRejected {
+  id: string;
+  ownerId: string;
+  ownerName: string;
+  type: 'image' | 'video';
+  mime: string;
+  bytes: number;
+  width: number;
+  height: number;
+  /** A video's length. */
+  ms?: number;
+  /** What the check found ("Explicit / Explicit Nudity"). */
+  label: string;
+  /** When it was turned down. */
+  at: number;
+  /** What the owner paid for the puzzle (nothing for the family and the operator). */
+  paid?: 'photo' | 'video';
+  /** When the case closes by itself, as valid (the file is deleted and the credit stays spent). */
+  expiresAt: number;
+  /** A short-lived address of the file itself, to look at. */
+  url: string;
+}
+
 export interface AdminReport {
   id: string;
   at: number;

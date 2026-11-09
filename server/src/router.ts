@@ -61,6 +61,7 @@ const STATUS: Record<ApiError, number> = {
   paused: 503,
   'too-big': 413,
   unreadable: 422,
+  'check-failed': 502,
   'stock-off': 503,
   'file-gone': 410,
   'helpers-off': 403,
@@ -177,6 +178,10 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
     const player = req.player ?? (token ? await auth.verify(token) : null);
     if (!player) return { status: 401, body: { ok: false, error: 'unauthorized' } };
 
+    if (parts[0] === 'me' && parts[1] === 'notices' && parts[2] === 'ack' && parts.length === 3 && req.method === 'POST') {
+      const body = json<{ ids?: unknown }>(req);
+      return body ? reply(await service.ackNotices(player, body.ids)) : bad;
+    }
     if (parts[0] === 'me' && parts[1] === 'settings' && parts.length === 2 && (req.method === 'PUT' || req.method === 'POST')) {
       const body = json<{ settings?: unknown }>(req);
       return body ? reply(await service.setSettings(player, body.settings)) : bad;

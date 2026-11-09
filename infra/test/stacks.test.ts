@@ -322,6 +322,7 @@ describe('api', () => {
         ['GET /me', 'NONE'],
         ['PUT /me', 'NONE'],
         ['POST /me/delete', 'NONE'],
+        ['POST /me/notices/ack', 'NONE'],        // the game has shown the player a message (the function wants an account's token)
         ['PUT /me/settings', 'NONE'],            // the puzzle options used last, kept for an account (the function wants an account's token)
         ['POST /me/carry', 'NONE'],
         ['POST /me/link-intent', 'NONE'],        // an account made with a password says that it is about to add Google (the function wants an account's token)
@@ -509,5 +510,37 @@ describe('the stock library', () => {
     expect(JSON.stringify(off.toJSON())).not.toContain('puzzlevidio/pexels');
     expect(settings(new App({ context }).node)).toMatchObject({ pexelsSecretName: 'puzzlevidio/pexels', pixabaySecretName: 'puzzlevidio/pixabay' });
     expect(settings(new App({ context: { ...context, pixabaySecretName: '' } }).node).pixabaySecretName).toBe('puzzlevidio/pixabay');          // (an empty deploy variable is no choice)
+  });
+});
+
+describe('the look at a video by its frames', () => {
+  const layer = 'arn:aws:lambda:us-east-1:123456789012:layer:ffmpeg:1';
+
+  it('is not made without a layer with ffmpeg: Rekognition then looks at the whole video, as before', () => {
+    const json = JSON.stringify(stack(app(), 'PuzzleVidio-dev-Api').toJSON());
+    expect(json).not.toContain('VIDEO_CHECK_FUNCTION');
+    expect(json).not.toContain('VideoCheck');
+  });
+
+  it('is a function with ffmpeg and room for the video, started by the API, that may only read and write the media and ask Rekognition about pictures', () => {
+    const t = stack(app({ ffmpegLayerArn: layer }), 'PuzzleVidio-dev-Api');
+    const fns = Object.entries(t.findResources('AWS::Lambda::Function')).filter(([id]) => id.startsWith('VideoCheck')).map(([, f]) => f as { Properties: Record<string, any> });
+    expect(fns).toHaveLength(1);
+    const p = fns[0].Properties;
+    expect(p.Layers).toEqual([layer]);
+    expect(p.Architectures).toEqual(['arm64']);
+    expect(p.EphemeralStorage).toEqual({ Size: 2048 });
+    expect(p.MemorySize).toBe(2048);
+    expect(p.Timeout).toBe(300);
+    expect(p.Environment.Variables.FFMPEG_PATH).toBe('/opt/bin/ffmpeg');
+    const json = JSON.stringify(t.toJSON());
+    expect(json).toContain('VIDEO_CHECK_FUNCTION');
+    expect(json).toContain('lambda:InvokeFunction');
+    expect(json).toContain('rekognition:DetectModerationLabels');
+  });
+
+  it('writes its verdicts to a place of the media bucket that clears itself', () => {
+    const data = stack(app(), 'PuzzleVidio-dev-Data');
+    data.hasResourceProperties('AWS::S3::Bucket', { LifecycleConfiguration: { Rules: Match.arrayWith([Match.objectLike({ Prefix: 'checks/', Status: 'Enabled' })]) } });
   });
 });

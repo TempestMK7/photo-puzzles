@@ -107,6 +107,11 @@ export class OnlineApi implements RoomApi {
     return this.call('POST', '/me/patreon', {});
   }
 
+  /** The game has shown these notices (see `AccountNotice`): the server does not send them again. */
+  ackNotices(ids: string[]): Promise<MeResponse | ApiFailure | Offline> {
+    return this.call('POST', '/me/notices/ack', { ids });
+  }
+
   /** The puzzle options the player used last are kept for their account (see `cleanPuzzleSettings`). */
   saveSettings(settings: Record<string, number>): Promise<MeResponse | ApiFailure | Offline> {
     return this.call('PUT', '/me/settings', { settings });
