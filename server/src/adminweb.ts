@@ -111,7 +111,7 @@ export function makeAdminWeb(d: { service: RoomService; directory: Directory; lo
 
     // the pictures and videos that the automatic check turned down: the operator says whether it was right
     if (get && path === '/admin/rejected') return ok({ rejected: await service.adminRejected() });
-    if (post && (m = /^\/admin\/rejected\/([\w-]{1,128})\/(valid|invalid)$/.exec(path))) return (await service.adminReview(m[1], m[2] as 'valid' | 'invalid')) ? ok() : no(404, 'not-found');
+    if (post && (m = /^\/admin\/rejected\/([\w-]{1,128})\/(valid|invalid|ban)$/.exec(path))) return (await service.adminReview(m[1], m[2] as 'valid' | 'invalid' | 'ban')) ? ok() : no(404, 'not-found');
 
     if (get && path === '/admin/reports') {
       const days = Number(req.query.get('days') ?? 30);

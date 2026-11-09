@@ -90,6 +90,10 @@ export interface AdminRejected {
   ms?: number;
   /** What the check found ("Explicit / Explicit Nudity"). */
   label: string;
+  /** How many of this player's rejections the operator has already ruled valid. */
+  upheld: number;
+  /** The player is banned from online puzzles already. */
+  banned: boolean;
   /** When it was turned down. */
   at: number;
   /** What the owner paid for the puzzle (nothing for the family and the operator). */

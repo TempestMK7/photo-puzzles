@@ -133,6 +133,8 @@ export interface AccountRecord {
   patreon?: PatreonLink;
   /** The Google Play subscription joined to this one (see `Play`): while it is paid up the account is paid, like with a pledge. */
   play?: PlayLink;
+  /** How many of this player's pictures and videos that the automatic check turned down the operator has ruled were rightly turned down (shown with each new case in the admin page). */
+  upheld?: number;
   /** What the player is to be told on their next sign-in (see `AccountNotice`), until the game says it has shown them. */
   notices?: AccountNotice[];
   /** The puzzle options the player used last (see `cleanPuzzleSettings`), which the game starts with on any device. */
