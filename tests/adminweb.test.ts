@@ -53,7 +53,7 @@ describe('the admin routes', () => {
     const { w, call } = setup();
     const made = await open(w);
     for (const who of [[], ['users'], ['admin'], ['Admins']]) {
-      for (const [method, path] of [['GET', '/admin/me'], ['GET', '/admin/players'], ['GET', '/admin/rooms'], ['GET', `/admin/room/${made.roomId}`], ['POST', `/admin/room/${made.roomId}/remove`], ['GET', '/admin/files'], ['POST', '/admin/file/x/remove'], ['POST', '/admin/account'], ['GET', '/admin/reports'], ['GET', '/admin/bans'], ['POST', '/admin/ban'], ['POST', '/admin/unban'], ['POST', '/admin/delete'], ['GET', '/admin/logs/groups'], ['GET', '/admin/logs']]) {
+      for (const [method, path] of [['GET', '/admin/me'], ['GET', '/admin/players'], ['GET', '/admin/rooms'], ['GET', `/admin/room/${made.roomId}`], ['POST', `/admin/room/${made.roomId}/remove`], ['GET', '/admin/files'], ['POST', '/admin/file/x/remove'], ['GET', '/admin/rejected'], ['POST', '/admin/rejected/x/valid'], ['POST', '/admin/account'], ['GET', '/admin/reports'], ['GET', '/admin/bans'], ['POST', '/admin/ban'], ['POST', '/admin/unban'], ['POST', '/admin/delete'], ['GET', '/admin/logs/groups'], ['GET', '/admin/logs']]) {
         expect(await call(method, path, { groups: who, body: { id: 'ann' } }), `${method} ${path} as ${who}`).toEqual({ status: 403, body: { ok: false, error: 'unauthorized' } });
       }
     }
@@ -296,5 +296,24 @@ describe('the pieces that ask AWS', () => {
     expect(toAdminReq({ rawPath: '/admin/me', rawQueryString: '', body: 'not json', requestContext: { http: { method: 'GET' } } } as never)).toMatchObject({ body: {}, groups: [], sub: undefined });
     const out = toAdminResult({ status: 403, body: { ok: false, error: 'unauthorized' } });
     expect(out).toMatchObject({ statusCode: 403, headers: { 'cache-control': 'no-store' } });
+  });
+});
+
+describe('the rejected files', () => {
+  it('lists what the automatic check turned down, and takes the operator\'s ruling (a case that is not there, or a ruling that is not one, is not found)', async () => {
+    const { w, call } = setup();
+    const held = { id: 'case1', ownerId: 'ann', type: 'image' as const, mime: 'image/jpeg', bytes: 5, width: 400, height: 300, createdAt: w.clock.t, usedAt: w.clock.t, expiresAt: w.clock.t + 1000 * 3600, held: { label: 'Violence', at: w.clock.t, roomId: 'r1' } };
+    await w.store.putFile(held);
+    await w.media.put('r', new Uint8Array(5), 'image/jpeg');
+    await w.media.keepFile('r', 'case1');
+    const listed = (await call('GET', '/admin/rejected')).body as unknown as { rejected: { id: string; label: string; url: string }[] };
+    expect(listed.rejected).toHaveLength(1);
+    expect(listed.rejected[0]).toMatchObject({ id: 'case1', label: 'Violence' });
+    expect(((await call('GET', '/admin/files')).body.files as unknown[]).length).toBe(0);
+    expect((await call('POST', '/admin/rejected/case1/maybe')).status).toBe(404);
+    expect((await call('POST', '/admin/rejected/case1/valid')).status).toBe(200);
+    expect((await call('POST', '/admin/rejected/case1/valid')).status).toBe(404);
+    expect(((await call('GET', '/admin/rejected')).body.rejected as unknown[]).length).toBe(0);
+    expect(w.media.hasFile('case1')).toBe(false);
   });
 });

@@ -256,6 +256,11 @@ export class MemoryMedia implements Media {
     return this.files.has(roomId);
   }
 
+  /** Whether the kept file is stored. */
+  hasFile(fileId: string): boolean {
+    return this.files.has(fileName(fileId));
+  }
+
   /** A kept file is stored under its own name (`file~<id>`), which no room's id can be. */
   async keepFile(roomId: string, fileId: string): Promise<void> {
     const f = this.files.get(roomId);

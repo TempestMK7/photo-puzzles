@@ -43,6 +43,11 @@ export interface Settings {
    */
   admobAdUnits?: string;
   /**
+   * A Lambda layer with a static **arm64** build of ffmpeg at `bin/ffmpeg` (the deploy setting `ffmpegLayerArn`; how to make one is in docs/runbook.md). With it a video is looked at by its frames (a random
+   * one from every two seconds, so any video ffmpeg can read works); without it Rekognition looks at the whole video, which only reads MP4 and MOV made with H.264.
+   */
+  ffmpegLayerArn?: string;
+  /**
    * `yes` sends the sign-up and password codes from Cognito's own sender (no-reply@verificationemail.com; 50 a day for the whole pool) instead of from our domain through SES. It is for while
    * the SES account is still in the sandbox (only addresses verified one by one get e-mail from it): take it out and deploy again once AWS has given production access.
    */
@@ -107,6 +112,7 @@ export function settings(node: Node): Settings {
     googleClientId,
     googleSecretName,
     admobAdUnits: text(node, 'admobAdUnits'),
+    ffmpegLayerArn: text(node, 'ffmpegLayerArn'),
     cognitoEmail: text(node, 'cognitoEmail') === 'yes',
     pexelsSecretName: stockSecret(node, 'pexelsSecretName', DEFAULT_STOCK_SECRETS.pexels),
     pixabaySecretName: stockSecret(node, 'pixabaySecretName', DEFAULT_STOCK_SECRETS.pixabay),

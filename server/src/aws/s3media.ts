@@ -6,6 +6,8 @@ import type { Media } from '../types';
 
 /** Where a room's picture lives in the bucket. */
 export const mediaKey = (roomId: string): string => `rooms/${roomId}`;
+/** Where the verdict of the look at a room's video is written (see `FrameVideoModeration`). */
+export const checkKey = (roomId: string): string => `checks/${roomId}.json`;
 /** Where a kept file lives in the bucket (see `FileRecord`): a copy of its own, so that a puzzle ending takes nothing of it. */
 export const fileKey = (fileId: string): string => `files/${fileId}`;
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PROTOCOL_VERSION, playbackNow, type CreateRoomRequest, type VideoType } from '../src/online/protocol';
 import { looksLike } from '../server/src/service';
 import { createRouter, DevAuth } from '../server/src/router';
@@ -67,12 +67,12 @@ describe('making a puzzle from a video', () => {
     expect(room.playback).toMatchObject({ pos: 0, paused: false });
   });
 
-  it('takes only MP4 and MOV, and nothing too long or too large', async () => {
+  it('takes MP4, MOV, WebM and MKV (anything ffmpeg can cut frames from), and nothing too long or too large', async () => {
     const w = world();
     expect(await w.service.createRoom(ann, videoRequest({ bytes: 1_000_001 }))).toEqual({ ok: false, error: 'too-big' });
     expect(await w.service.createRoom(ann, videoRequest({ ms: 30_001 }))).toEqual({ ok: false, error: 'too-big' });
-    expect(await w.service.createRoom(ann, videoRequest({ type: 'video/webm' as VideoType }))).toEqual({ ok: false, error: 'bad-request' });          // it cannot be checked
-    expect(await w.service.createRoom(ann, videoRequest({ type: 'video/x-matroska' as VideoType }))).toEqual({ ok: false, error: 'bad-request' });
+    expect((await w.service.createRoom(ann, videoRequest({ type: 'video/webm' }))).ok).toBe(true);
+    expect((await w.service.createRoom(ann, videoRequest({ type: 'video/x-matroska' }))).ok).toBe(true);
     expect(await w.service.createRoom(ann, videoRequest({ type: 'video/x-flv' as VideoType }))).toEqual({ ok: false, error: 'bad-request' });
     expect(await w.service.createRoom(ann, videoRequest({ bytes: 0 }))).toEqual({ ok: false, error: 'bad-request' });
     expect(await w.service.createRoom(ann, videoRequest({ ms: Number.NaN }))).toEqual({ ok: false, error: 'bad-request' });
@@ -84,7 +84,7 @@ describe('making a puzzle from a video', () => {
       const look = lookAt({ state: 'done', ok: true });
       const w = world({}, undefined, undefined, undefined, undefined, look.check);
       const res = await made(w, videoRequest(), bytes, type);
-      expect(await w.service.checkVideo(ann, res.roomId), what).toEqual({ ok: false, error: 'bad-request' });
+      expect(await w.service.checkVideo(ann, res.roomId), what).toMatchObject({ ok: false, error: 'unreadable' });
       expect(look.calls.started, what).toBe(0);                                                         // nothing is paid for
       expect(w.media.has(res.roomId), what).toBe(false);
       expect(await w.store.getRoom(res.roomId), what).toBeUndefined();
@@ -148,8 +148,13 @@ describe('the look at the whole video', () => {
     await w.service.checkVideo(ann, res.roomId);
     expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: false, error: 'rejected' });
     expect(told[0]).toContain('Violence / Graphic Violence');
-    expect(w.media.has(res.roomId)).toBe(false);
+    expect(told[0]).toContain('Rejected tab');
+    expect(w.media.has(res.roomId)).toBe(false);                                       // (the puzzle's own copy goes)
     expect(await w.store.getRoom(res.roomId)).toBeUndefined();
+    const held = (await w.store.allFiles()).filter((f) => f.held);                    // but the file itself is held for the operator
+    expect(held).toHaveLength(1);
+    expect(held[0]).toMatchObject({ ownerId: 'ann', type: 'video', held: { label: 'Violence / Graphic Violence', roomId: res.roomId, paid: 'video' } });
+    expect(w.media.hasFile(held[0].id)).toBe(true);
   });
 
   it('ends the puzzle when the service cannot read the video (while asking, or at the start)', async () => {
@@ -157,36 +162,72 @@ describe('the look at the whole video', () => {
     const w = world({}, undefined, undefined, undefined, undefined, look.check);
     const res = await made(w);
     await w.service.checkVideo(ann, res.roomId);
-    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: false, error: 'unreadable' });
+    expect(await w.service.checkVideo(ann, res.roomId)).toMatchObject({ ok: false, error: 'unreadable' });
     expect(w.media.has(res.roomId)).toBe(false);
     const refusing = world({}, undefined, undefined, undefined, undefined, { start: async () => ({ unreadable: true }), result: async () => ({ state: 'working' }) });
     const r2 = await made(refusing);
-    expect(await refusing.service.checkVideo(ann, r2.roomId)).toEqual({ ok: false, error: 'unreadable' });
+    expect(await refusing.service.checkVideo(ann, r2.roomId)).toMatchObject({ ok: false, error: 'unreadable' });
     expect(await refusing.store.getRoom(r2.roomId)).toBeUndefined();
   });
 
-  it('is not given up on when the service cannot be reached: the creator may ask again', async () => {
-    let up = false;
+  it('does not charge for a look that broke on our side: the puzzle ends, the credit comes back, and the creator is told it was an error here', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const broken: VideoModeration = {
+      async start() {
+        throw new Error('down');
+      },
+      async result() {
+        return { state: 'working' };
+      },
+    };
+    const w = world({}, undefined, undefined, undefined, undefined, broken);
+    const before = (await w.service.profile(ann)).account.video;
+    const res = await made(w);
+    expect((await w.service.profile(ann)).account.video).toBe(before - 1);               // (paid when the puzzle was made)
+    const out = await w.service.checkVideo(ann, res.roomId);
+    expect(out).toMatchObject({ ok: false, error: 'check-failed', account: { video: before } });
+    expect((await w.service.profile(ann)).account.video).toBe(before);
+    expect(await w.store.getRoom(res.roomId)).toBeUndefined();
+    expect(w.media.has(res.roomId)).toBe(false);
+    expect((await w.store.allFiles()).filter((f) => f.held)).toHaveLength(0);
+    log.mockRestore();
+  });
+
+  it('is patient with a look that cannot be asked about for a while, and gives up (refunding) when it has taken too long or says it failed', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let mode: 'down' | 'working' | 'failed' | 'ok' = 'down';
     const flaky: VideoModeration = {
       async start() {
-        if (!up) throw new Error('down');
         return { jobId: 'j' };
       },
       async result() {
-        if (!up) throw new Error('down');
-        return { state: 'done', ok: true };
+        if (mode === 'down') throw new Error('down');
+        return mode === 'working' ? { state: 'working' } : mode === 'failed' ? { state: 'failed' } : { state: 'done', ok: true };
       },
     };
     const w = world({}, undefined, undefined, undefined, undefined, flaky);
+    const before = (await w.service.profile(ann)).account.video;
     const res = await made(w);
-    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: false, error: 'busy' });
-    up = true;
     expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: true, state: 'checking' });
-    up = false;
-    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: false, error: 'busy' });
-    expect(await w.store.getRoom(res.roomId)).toBeDefined();
-    up = true;
+    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: false, error: 'busy' });                 // (cannot be asked: ask again)
+    mode = 'working';
+    expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: true, state: 'checking' });
+    mode = 'ok';
     expect(await w.service.checkVideo(ann, res.roomId)).toEqual({ ok: true, state: 'ready' });
+    // a look that is not done after a quarter of an hour has failed
+    const slow = await made(w);
+    await w.service.checkVideo(ann, slow.roomId);
+    mode = 'working';
+    w.clock.t += 16 * 60 * 1000;
+    expect(await w.service.checkVideo(ann, slow.roomId)).toMatchObject({ ok: false, error: 'check-failed' });
+    expect((await w.service.profile(ann)).account.video).toBe(before - 1);                                      // (the first puzzle is still paid for)
+    // one that says so
+    mode = 'failed';
+    const bad = await made(w);
+    await w.service.checkVideo(ann, bad.roomId);
+    expect(await w.service.checkVideo(ann, bad.roomId)).toMatchObject({ ok: false, error: 'check-failed' });
+    expect((await w.service.profile(ann)).account.video).toBe(before - 1);
+    log.mockRestore();
   });
 });
 
@@ -207,7 +248,7 @@ describe('the video of an administrator', () => {
     const res = await w.service.createRoom(root, huge());
     if (!res.ok) throw new Error(res.error);
     await w.media.put(res.roomId, MP4(4999), 'video/mp4');
-    expect(await w.service.checkVideo(root, res.roomId)).toEqual({ ok: false, error: 'bad-request' });                      // another size: still turned away
+    expect(await w.service.checkVideo(root, res.roomId)).toMatchObject({ ok: false, error: 'unreadable' });                 // another size: still turned away
     const again = await w.service.createRoom(root, huge());
     if (!again.ok) throw new Error(again.error);
     await w.media.put(again.roomId, MP4(5000), 'video/mp4');
@@ -355,7 +396,7 @@ describe('the video routes of the API', () => {
     expect((await post(`/rooms/${created.roomId}/video`, ann, {})).body).toEqual({ ok: true, state: 'checking' });
     const res = await post(`/rooms/${created.roomId}/video`, ann, {});
     expect(res.status).toBe(422);
-    expect(res.body).toEqual({ ok: false, error: 'unreadable' });
+    expect(res.body).toMatchObject({ ok: false, error: 'unreadable' });
   });
 
   it('answers a free account\u2019s video, or an oversized one, with the status the game reads', async () => {

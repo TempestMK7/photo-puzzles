@@ -1,5 +1,5 @@
 import type { RoomState } from '../../src/core/jigsawRoom';
-import type { AccountType, AdKind, Member, Playback, RoomSettings, VideoType } from '../../src/online/protocol';
+import type { AccountNotice, AccountType, AdKind, Member, Playback, RoomSettings, VideoType } from '../../src/online/protocol';
 
 /**
  * What the room service needs from the world, as interfaces: the local server fills them with memory and a few Node modules, the AWS server will fill them with DynamoDB, S3
@@ -50,6 +50,8 @@ export interface RoomRecord {
   removed?: string[];
   /** The owner is an account whose pictures and videos are not looked at by the automatic check (the family's and the operator's: see `skipsTheCheck`). */
   unchecked?: true;
+  /** What the puzzle cost the owner when it was made (nothing for an account that pays nothing): given back if the puzzle could not be made after all, or if the moderator finds the rejection wrong. */
+  paid?: 'photo' | 'video';
   /** The picture or video came from the stock library: the automatic look is stricter (see `strict` in aws/rekognition.ts). */
   strict?: true;
   /** A puzzle made from a video: what the file is, as the owner said when making it (the storage holds exactly that many bytes, of that kind). */
@@ -89,6 +91,11 @@ export interface FileRecord {
   video?: { type: VideoType; bytes: number; ms: number };
   /** It was not looked at by the automatic check (an account of the family's or the operator's sent it): only such an account may make a puzzle from it, and the operator looks at it by hand. */
   unchecked?: true;
+  /**
+   * The automatic check turned it down and it waits for the operator to say whether that was right (the admin page's Rejected tab). While it does nobody can make a puzzle from it. `paid` is
+   * what the owner paid for the puzzle that it was sent for, and `sourceId` is the entry of the owner's own library that it was sent from (for the notice that tells them it was approved).
+   */
+  held?: { label: string; at: number; roomId: string; paid?: 'photo' | 'video'; sourceId?: string };
   createdAt: number;
   /** When a puzzle was last made from it (or it was sent). */
   usedAt: number;
@@ -126,6 +133,8 @@ export interface AccountRecord {
   patreon?: PatreonLink;
   /** The Google Play subscription joined to this one (see `Play`): while it is paid up the account is paid, like with a pledge. */
   play?: PlayLink;
+  /** What the player is to be told on their next sign-in (see `AccountNotice`), until the game says it has shown them. */
+  notices?: AccountNotice[];
   /** The puzzle options the player used last (see `cleanPuzzleSettings`), which the game starts with on any device. */
   settings?: Record<string, number>;
   createdAt: number;
@@ -307,9 +316,9 @@ export interface Moderation {
 /** The automatic look at a whole video, which takes a minute or two: it is started, and asked about until it is done. */
 export interface VideoModeration {
   /** Starts looking at the video stored for the room: the job's id, or `unreadable` if the service will not take it at all. Throws if it could not be started (nothing was done: it may be tried again). */
-  start(roomId: string): Promise<{ jobId: string } | { unreadable: true }>;
+  start(roomId: string, strict?: boolean, seconds?: number): Promise<{ jobId: string } | { unreadable: true }>;
   /** How the look is going. `unreadable`: the service cannot read this video. `label` says what was found, for the operator. Throws if the answer could not be had (ask again). */
-  result(jobId: string, strict?: boolean): Promise<{ state: 'working' } | { state: 'unreadable' } | { state: 'done'; ok: true } | { state: 'done'; ok: false; label: string }>;
+  result(jobId: string, strict?: boolean): Promise<{ state: 'working' } | { state: 'unreadable' } | { state: 'failed' } | { state: 'done'; ok: true } | { state: 'done'; ok: false; label: string }>;
 }
 
 /** The sign-in service, which can be told to forget an account (Cognito in the cloud; the local server has none). */

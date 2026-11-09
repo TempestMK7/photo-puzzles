@@ -1,4 +1,4 @@
-import { Arn, ArnFormat, CfnOutput, Duration, Stack, type StackProps } from 'aws-cdk-lib';
+import { Arn, ArnFormat, CfnOutput, Duration, Size, Stack, type StackProps } from 'aws-cdk-lib';
 import * as apigw from 'aws-cdk-lib/aws-apigatewayv2';
 import * as authorizers from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
@@ -38,6 +38,8 @@ export interface ApiStackProps extends StackProps {
   client: cognito.IUserPoolClient;
   /** Changes to the service's limits (the deploy setting `limits`). */
   limits?: Record<string, number>;
+  /** A layer with ffmpeg (arm64, `bin/ffmpeg`): with it a video is looked at by its frames (see `ffmpegLayerArn` in config.ts). */
+  ffmpegLayerArn?: string;
   /** The AdMob ad units whose reward calls are believed (the deploy setting `admobAdUnits`). */
   admobAdUnits?: string;
   /** The secret that holds the Pexels API key (the deploy setting `pexelsSecretName`): with it the API offers the stock library. */
@@ -103,6 +105,25 @@ export class ApiStack extends Stack {
     fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['cognito-idp:AdminDeleteUser', 'cognito-idp:AdminGetUser'], resources: [props.pool.userPoolArn] }));
     // the picture of every puzzle is looked at (for explicit, violent, disturbing or hateful content) before anyone else can see it
     fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['rekognition:DetectModerationLabels', 'rekognition:StartContentModeration', 'rekognition:GetContentModeration'], resources: ['*'] }));
+    // a video is looked at by its frames where there is a layer with ffmpeg: this function (started by the API, which does not wait for it) copies the video to its own disk, cuts a random frame out
+    // of every two seconds and has each looked at as a picture is, and writes the verdict to the bucket
+    if (props.ffmpegLayerArn) {
+      const check = new nodejs.NodejsFunction(this, 'VideoCheck', {
+        ...common,
+        entry: repo('server/src/aws/videoCheck.ts'),
+        handler: 'handler',
+        memorySize: 2048,
+        ephemeralStorageSize: Size.gibibytes(2),
+        timeout: Duration.minutes(5),
+        logGroup: logGroup(this, 'VideoCheckLogs'),
+        layers: [lambda.LayerVersion.fromLayerVersionArn(this, 'Ffmpeg', props.ffmpegLayerArn)],
+        environment: { ...common.environment, MEDIA_BUCKET: props.media.bucketName, FFMPEG_PATH: '/opt/bin/ffmpeg' },
+      });
+      props.media.grantReadWrite(check);
+      check.addToRolePolicy(new iam.PolicyStatement({ actions: ['rekognition:DetectModerationLabels'], resources: ['*'] }));
+      check.grantInvoke(fn);
+      fn.addEnvironment('VIDEO_CHECK_FUNCTION', check.functionName);
+    }
     // the stock library: each site's key is read from a secret that only this function may read, and the library is open to everyone (its address is limited by the function)
     for (const [variable, name, id] of [['PEXELS_SECRET_ID', props.pexelsSecretName, 'PexelsKey'], ['PIXABAY_SECRET_ID', props.pixabaySecretName, 'PixabayKey']] as const) {
       if (!name) continue;
@@ -184,6 +205,7 @@ export class ApiStack extends Stack {
     // Patreon's: the player coming back from its page (no sign-in: the one-time state says whose account), and its call that a pledge changed (signed); the player's own two are checked by the function, as /me is
     this.api.addRoutes({ path: '/patreon/callback', methods: [GET], integration });
     this.api.addRoutes({ path: '/patreon/webhook', methods: [POST], integration });
+    this.api.addRoutes({ path: '/me/notices/ack', methods: [POST], integration });
     this.api.addRoutes({ path: '/me/patreon', methods: [POST], integration });
     this.api.addRoutes({ path: '/me/patreon/unlink', methods: [POST], integration });
     // Google Play's: the app gives the purchase token of a subscription it has bought (the function wants an account's token), and Google's push that one changed (the address carries a key, checked in the function)

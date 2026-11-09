@@ -39,6 +39,7 @@ export function build(app: App): void {
       origins: calling,
       limits: s.limits,
       admobAdUnits: s.admobAdUnits,
+      ffmpegLayerArn: s.ffmpegLayerArn,
       pexelsSecretName: s.pexelsSecretName,
       pixabaySecretName: s.pixabaySecretName,
       table: data.table,

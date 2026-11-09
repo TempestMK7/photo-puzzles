@@ -25,6 +25,7 @@ import {
   topics,
   VIDEO_TYPES,
   type ApiError,
+  type AccountNotice,
   type AccountSummary,
   type AccountType,
   type AdRequest,
@@ -60,7 +61,7 @@ import {
 import { adsToday, applyPatreon, applyPlay, dayOf, earnedToday, guestSummaryOf, helpAdAtOf, helpHeld, LINK_INTENT_MS, newAccount, PATREON_RECHECK_MS, PLAY_RECHECK_MS, releaseSource, summaryOf } from './accounts';
 import { isGuestId } from './guest';
 import { sniffImage } from './image';
-import type { AdminFile, AdminRoomSummary } from '../../src/online/adminProtocol';
+import type { AdminFile, AdminRejected, AdminRoomSummary } from '../../src/online/adminProtocol';
 import { playedMs } from './played';
 import type { AccountRecord, Accounts, AdCallbacks, Clock, FileRecord, Limits, Media, Moderation, Patreon, PatreonMember, Play, PlayPurchase, Player, Presence, PubSub, Random, Report, RoomRecord, Store, VideoModeration } from './types';
 
@@ -99,6 +100,12 @@ const AD_NONCE_MS = 30 * 60 * 1000;
 const AD_TRANSACTION_KEEP_MS = 7 * DAY;
 /** A page of the operator's list of files. */
 const ADMIN_FILES_PAGE = 60;
+/** How many notices an account keeps (the oldest go first). */
+const NOTICES_KEPT = 20;
+/** A picture or video that was turned down is held this long for the operator to look at; a case that nobody closes ends as valid (the file goes, the credit stays spent). */
+const HELD_KEEP_MS = 30 * 24 * 3600 * 1000;
+/** A look at a video that has not given an answer after this long has failed (on our side). */
+const CHECK_TIMEOUT_MS = 15 * 60 * 1000;
 /** The largest video an administrator may send: storage takes a file of up to 5 GB in one request. */
 const ADMIN_VIDEO_BYTES = 5_000_000_000;
 /** How many bytes at the start of a stored video are read to tell what kind of file it is. */
@@ -340,7 +347,7 @@ export class RoomService {
   async adminFiles(before?: string): Promise<{ files: AdminFile[]; next: string | null }> {
     const now = this.d.clock.now();
     const keyOf = (f: FileRecord) => `${String(f.createdAt).padStart(15, '0')}#${f.id}`;
-    const all = (await this.d.store.allFiles()).filter((f) => f.expiresAt > now).sort((a, b) => (keyOf(a) < keyOf(b) ? 1 : -1));
+    const all = (await this.d.store.allFiles()).filter((f) => f.expiresAt > now && !f.held).sort((a, b) => (keyOf(a) < keyOf(b) ? 1 : -1));
     const rest = before ? all.filter((f) => keyOf(f) < before) : all;
     const page = rest.slice(0, ADMIN_FILES_PAGE);
     const names = new Map<string, string>();
@@ -364,6 +371,76 @@ export class RoomService {
       });
     }
     return { files, next: rest.length > page.length ? keyOf(page[page.length - 1]) : null };
+  }
+
+  /** For the operator: the pictures and videos that the automatic check turned down and that nobody has ruled on yet, newest first. */
+  async adminRejected(): Promise<AdminRejected[]> {
+    const now = this.d.clock.now();
+    const held = (await this.d.store.allFiles()).filter((f) => f.held && f.expiresAt > now).sort((a, b) => b.held!.at - a.held!.at);
+    const names = new Map<string, string>();
+    for (const f of held) if (!names.has(f.ownerId)) names.set(f.ownerId, (await this.d.store.getName(f.ownerId)) ?? '');
+    const out: AdminRejected[] = [];
+    for (const f of held) {
+      out.push({
+        id: f.id,
+        ownerId: f.ownerId,
+        ownerName: names.get(f.ownerId) ?? '',
+        type: f.type,
+        mime: f.mime,
+        bytes: f.bytes,
+        width: f.width,
+        height: f.height,
+        ...(f.video ? { ms: f.video.ms } : {}),
+        label: f.held!.label,
+        at: f.held!.at,
+        ...(f.held!.paid ? { paid: f.held!.paid } : {}),
+        expiresAt: f.expiresAt,
+        url: await this.d.media.fileUrl(f.id),
+      });
+    }
+    return out;
+  }
+
+  /**
+   * For the operator: rules on a rejection. **Valid**: the file is deleted and the credit stays spent (the case is closed). **Invalid**: the credit is given back, the player is shown on their next
+   * sign-in that a moderator approved the file, and the file is kept (as any checked file is) so that they can make a puzzle from it again without another look. False if there is no such case
+   * (it was ruled on already, or it ran out: a case nobody rules on ends as valid after a month).
+   */
+  async adminReview(fileId: string, verdict: 'valid' | 'invalid'): Promise<boolean> {
+    const { store, clock, limits } = this.d;
+    const file = await store.getFile(fileId);
+    if (!file?.held || file.expiresAt <= clock.now()) return false;
+    if (verdict === 'valid') {
+      await this.removeFile(fileId);
+      return true;
+    }
+    const now = clock.now();
+    const kind = file.type === 'video' ? 'video' : 'photo';
+    if (!(limits.fileKeepMs > 0) || !(await store.getAccount(file.ownerId))) {
+      await this.removeFile(fileId);                                                    // (nobody to give it back to, or no keeping files)
+      return true;
+    }
+    // the file first (so that a second press finds no case and does not give the credit back twice), then what the player is owed
+    const { held, ...kept } = file;
+    await store.putFile({ ...kept, usedAt: now, expiresAt: now + limits.fileKeepMs });
+    if (held.paid) await this.refund(file.ownerId, held.paid);
+    const day = new Date(file.createdAt).toISOString().slice(0, 10);
+    const text =
+      `After manual review, the ${kind} you sent on ${day} has been approved by a moderator.` +
+      (held.paid ? ` The ${held.paid} credit for that puzzle has been given back.` : '') +
+      ' You can start a puzzle from it again without it being checked.';
+    const notice: AccountNotice = { id: secretFrom(this.d.random.bytes(8)), text, at: now, fileId, ...(held.sourceId ? { sourceId: held.sourceId } : {}) };
+    await this.changeAccount(file.ownerId, (a) => ({ ...a, notices: [...(a.notices ?? []), notice].slice(-NOTICES_KEPT) }));
+    return true;
+  }
+
+  /** The game has shown the player these notices: they are not shown again. */
+  async ackNotices(player: Player, ids: unknown): Promise<MeResponse | ApiFailure> {
+    if (player.guest) return fail('account-required');
+    if (!Array.isArray(ids) || ids.length > NOTICES_KEPT || !ids.every((i) => typeof i === 'string')) return fail('bad-request');
+    const done = await this.changeAccount(player.id, (a) => ({ ...a, notices: (a.notices ?? []).filter((n) => !ids.includes(n.id)) }));
+    if ('error' in done) return done;
+    return this.profile(player);
   }
 
   /** For the operator: deletes a kept file now, and ends the puzzles that were made from it (their pictures go with them). False if there is no such file. */
@@ -454,6 +531,7 @@ export class RoomService {
     return {
       ...summary,
       ...(account.settings ? { settings: account.settings } : {}),
+      ...(account.notices?.length ? { notices: account.notices } : {}),
       ...(patreon ? { patreon: { on: true, linked: !!account.patreon, active: !!account.patreon?.active } } : {}),
       ...(play ? { play: { on: true, productId: play.productId, active: !!account.play?.active, ...(account.play?.expiresAt ? { expiresAt: account.play.expiresAt } : {}) } } : {}),
     };
@@ -994,7 +1072,7 @@ export class RoomService {
     if (req.fileId !== undefined) {
       if (typeof req.fileId !== 'string' || !/^[\w-]{1,64}$/.test(req.fileId)) return fail('bad-request');
       file = await this.liveFile(req.fileId);
-      if (!file) return fail('file-gone');
+      if (!file || file.held) return fail('file-gone');                                       // (a file that waits for the operator to say is not usable yet)
       if (file.ownerId !== who.id && !(await store.hasFileUser(file.id, who.id))) return fail('unauthorized');
       if (file.unchecked && !skipsTheCheck(type)) return fail('unauthorized');                // (it was not looked at: only an account whose own files are not looked at may use it)
       if (settings.width !== file.width || settings.height !== file.height) return fail('file-gone');          // not the picture that is held: it has to be sent
@@ -1044,6 +1122,7 @@ export class RoomService {
       video,
       unchecked: skipsTheCheck(type) || undefined,
       strict: req.stock === true || undefined,
+      paid: pays ?? undefined,
       fileId: file?.id,
       ready: !!file,
       ...(file?.video ? { playback: { pos: 0, paused: false, at: now } } : {}),
@@ -1137,21 +1216,19 @@ export class RoomService {
     const room = await this.live(roomId);
     if (!room || room.ready) return fail('not-found');
     const found = bytes.length <= this.d.limits.pictureBytes ? sniffImage(bytes) : null;
-    if (!found || found.width !== room.settings.width || found.height !== room.settings.height) {
-      await this.cleanup(room, 'owner');                          // not the picture the puzzle was made for: nothing is kept
-      return fail('bad-request');
-    }
+    if (!found || found.width !== room.settings.width || found.height !== room.settings.height) return this.checkFailed(room, 'unreadable');         // not the picture the puzzle was made for (or not one that can be read): nothing is kept, and nothing is charged
     if (this.d.moderation && !room.unchecked) {
-      let verdict: Awaited<ReturnType<Moderation['check']>>;
-      try {
-        verdict = await this.d.moderation.check(bytes, found.type, room.strict === true);
-      } catch (e) {
-        console.error(e);
-        return fail('busy');                                      // not looked at: nothing is shown, and the creator may send it again
+      let verdict: Awaited<ReturnType<Moderation['check']>> | undefined;
+      for (let attempt = 0; attempt < 2 && !verdict; attempt++) {
+        try {
+          verdict = await this.d.moderation.check(bytes, found.type, room.strict === true);
+        } catch (e) {
+          console.error(e);                                         // (asked once more: then it is our fault, and nothing is charged)
+        }
       }
+      if (!verdict) return this.checkFailed(room, 'check-failed');
       if (!verdict.ok) {
-        await this.cleanup(room, 'owner');
-        await this.tell(`A picture was turned down by the automatic check (${verdict.label}): room ${roomId}, made by ${room.ownerId}. The puzzle was ended.`);
+        await this.turnedDown(room, { type: 'image', mime: found.type, bytes: bytes.length }, verdict.label, bytes);
         return fail('rejected');
       }
     }
@@ -1182,22 +1259,18 @@ export class RoomService {
     if (!room.checking) {
       const stored = await this.d.media.inspect(roomId, PEEK);
       if (!stored) return fail('not-ready');                               // the video has not arrived (yet): the creator may ask again
-      if (stored.bytes !== room.video.bytes || !looksLike(stored.head, room.video.type)) {
-        await this.cleanup(room, 'owner');                                  // not the file the puzzle was made for: nothing is kept
-        return fail('bad-request');
-      }
+      if (stored.bytes !== room.video.bytes || !looksLike(stored.head, room.video.type)) return this.checkFailed(room, 'unreadable');          // not the file the puzzle was made for: nothing is kept or charged
       if (!videoModeration || room.unchecked) return this.videoReady(room);
-      let job: Awaited<ReturnType<VideoModeration['start']>>;
-      try {
-        job = await videoModeration.start(roomId);
-      } catch (e) {
-        console.error(e);
-        return fail('busy');                                                // not started: nothing is shown, and the creator may ask again
+      let job: Awaited<ReturnType<VideoModeration['start']>> | undefined;
+      for (let attempt = 0; attempt < 2 && !job; attempt++) {
+        try {
+          job = await videoModeration.start(roomId, room.strict === true, room.video.ms / 1000);
+        } catch (e) {
+          console.error(e);
+        }
       }
-      if ('unreadable' in job) {
-        await this.cleanup(room, 'owner');
-        return fail('unreadable');
-      }
+      if (!job) return this.checkFailed(room, 'check-failed');             // (could not be started twice: our fault, and nothing is charged)
+      if ('unreadable' in job) return this.checkFailed(room, 'unreadable');
       const started = await this.update(roomId, (r) => {
         r.checking ??= { jobId: job.jobId, at: this.d.clock.now() };
         return r;
@@ -1206,24 +1279,66 @@ export class RoomService {
       return { ok: true, state: 'checking' };
     }
     if (!videoModeration || room.unchecked) return this.videoReady(room);
+    const late = this.d.clock.now() - room.checking.at > CHECK_TIMEOUT_MS;
     let verdict: Awaited<ReturnType<VideoModeration['result']>>;
     try {
       verdict = await videoModeration.result(room.checking.jobId, room.strict === true);
     } catch (e) {
       console.error(e);
-      return fail('busy');
+      return late ? this.checkFailed(room, 'check-failed') : fail('busy');
     }
-    if (verdict.state === 'working') return { ok: true, state: 'checking' };
-    if (verdict.state === 'unreadable') {
-      await this.cleanup(room, 'owner');
-      return fail('unreadable');
-    }
+    if (verdict.state === 'working') return late ? this.checkFailed(room, 'check-failed') : { ok: true, state: 'checking' };
+    if (verdict.state === 'unreadable') return this.checkFailed(room, 'unreadable');
+    if (verdict.state === 'failed') return this.checkFailed(room, 'check-failed');
     if (!verdict.ok) {
-      await this.cleanup(room, 'owner');
-      await this.tell(`A video was turned down by the automatic check (${verdict.label}): room ${roomId}, made by ${room.ownerId}. The puzzle was ended.`);
+      await this.turnedDown(room, { type: 'video', mime: room.video.type, bytes: room.video.bytes, video: room.video }, verdict.label);
       return fail('rejected');
     }
     return this.videoReady(room);
+  }
+
+  /**
+   * The puzzle could not be made after all, through no fault of the maker: the check broke or timed out, or the file could not be read. It ends, what it cost is given back, and the maker is told
+   * (and shown what they have now).
+   */
+  private async checkFailed(room: RoomRecord, error: 'check-failed' | 'unreadable'): Promise<ApiFailure> {
+    await this.cleanup(room, 'owner');
+    if (room.paid) await this.refund(room.ownerId, room.paid);
+    return fail(error, { account: await this.summary({ id: room.ownerId, name: '' }) });
+  }
+
+  /**
+   * The automatic check turned the picture or video down. The puzzle ends, but the file is held (not deleted) until the operator says whether the check was right (`adminReview`), the credit
+   * stays spent until then, and the operator is e-mailed at once.
+   */
+  private async turnedDown(room: RoomRecord, what: Pick<FileRecord, 'type' | 'mime' | 'bytes' | 'video'>, label: string, bytes?: Uint8Array): Promise<void> {
+    const { clock, random, media, store } = this.d;
+    const id = secretFrom(random.bytes(16));
+    const now = clock.now();
+    let held = true;
+    try {
+      if (bytes) await media.put(room.id, bytes, what.mime);
+      await media.keepFile(room.id, id);
+      await store.putFile({
+        id,
+        ownerId: room.ownerId,
+        ...what,
+        width: room.settings.width,
+        height: room.settings.height,
+        held: { label, at: now, roomId: room.id, ...(room.paid ? { paid: room.paid } : {}), ...(room.sourceId ? { sourceId: room.sourceId } : {}) },
+        createdAt: now,
+        usedAt: now,
+        expiresAt: now + HELD_KEEP_MS,
+      });
+    } catch (e) {
+      console.error(e);
+      held = false;
+    }
+    await this.cleanup(room, 'owner');
+    await this.tell(
+      `A ${what.type === 'video' ? 'video' : 'picture'} was turned down by the automatic check (${label}): room ${room.id}, made by ${room.ownerId}. The puzzle was ended. ` +
+        (held ? 'The file is held for you to look at in the admin page (Rejected tab): say whether the check was right.' : 'The file could not be kept for review.'),
+    );
   }
 
   /** The video has passed (or no check is made here): the room can be joined, and the video plays from the start as of now. The video is kept as a file, to make a puzzle from again. */

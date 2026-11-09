@@ -1,5 +1,5 @@
 import { formatTime } from '../core/prefs';
-import type { AdminFile, AdminLogEvent, AdminLogGroup, AdminPlayer, AdminReport, AdminRoomDetail, AdminRoomSummary } from '../online/adminProtocol';
+import type { AdminFile, AdminRejected, AdminLogEvent, AdminLogGroup, AdminPlayer, AdminReport, AdminRoomDetail, AdminRoomSummary } from '../online/adminProtocol';
 import { CognitoAccount } from '../online/cognito';
 import { ACCOUNT_NAMES, ACCOUNT_TYPES, type AccountType } from '../online/protocol';
 import { cloudConfig } from '../online/config';
@@ -8,11 +8,12 @@ import { SignInDialog } from '../ui/signin';
 import { appVersion, versionLabel } from '../version';
 import { AdminApi, sayAdminError, type AdminFailure } from './api';
 
-type Tab = 'players' | 'rooms' | 'files' | 'reports' | 'logs';
+type Tab = 'players' | 'rooms' | 'files' | 'rejected' | 'reports' | 'logs';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'players', label: 'Players' },
   { id: 'rooms', label: 'Puzzles' },
   { id: 'files', label: 'Files' },
+  { id: 'rejected', label: 'Rejected' },
   { id: 'reports', label: 'Reports' },
   { id: 'logs', label: 'Logs' },
 ];
@@ -60,6 +61,7 @@ class AdminPage {
   private players: { list: AdminPlayer[]; next: string | null } = { list: [], next: null };
   /** What the administrator has typed for an account (its type and credits) and not saved yet, by account id. */
   private edits = new Map<string, Edit>();
+  private rejected: AdminRejected[] = [];
   private files: { list: AdminFile[]; next: string | null; loaded: boolean; loading: boolean } = { list: [], next: null, loaded: false, loading: false };
   /** The file that is open in full, to be removed. */
   private open: AdminFile | null = null;
@@ -180,6 +182,11 @@ class AdminPage {
         this.files = { list: res.files, next: res.next, loaded: true, loading: false };
       }
       shown(...this.filesParts());
+    } else if (this.tab === 'rejected') {
+      const res = await this.api.get<{ rejected: AdminRejected[] }>('/admin/rejected');
+      if (!res.ok) return failed(res);
+      this.rejected = res.rejected;
+      shown(...this.rejectedParts());
     } else if (this.tab === 'rooms') {
       const res = await this.api.get<{ rooms: AdminRoomSummary[] }>('/admin/rooms');
       if (!res.ok) return failed(res);
@@ -332,6 +339,7 @@ class AdminPage {
   private redraw(): void {
     if (this.tab === 'players') this.pane().replaceChildren(...(this.message ? [h('p', { class: 'note' }, this.message)] : []), this.playersView());
     else if (this.tab === 'files') this.pane().replaceChildren(...(this.message ? [h('p', { class: 'note' }, this.message)] : []), ...this.filesParts());
+    else if (this.tab === 'rejected') this.pane().replaceChildren(...(this.message ? [h('p', { class: 'note' }, this.message)] : []), ...this.rejectedParts());
     else void this.fill();
   }
 
@@ -534,6 +542,50 @@ class AdminPage {
       this.open = null;
     }
     if (ban) this.players = { list: [], next: null };
+    this.redraw();
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------- rejected
+
+  /** The pictures and videos that the automatic check turned down, each to look at and to rule on: valid (delete it, the credit stays spent) or invalid (give the credit back, tell the player, keep the file). */
+  private rejectedParts(): HTMLElement[] {
+    const list = this.rejected;
+    return [
+      h(
+        'div',
+        { class: 'row' },
+        h('span', { class: 'dim' }, `${list.length} waiting, newest first. Valid: the file is deleted and the credit stays spent. Invalid: the credit is given back, the player is told a moderator approved it on their next sign-in, and the file is kept for another puzzle. A case nobody rules on ends as valid after a month.`),
+        h('button', { type: 'button', class: 'small', onclick: () => void this.fill() }, 'Refresh'),
+      ),
+      ...list.map((r) =>
+        h(
+          'div',
+          { class: 'case' },
+          r.type === 'video'
+            ? h('video', { src: r.url, controls: true, preload: 'metadata', playsInline: true, class: 'casemedia' })
+            : h('img', { src: r.url, alt: '', decoding: 'async', referrerPolicy: 'no-referrer', class: 'casemedia' }),
+          h(
+            'div',
+            { class: 'caseinfo' },
+            h('b', {}, r.label),
+            h('span', { class: 'dim' }, `${r.ownerName || short(r.ownerId)} · ${relative(r.at)} · ${r.width}×${r.height}${r.type === 'video' ? ` · ${formatTime(r.ms ?? 0)}` : ''} · ${r.paid ? `${r.paid} credit spent` : 'nothing was paid'}`),
+            h(
+              'div',
+              { class: 'row wrap' },
+              h('button', { type: 'button', class: 'small danger', title: 'The check was right: delete the file, the credit stays spent', onclick: () => void this.rule(r, 'valid') }, 'Valid: delete it'),
+              h('button', { type: 'button', class: 'small', title: 'The check was wrong: give the credit back and tell the player', onclick: () => void this.rule(r, 'invalid') }, 'Invalid: approve it'),
+            ),
+          ),
+        ),
+      ),
+      ...(list.length ? [] : [h('p', { class: 'dim' }, 'Nothing is waiting.')]),
+    ];
+  }
+
+  private async rule(r: AdminRejected, verdict: 'valid' | 'invalid'): Promise<void> {
+    const res = await this.api.post(`/admin/rejected/${encodeURIComponent(r.id)}/${verdict}`);
+    this.message = res.ok ? (verdict === 'valid' ? 'Closed as valid: the file was deleted.' : 'Approved: the credit was given back and the player will be told.') : sayAdminError(res);
+    if (res.ok || res.error === 'not-found') this.rejected = this.rejected.filter((x) => x.id !== r.id);
     this.redraw();
   }
 

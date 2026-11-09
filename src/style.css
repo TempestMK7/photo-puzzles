@@ -577,3 +577,6 @@ canvas.confetti { position: fixed; inset: 0; width: 100%; height: 100%; pointer-
   .howto-dialog table.controls tbody th { width: auto; border-bottom: 0; padding-bottom: 0; }
   .howto-dialog table.controls td::before { content: attr(data-label) ': '; color: var(--dim); }
 }
+.admin .case { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; padding: 10px; margin: 0 0 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.admin .casemedia { width: min(100%, 320px); max-height: 260px; object-fit: contain; background: #000; border-radius: 6px; }
+.admin .caseinfo { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 6px; }
