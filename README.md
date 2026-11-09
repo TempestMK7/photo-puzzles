@@ -33,7 +33,7 @@ Playable now:
   first and turned the way it lies in the picture, and it stays and shows its part. The empty board is a pattern of spokes radiating from a centre off the board, drawn in code (wedges of colour, wedges with fine rays, rays alone - no rings - one per puzzle, with its
   centre off the board); some pieces have a *window* on one of their overlap cells that shows the bit of that pattern from where the piece belongs, as a hint, and turns into the picture for every piece that
   has it when any piece is placed over that cell.
-  Options: the size (about 50, 100, 200, 500 or 1000 cells, in the picture's proportions), turned pieces, and **Cells filled in at the start (%)** (0-50, 0 by default): that share of all the cells of the board shows the picture from the start, in four patches round the centre of each quarter of the board; only overlap cells are ever filled in, never a piece's own centre, and no piece is placed (`prefillPatches`, `src/core/prefill.ts`; the pieces are the same whatever the share).
+  Options: the size (about 50, 100, 200, 500 or 1000 cells, in the picture's proportions) and the fast mode options (see the Jigsaw): **Placed At The Start (%)** places that share of the pieces at random (`placeAtRandom`, `src/core/prefill.ts`; the pieces are the same whatever the share), **Lock Piece Orientation** starts every piece upright and turns turning off, and **Solve Pieces By Dragging** places a piece the moment it is over its spot (off: it has to be held there for half a second, or let go there).
 - **Strips** - the whole picture is cut into straight strips (1 x N cells, 3 up to the longest allowed; they may cross) that lie scattered and turned on the board. The size
   sets the number of cells (about 50 to 1000), the longest strip (4, and 2 more for each size up) and the number of tabs (likewise); the number of strips is worked out so that every cell is covered and every strip covers at least one cell that no other strip covers
   (so its place is certain). Drag each strip back into its hole; it locks when it lies exactly there, turned the right way - the moment it does, even before you let go of the mouse button. The loose strips are spread at random over 4-12
@@ -49,15 +49,15 @@ Playable now:
   and when the graphics card cannot keep up with the video the piece canvas drops to as little as half the resolution by itself. On a 2016 tablet (Mali-T830) this gives
   about 25-30 pictures a second from a 720p video and 19-24 from a 1080p one, with 300-5000 pieces. A browser without WebGL 2 stops the video at its first picture instead and
   cuts the pieces from that (`jigsawArt.ts`).
-  Two ways to make the start easier or tidier: **Placed at the start (%)** (0-80, off by default) puts that share of the pieces, picked at random, in their places as part of the
-  picture, as the corners are (placed pieces that touch are one block, and loose pieces join them the same way), and **Edge pieces start in the picture area** (off by default)
-  scatters the border pieces at random over the area where the finished picture goes - loose, not in their places - while the others lie round it, so the border pieces stand
-  apart from the rest. With both on, the placed pieces are picked from the inside pieces only. Both count as difficulty (they start their own best time), but puzzles saved or
-  recorded before they existed keep their records, because an option added later is left out of the record key while it is at its default.
-  More options: **Turned pieces** (loose pieces start turned by quarter turns; click a piece to select it - it glows - and right-click, R or the Rotate button turns the selected
-  piece, or the one in your hand when you right-click while dragging it; pieces only join when turned the same way, and only upright pieces join the picture) and **Joining pieces**,
-  how eagerly pieces that lie against one they fit join it: *snap while dragging* (as soon as they touch, even before you let go), *snap when held together* (the piece has to
-  stay there, held, for half a second - or you let go with the pieces together, which snaps them at once) or *snap on release* (only when you let go with the pieces together).
+  Fast mode options (shared with Overlap and Strips, shown under "Fast Mode Options:" on the main screen, in this order): **Placed At The Start (%)** (0-80, 0 by default) puts that share of the
+  pieces, picked at random, in their places as part of the picture, as the corners are (placed pieces that touch are one block, and loose pieces join them the same way);
+  **Lock Piece Orientation** (off by default) turns turning off and starts every piece upright (otherwise loose pieces start turned by quarter turns: click a piece to select it - it glows -
+  and right-click, R or the Rotate button turns the selected piece, or the one in your hand when you right-click while dragging it; pieces only join when turned the same way, and only upright
+  pieces join the picture); **Solve Pieces By Dragging** (on by default: pieces join as soon as they touch, even before you let go; off: the piece has to stay there, held, for half a second - or
+  you let go with the pieces together, which snaps them at once); and, for the Jigsaw only, **Edge Pieces Start In The Picture Area** (on by default) scatters the border pieces at random over
+  the area where the finished picture goes - loose, not in their places - while the others lie round it. Placed pieces are picked at random from all the pieces that are not placed yet, however the puzzle was made (edge pieces included).
+  A puzzle solved with pieces placed at the start or any of these check boxes ticked (so, until they are unticked, the defaults) is a **fast mode puzzle**: its time goes to the fast mode best times (a check box on the Best Times screen shows them) instead of the
+  regular ones (`isFast`, `src/core/kinds.ts`). The options are difficulty for the record of each file too (a changed one starts its own).
 - **Sliding Tiles** - the picture is cut into a grid of tiles with the last one taken out, then shuffled by sliding (so it can always be solved). You choose the size, an *approximate* number of
   tiles (20, 50, 100 or 200; the grid is the one nearest that with tiles as square as the picture allows, so a wide picture gets more columns). Click a tile in the empty cell's row or column and it
   slides over, taking the tiles between it and the empty cell along; the missing tile appears when the puzzle is solved. Videos keep playing in the tiles: they are drawn on the graphics card (`src/sessions/videoGl.ts`: each tile is a textured

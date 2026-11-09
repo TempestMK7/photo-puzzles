@@ -27,3 +27,15 @@ export function prefillPatches(rng: Rng, cols: number, rows: number, eligible: (
   });
   return out;
 }
+
+/** Puts `percent` of `count` pieces in place at the start, picked at random (`place` does it for one piece): never all of them, and none when `percent` is 0 (nothing is drawn from `rng` then). */
+export function placeAtRandom(count: number, rng: Rng, percent: number, place: (id: number) => void): void {
+  const want = Math.min(count - 1, Math.round((count * Math.min(100, Math.max(0, percent))) / 100));
+  if (want <= 0) return;
+  const ids = Array.from({ length: count }, (_, i) => i);
+  for (let k = 0; k < want; k++) {                                // the first `want` of a shuffle
+    const j = k + rng.below(count - k);
+    [ids[k], ids[j]] = [ids[j], ids[k]];
+    place(ids[k]);
+  }
+}

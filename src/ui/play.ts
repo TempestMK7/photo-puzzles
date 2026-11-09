@@ -1,7 +1,7 @@
 import { sizeIndexOf } from '../core/achievements';
 import { sizeLabels } from '../core/besttimes';
 import type { HelpKind } from '../core/help';
-import { countsForBestTimes, findKind, generalValue, optionsOf, puzzleSeedText, recordKey, SIZE, type KindDef, type KindId } from '../core/kinds';
+import { findKind, isFast, generalValue, optionsOf, puzzleSeedText, recordKey, SIZE, type KindDef, type KindId } from '../core/kinds';
 import { formatTime, type Prefs } from '../core/prefs';
 import { randomSeedText, seedFromText } from '../core/rng';
 import { loadPhoto } from '../image';
@@ -1545,22 +1545,22 @@ export class PlayScreen {
     prefs.recordTime(key, this.elapsed);                         // the best of this file (the main screen's list shows it)
     const size = sizeIndexOf(this.kind, optionsOf(prefs.data.settings, this.kind));
     const times = this.deps.bestTimes;
-    const counts = countsForBestTimes(optionsOf(prefs.data.settings, this.kind));
-    const isBest = (counts && times?.record(this.kind.id, size, { ms: this.elapsed, moves: this.session.moves?.(), file: entry.name, video: entry.video, at: Date.now() })) || false;
+    const fast = isFast(this.kind, optionsOf(prefs.data.settings, this.kind));
+    const isBest = times?.record(this.kind.id, size, { ms: this.elapsed, moves: this.session.moves?.(), file: entry.name, video: entry.video, at: Date.now() }, fast) || false;
     const label = `${this.kind.name} ${sizeLabels(this.kind)[size]?.name ?? ''}`.trim();
     this.deps.achievements?.record({ type: 'solved', kind: this.kind.id, size, video: entry.video, online: false });
     const award = this.awardSolved();
     // after the last move has finished showing (and the server has said what the puzzle gave, if it does so quickly)
-    window.setTimeout(() => void Promise.race([award, new Promise<number>((r) => window.setTimeout(() => r(0), 800))]).then((n) => this.showDialog(isBest, counts ? times?.get(this.kind.id, size)?.ms ?? this.elapsed : undefined, label, n)), 700);
+    window.setTimeout(() => void Promise.race([award, new Promise<number>((r) => window.setTimeout(() => r(0), 800))]).then((n) => this.showDialog(isBest, times?.get(this.kind.id, size, fast)?.ms ?? this.elapsed, label, n, fast)), 700);
   }
 
-  private showDialog(isBest: boolean, best: number | undefined, label: string, earned = 0): void {
+  private showDialog(isBest: boolean, best: number, label: string, earned = 0, fast = false): void {
     if (!this.session) return;
     this.celebrate();
     this.dialogEl.replaceChildren(
       h('h2', {}, 'Solved!'),
       h('p', {}, `Time ${formatTime(this.elapsed)} · ${this.session.status()}`),
-      h('p', { class: 'best' }, best === undefined ? 'Pieces were placed at the start, so this time does not count towards best times.' : isBest ? `New best time for ${label}!` : `Best ${label} time ${formatTime(best)}`),
+      h('p', { class: 'best' }, isBest ? `New best ${fast ? 'fast mode ' : ''}time for ${label}!` : `Best ${fast ? 'fast mode ' : ''}${label} time ${formatTime(best)}`),
       ...this.earnLines(earned),
       h(
         'div',

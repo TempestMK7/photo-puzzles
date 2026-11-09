@@ -136,16 +136,15 @@ export function isEdgePiece(cols: number, rows: number, i: number): boolean {
 }
 
 /**
- * The pieces, besides the corners, that begin in their place: `percent` of all the pieces, picked at random. With `edgesApart` the edge pieces are left out of the
- * pick (they start somewhere else), so there can be fewer than that when the inside is too small for them.
+ * The pieces that begin in their place besides the corners (which are placed already): `percent` of all the pieces, picked at random from those that are not placed already, however the puzzle was made (an edge piece
+ * may be one, whether or not the edge pieces start in the picture area). Never all of them.
  */
-export function pickPlaced(layout: JigsawLayout, rng: Rng, percent: number, edgesApart: boolean): Set<number> {
+export function pickPlaced(layout: JigsawLayout, rng: Rng, percent: number): Set<number> {
   const { cols, rows } = layout;
   const corners = new Set([0, cols - 1, (rows - 1) * cols, cols * rows - 1]);
   const pool: number[] = [];
-  for (let i = 0; i < cols * rows; i++) if (!corners.has(i) && !(edgesApart && isEdgePiece(cols, rows, i))) pool.push(i);
-  const most = edgesApart ? pool.length : pool.length - 1;         // never the whole picture
-  const want = Math.max(0, Math.min(most, Math.round((cols * rows * Math.min(100, Math.max(0, percent))) / 100)));
+  for (let i = 0; i < cols * rows; i++) if (!corners.has(i)) pool.push(i);
+  const want = Math.max(0, Math.min(pool.length - 1, Math.round((cols * rows * Math.min(100, Math.max(0, percent))) / 100)));
   const out = new Set<number>();
   for (let k = 0; k < want; k++) {                                // the first `want` of a shuffle
     const j = k + rng.below(pool.length - k);

@@ -20,6 +20,11 @@ export interface OptionDef {
   later?: boolean;
   /** A line under the option on the main screen. */
   note?: string;
+  /**
+   * A fast mode option: it only changes how the puzzle is played, not which puzzle it is. A puzzle solved with pieces placed at the start or any of its check boxes ticked is a fast mode puzzle, which has its own
+   * best times (see `isFast`). Shown under "Fast Mode Options" on the main screen.
+   */
+  fast?: boolean;
 }
 
 export type KindId = 'focus' | 'overlap' | 'strips' | 'jigsaw' | 'sliding' | 'rotascope';
@@ -47,6 +52,19 @@ export const SIZE = 'size';
 /** The slider between a kind's sizes: it starts at M. */
 function sizeOption(count: number): OptionDef {
   return { key: SIZE, label: 'Size', min: 0, max: count - 1, def: 1, tiers: SIZE_NAMES.slice(0, count) };
+}
+
+/**
+ * The fast mode options of Jigsaw, Overlap and Strips, in the order they are shown. Placed At The Start puts that share of the pieces in place at random; Lock Piece Orientation turns turning off and
+ * starts every piece the right way up; Solve Pieces By Dragging places a piece the moment it is over its spot (off: it has to be held there a moment); Edge Pieces Start In The Picture Area is the Jigsaw's.
+ */
+function fastOptions(edges: boolean): OptionDef[] {
+  return [
+    { key: 'placed', label: 'Placed At The Start (%)', min: 0, max: 80, def: 0, step: 5, later: true, fast: true },
+    { key: 'lock', label: 'Lock Piece Orientation', min: 0, max: 1, def: 0, toggle: true, later: true, fast: true },
+    { key: 'drag', label: 'Solve Pieces By Dragging', min: 0, max: 1, def: 1, toggle: true, later: true, fast: true },
+    ...(edges ? [{ key: 'edges', label: 'Edge Pieces Start In The Picture Area', min: 0, max: 1, def: 1, toggle: true, later: true, fast: true }] : []),
+  ];
 }
 
 /** The sizes of a kind from its table: one row for each, with the same columns. */
@@ -91,23 +109,19 @@ export function migrateGeneral(settings: Settings): void {
 
 export const KINDS: readonly KindDef[] = [
   {
-    id: 'focus',
-    name: 'Tile Swap',
-    blurb: 'Pieces of different sizes are shuffled. Click two to trade places and sizes. A piece that is in the right place locks there. Wheel or pinch to zoom, drag the board to move it.',
+    id: 'jigsaw',
+    name: 'Jigsaw',
+    blurb: 'Classic interlocking pieces on a huge table. The corners are in place; join pieces to them and to each other. Wheel to zoom, right-drag to move. Click a piece to select it; right-click (or R) turns it unless piece orientation is locked.',
     available: true,
-    options: [sizeOption(5)],            // (pieces are always irregular; a saved or shared puzzle that says `irregular: 0` keeps its grid)
-    sizes: sizesOf(['pieces'], [[20], [50], [100], [200], [500]], (v) => `about ${v.pieces} pieces`),
+    options: [sizeOption(6), ...fastOptions(true)],
+    sizes: sizesOf(['pieces'], [[50], [100], [200], [500], [1000], [2000]], (v) => `about ${v.pieces} pieces`),
   },
   {
     id: 'overlap',
     name: 'Overlap',
     blurb: 'Pieces that overlap wait in stacks: each has a centre square of its own and some squares around it that other pieces share. Drag the top piece onto the grid, centre first, turned the way it lies in the picture. Tap a piece to turn it.',
     available: true,
-    options: [
-      sizeOption(5),
-      { key: 'turned', label: 'Turned pieces', min: 0, max: 1, def: 1, toggle: true },
-      { key: 'placed', label: 'Cells filled in at the start (%)', min: 0, max: 50, def: 0, step: 5, note: 'A puzzle that starts with pieces placed does not count towards best times.' },
-    ],
+    options: [sizeOption(5), ...fastOptions(false)],
     sizes: sizesOf(['total', 'stacks'], [[50, 3], [100, 4], [200, 5], [500, 6], [1000, 7]], (v) => `about ${v.total} cells`),
   },
   {
@@ -115,24 +129,16 @@ export const KINDS: readonly KindDef[] = [
     name: 'Strips',
     blurb: 'Strips cut out of the picture lie turned and scattered over tabs. Drag each back into its hole; tap a strip to turn it; drag one onto a tab to move it there. Wheel or pinch to zoom, drag the bare board to move it.',
     available: true,
-    options: [
-      sizeOption(5),
-    ],
+    options: [sizeOption(5), ...fastOptions(false)],
     sizes: sizesOf(['cells', 'length', 'tabs'], [[50, 4, 4], [100, 6, 6], [200, 8, 8], [500, 10, 10], [1000, 12, 12]], (v) => `about ${v.cells} cells`),
   },
   {
-    id: 'jigsaw',
-    name: 'Jigsaw',
-    blurb: 'Classic interlocking pieces on a huge table. The corners are in place; join pieces to them and to each other. Wheel to zoom, right-drag to move. Click a piece to select it; right-click (or R) turns it when turning is on.',
+    id: 'focus',
+    name: 'Tile Swap',
+    blurb: 'Pieces of different sizes are shuffled. Click two to trade places and sizes. A piece that is in the right place locks there. Wheel or pinch to zoom, drag the board to move it.',
     available: true,
-    options: [
-      sizeOption(6),
-      { key: 'placed', label: 'Placed at the start (%)', min: 0, max: 80, def: 0, step: 5, later: true, note: 'A puzzle that starts with pieces placed does not count towards best times.' },
-      { key: 'edges', label: 'Edge pieces start in the picture area', min: 0, max: 1, def: 0, toggle: true, later: true },
-      { key: 'turning', label: 'Turned pieces', min: 0, max: 1, def: 0, toggle: true },
-      { key: 'snap', label: 'Joining pieces', min: 0, max: 2, def: 0, choices: ['Snap while dragging', 'Snap when held together', 'Snap on release'] },
-    ],
-    sizes: sizesOf(['pieces'], [[50], [100], [200], [500], [1000], [2000]], (v) => `about ${v.pieces} pieces`),
+    options: [sizeOption(5)],            // (pieces are always irregular; a saved or shared puzzle that says `irregular: 0` keeps its grid)
+    sizes: sizesOf(['pieces'], [[20], [50], [100], [200], [500]], (v) => `about ${v.pieces} pieces`),
   },
   {
     id: 'sliding',
@@ -177,6 +183,21 @@ export function optionsOf(settings: Settings, kind: KindDef): Record<string, num
   return out;
 }
 
+/** The settings of puzzle options (not the general ones) in `raw`, as numbers within the options' limits: what the server keeps as a player's last used settings, and what a game takes back from it. */
+export function cleanPuzzleSettings(raw: unknown): Settings {
+  const out: Settings = {};
+  if (!raw || typeof raw !== 'object') return out;
+  const given = raw as Record<string, unknown>;
+  for (const k of KINDS) {
+    for (const o of k.options) {
+      const v = given[`${k.id}.${o.key}`];
+      if (o.display || typeof v !== 'number' || !Number.isFinite(v)) continue;
+      out[`${k.id}.${o.key}`] = Math.min(o.max, Math.max(o.min, Math.round(v)));
+    }
+  }
+  return out;
+}
+
 /**
  * Identifies a puzzle for best times: the same photo, type and difficulty is the same puzzle whatever the seed, so a new seed keeps the record and only a
  * change of difficulty starts a new one (how it is shown - grid lines, animations - does not count).
@@ -187,9 +208,23 @@ export function recordKey(kind: KindDef, photoId: string, settings: Settings): s
   return [kind.id, photoId, ...difficulty.map((k) => `${k}=${opts[k]}`)].join('|');
 }
 
-/** Whether a puzzle with these options may enter the best times: not one that starts with pieces already in place (Jigsaw and Overlap can). */
-export function countsForBestTimes(opts: Record<string, number>): boolean {
-  return !(opts.placed > 0);
+/** Whether a puzzle with these options is a fast mode puzzle: pieces are placed at the start, or any of its fast mode check boxes is ticked (so it has its own best times, apart from the regular ones). */
+export function isFast(kind: KindDef, opts: Record<string, number>): boolean {
+  return kind.options.some((o) => o.fast && (o.toggle ? opts[o.key] === 1 : (opts[o.key] ?? 0) > 0));
+}
+
+/**
+ * Whether the pieces of a puzzle are locked to their orientation (they start the right way up and cannot be turned). A puzzle made before the option had this name says it the other way
+ * (`old`: the Jigsaw's `turning`, Overlap's `turned`; their pieces turned only when it was 1), and Strips always turned.
+ */
+export function orientationLocked(opts: Record<string, number>, old?: 'turning' | 'turned'): boolean {
+  if (opts.lock !== undefined) return opts.lock === 1;
+  return old ? opts[old] !== 1 : false;
+}
+
+/** Whether a piece is placed the moment it is over its spot (dragging), rather than after being held there a moment. A puzzle made before the option had this name says it with the Jigsaw's `snap` (0: while dragging). */
+export function solvesByDragging(opts: Record<string, number>): boolean {
+  return opts.drag !== undefined ? opts.drag !== 0 : (opts.snap ?? 0) === 0;
 }
 
 /** The difficulty options a recordKey holds ("cells=7|turned=1"), as settings, so that a saved puzzle can be set up again. */

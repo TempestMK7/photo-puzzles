@@ -191,28 +191,23 @@ describe('pickPlaced', () => {
   const corners = [0, l.cols - 1, (l.rows - 1) * l.cols, l.cols * l.rows - 1];
 
   it('picks that share of the pieces at random, never a corner, and the same ones for the same seed', () => {
-    expect(pickPlaced(l, new Rng(1), 0, false).size).toBe(0);
+    expect(pickPlaced(l, new Rng(1), 0).size).toBe(0);
     for (const percent of [5, 30, 80]) {
-      const p = pickPlaced(l, new Rng(2), percent, false);
+      const p = pickPlaced(l, new Rng(2), percent);
       expect(p.size).toBe(Math.round((l.cols * l.rows * percent) / 100));
       for (const c of corners) expect(p.has(c)).toBe(false);
     }
-    expect([...pickPlaced(l, new Rng(3), 40, false)]).toEqual([...pickPlaced(l, new Rng(3), 40, false)]);
-    expect([...pickPlaced(l, new Rng(3), 40, false)]).not.toEqual([...pickPlaced(l, new Rng(4), 40, false)]);
+    expect([...pickPlaced(l, new Rng(3), 40)]).toEqual([...pickPlaced(l, new Rng(3), 40)]);
+    expect([...pickPlaced(l, new Rng(3), 40)]).not.toEqual([...pickPlaced(l, new Rng(4), 40)]);
   });
 
-  it('with the edge pieces apart picks only inside, as many as fit', () => {
-    const inside = (l.cols - 2) * (l.rows - 2);
-    for (const percent of [10, 80]) {
-      const p = pickPlaced(l, new Rng(5), percent, true);
-      for (const i of p) expect(isEdgePiece(l.cols, l.rows, i)).toBe(false);
-      expect(p.size).toBe(Math.min(inside, Math.round((l.cols * l.rows * percent) / 100)));
-    }
-    expect(pickPlaced(layout(17, 200, 800, 100), new Rng(6), 80, true).size).toBeLessThanOrEqual(inside);
+  it('may pick edge pieces too', () => {
+    const p = pickPlaced(l, new Rng(5), 80);
+    expect([...p].some((i) => isEdgePiece(l.cols, l.rows, i))).toBe(true);
   });
 
   it('never places the whole picture', () => {
-    const all = pickPlaced(l, new Rng(7), 100, false);
+    const all = pickPlaced(l, new Rng(7), 100);
     expect(all.size).toBe(l.cols * l.rows - 4 - 1);
     expect(new JigsawGame(l, scatter, all).solved).toBe(false);
   });

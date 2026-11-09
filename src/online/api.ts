@@ -107,6 +107,11 @@ export class OnlineApi implements RoomApi {
     return this.call('POST', '/me/patreon', {});
   }
 
+  /** The puzzle options the player used last are kept for their account (see `cleanPuzzleSettings`). */
+  saveSettings(settings: Record<string, number>): Promise<MeResponse | ApiFailure | Offline> {
+    return this.call('PUT', '/me/settings', { settings });
+  }
+
   /** The Android app has bought the subscription: the server checks the purchase with Google and, if it is a good one, makes the account paid. */
   playVerify(token: string): Promise<MeResponse | ApiFailure | Offline> {
     return this.call('POST', '/me/play/verify', { token });

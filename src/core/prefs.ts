@@ -32,6 +32,7 @@ const KEY = 'photo-puzzles/v1';
 
 export class Prefs {
   data: PrefsData;
+  private readonly listeners = new Set<() => void>();
 
   constructor(private readonly storage: StorageLike | null) {
     this.data = { seed: randomSeedText(), kind: 'focus', photo: '', settings: {}, best: {}, muted: false, sfx: true, sfxVolume: 0.5, sort: 'added', filter: { source: 'all', type: 'all' } };
@@ -61,7 +62,13 @@ export class Prefs {
     }
   }
 
+  /** Calls `fn` whenever the preferences are saved (see `SettingsSync`). */
+  onSave(fn: () => void): void {
+    this.listeners.add(fn);
+  }
+
   save(): void {
+    for (const fn of this.listeners) fn();
     try {
       this.storage?.setItem(KEY, JSON.stringify(this.data));
     } catch {

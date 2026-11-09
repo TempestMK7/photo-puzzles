@@ -14,12 +14,14 @@ export class BestTimesUi {
   private readonly tabs = h('div', { class: 'tabs', role: 'tablist' });
   private readonly list = h('div', { class: 'body besttimes', role: 'tabpanel' });
   private kind: KindId = KINDS.find((k) => k.available)!.id;
+  /** Showing the fast mode times instead of the regular ones. */
+  private fast = false;
 
   constructor(private readonly store: BestTimeStore) {
     this.dialog = h(
       'div',
       { class: 'inprogress besttimes-dialog', role: 'dialog', 'aria-label': 'Best times', hidden: true, onclick: (e: Event) => (e.target === this.dialog ? this.close() : undefined) },
-      h('div', { class: 'card' }, h('header', {}, h('h2', {}, 'Best Times'), h('button', { type: 'button', onclick: () => this.close() }, 'Close')), this.tabs, this.list),
+      h('div', { class: 'card' }, h('header', {}, h('h2', {}, 'Best Times'), h('button', { type: 'button', onclick: () => this.close() }, 'Close')), this.tabs, this.fastBox(), this.list),
     );
     document.addEventListener('keydown', (e) => e.key === 'Escape' && !this.dialog.hidden && this.close());
   }
@@ -41,6 +43,16 @@ export class BestTimesUi {
     this.dialog.hidden = true;
   }
 
+  /** The check box that swaps the regular times for the fast mode ones (fast mode: see `isFast`). */
+  private fastBox(): HTMLElement {
+    return h(
+      'label',
+      { class: 'field check fastbox' },
+      h('input', { type: 'checkbox', onchange: (e: Event) => { this.fast = (e.target as HTMLInputElement).checked; this.draw(); } }),
+      h('span', {}, 'Show fast mode times'),
+    );
+  }
+
   private choose(kind: KindId): void {
     this.kind = kind;
     this.draw();
@@ -54,9 +66,9 @@ export class BestTimesUi {
     );
     const kind = KINDS.find((k) => k.id === this.kind)!;
     this.list.replaceChildren(
-      h('p', { class: 'dim' }, `${kind.name}: the fastest time for each size, whatever file it was solved with.`),
+      h('p', { class: 'dim' }, `${kind.name}${this.fast ? ' (fast mode)' : ''}: the fastest time for each size, whatever file it was solved with.`),
       ...sizeLabels(kind).map((s, i) => {
-        const best = this.store.get(kind.id, i);
+        const best = this.store.get(kind.id, i, this.fast);
         return h(
           'div',
           { class: 'bt' + (best ? ' done' : '') },

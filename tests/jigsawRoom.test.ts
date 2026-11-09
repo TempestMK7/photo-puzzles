@@ -4,7 +4,7 @@ import { JigsawRoom, LOCK_MS, RESERVE_MS, type RoomEvent } from '../src/core/jig
 import { applyOp, buildJigsaw, TOL_MAX_K, TOL_MIN_K, type JigsawOp, type JigsawSetup } from '../src/core/jigsawSetup';
 import { Rng } from '../src/core/rng';
 
-// the hash of a start state, taken from the game as it was before the setup moved out of the session: it must not change, or old saved puzzles and shared seeds break
+// the hash of a start state, taken from the game as it was before the setup moved out of the session: it must not change, or old saved puzzles and shared seeds break (but for the one with the edge pieces in the picture area and pieces placed: the placed pieces are now picked from the edge pieces too)
 const fnv = (s: string): string => {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
@@ -19,7 +19,7 @@ describe('buildJigsaw', () => {
     [{ seed: 12345, width: 800, height: 600, opts: { pieces: 100 } }, '72d0496a:8710', 3200, 2133.3333333333335],
     [{ seed: 987654321, width: 1600, height: 900, opts: { pieces: 300, turning: 1 } }, '1dde857:27898', 6369.230769230769, 3600],
     [{ seed: 42, width: 1000, height: 1000, opts: { pieces: 60, placed: 25, edges: 0 } }, 'a087e319:4811', 4000, 4000],
-    [{ seed: 4242, width: 1200, height: 800, opts: { pieces: 150, placed: 30, edges: 1, turning: 1 } }, 'cf8d1fe:10363', 4800, 3200],
+    [{ seed: 4242, width: 1200, height: 800, opts: { pieces: 150, placed: 30, edges: 1, turning: 1 } }, '48d8c966:10996', 4800, 3200],
     [{ seed: 7, width: 640, height: 960, opts: { pieces: 1000, edges: 1 } }, '923c5f83:93048', 2560, 3741.538461538462],
   ];
 

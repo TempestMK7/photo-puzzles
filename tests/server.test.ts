@@ -61,7 +61,7 @@ describe.each(stores)('the room service on %s', (_name, store) => {
       }
       const made = await open(w, cy, request({ turning: 1, haptics: 0, light: 1, bogus: 5 } as never));
       const room = await joined(w, made, bob);
-      expect(room.settings.opts).toEqual({ pieces: 100, placed: 0, edges: 0, turning: 1, snap: 0 });
+      expect(room.settings.opts).toEqual({ pieces: 100, placed: 0, lock: 0, drag: 1, edges: 1 });      // (the old `turning: 1` is the new `lock: 0`)
     });
 
     it('lets a player be in five puzzles at a time', async () => {

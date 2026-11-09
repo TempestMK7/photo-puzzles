@@ -1,4 +1,5 @@
 import { isEdgePiece, JigsawGame, layoutJigsaw, pickPlaced, rotVec, type JigsawLayout } from './jigsaw';
+import { orientationLocked } from './kinds';
 import { Rng } from './rng';
 
 /** The table is this many puzzles wide and high. */
@@ -34,7 +35,7 @@ export interface JigsawBoard {
 export function buildJigsaw(setup: JigsawSetup): JigsawBoard {
   const { width, height, opts } = setup;
   const rng = new Rng(setup.seed);
-  const turning = opts.turning === 1;
+  const turning = !orientationLocked(opts, 'turning');
   const l = layoutJigsaw(rng, width, height, opts.pieces);
   const puzzleW = l.cols * l.size;
   const puzzleH = l.rows * l.size;
@@ -46,7 +47,7 @@ export function buildJigsaw(setup: JigsawSetup): JigsawBoard {
   const my = puzzleH * SCATTER_K;
   const edgesInside = opts.edges === 1;
   // its own generator, so that the way the other pieces are scattered does not depend on which are placed
-  const placed = pickPlaced(l, new Rng((setup.seed ^ 0x2f6b9d1) >>> 0), opts.placed ?? 0, edgesInside);
+  const placed = pickPlaced(l, new Rng((setup.seed ^ 0x2f6b9d1) >>> 0), opts.placed ?? 0);
   // every loose piece starts somewhere round the frame, not on it (the edge pieces, if asked, in the frame's area instead, not where they belong)
   const game = new JigsawGame(l, (i) => {
     const c = i % l.cols;

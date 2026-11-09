@@ -1,6 +1,7 @@
 import type { HelpKind } from '../core/help';
 import { applyBoardOp, boardCheck, type Board, type BoardOp } from '../core/boardRoom';
 import type { RoomEvent, RoomState } from '../core/jigsawRoom';
+import { solvesByDragging } from '../core/kinds';
 import { makeOverlap, type OverlapGame, type OverlapState } from '../core/overlap';
 import { Rng } from '../core/rng';
 import { makePattern } from './patterns';
@@ -22,6 +23,7 @@ const SLOT_SCALE = 0.7;        // a piece in a stack is drawn this much smaller 
 const SLOT_PAD = 4;
 /** Bumped when pieces changed what they are: a puzzle that was saved with older ones starts again. */
 const LAYOUT = 2;
+const HOLD_MS = 500;          // how long a piece has to be held on its spot to be placed there, when pieces are not placed by dragging
 const TAP = 6;                 // a press that moves less than this many CSS pixels is a tap (it turns the piece)
 const WRONG_MS = 350;
 const MARGIN = 12;             // CSS pixels of room around the board when all of it shows
@@ -57,7 +59,7 @@ interface Held {
  * pixels, that scrolls when there are more stacks than fit.
  */
 export class OverlapSession implements PuzzleSession {
-  readonly rotatable = true;
+  readonly rotatable: boolean;
   private game: OverlapGame;
   private rules: Board;
   private cols: number;
@@ -98,11 +100,13 @@ export class OverlapSession implements PuzzleSession {
   private scrolling: { y: number; from: number } | null = null;
   private scrollAt = 0;                       // when the panel last scrolled by itself (a held piece near its edge), or 0
   private pan: { anchor: Pt; moved: boolean } | null = null;
+  private hold = 0;                          // the timer of a held piece that lies on its spot (see `snapHeld`)
   private rightClick = false;                 // the right button is down and has not moved the camera: letting go turns a piece
 
   constructor(private readonly init: SessionInit) {
     const made = makeOverlap(init.seed, init.width, init.height, init.opts);
     ({ cols: this.cols, rows: this.rows } = made);
+    this.rotatable = !made.game.locked;
     this.stackN = init.opts.stacks;
     this.pattern = makePattern(new Rng((init.seed + 0x9e3779b9) >>> 0), this.cols * CELL * 2, this.rows * CELL * 2);
     this.game = made.game;
@@ -145,6 +149,7 @@ export class OverlapSession implements PuzzleSession {
 
   dispose(): void {
     this.cascade.cancel();
+    window.clearTimeout(this.hold);
     this.layer?.dispose();
   }
 
@@ -725,7 +730,53 @@ export class OverlapSession implements PuzzleSession {
       h.moved = true;
       h.lift = startLift(this.init, h.touch, UNIT, performance.now());          // a finger lifts the piece above itself from here on (a tap does not); canvas pixels, as the piece is held in
     }
+    if (h.moved) this.snapHeld();
     this.init.requestDraw();
+  }
+
+  /**
+   * The piece in hand lies on its own spot, turned right: with Solve Pieces By Dragging it is placed at once, without it only after it has been held there for a moment (it is placed when it is
+   * let go there either way). Anywhere else the wait starts again.
+   */
+  private snapHeld(waited = false): void {
+    const h = this.held;
+    const cell = h?.moved ? this.heldBox(this.heldPoint(h, performance.now())).cell : null;
+    const p = h && this.game.pieces[h.id];
+    const home = !!h && !!cell && !!p && cell.x === p.cx && cell.y === p.cy && this.game.rot[h.id] === 0;
+    if (!home) {
+      window.clearTimeout(this.hold);
+      this.hold = 0;
+      return;
+    }
+    if (waited || solvesByDragging(this.init.opts)) {
+      this.held = null;
+      this.putDown(h, cell);
+      this.init.requestDraw();
+      this.init.progress?.();
+    } else if (!this.hold) {
+      this.hold = window.setTimeout(() => {
+        this.hold = 0;
+        this.snapHeld(true);
+      }, HOLD_MS);
+    }
+  }
+
+  /** The piece is put down with its centre on `cell`: placed if it is its own spot, turned right (true), else it goes back on its stack. */
+  private putDown(h: Held, cell: Pt): boolean {
+    const g = this.game;
+    window.clearTimeout(this.hold);
+    this.hold = 0;
+    if (g.drop(h.id, cell.x, cell.y) === 'placed') {
+      this.ripples.add(g.cellsNow(h.id).map((c) => ({ x: (cell.x + c.x) * CELL, y: (cell.y + c.y) * CELL, w: CELL, h: CELL })), performance.now(), 0, rippleColor(this.init));
+      buzz(this.init, g.solved ? 'solved' : 'placed');
+      playEffect('placed');                                   // (the last piece rings the bell too, before the end of the puzzle begins)
+      this.init.online?.send({ t: 'put', piece: h.id, x: cell.x, y: cell.y });          // (a piece that did not fit is not news to the others: it is back on its stack)
+      return true;
+    }
+    this.wrong = { cells: g.cellsNow(h.id).map((c) => ({ x: cell.x + c.x, y: cell.y + c.y })).filter((c) => c.x >= 0 && c.y >= 0 && c.x < this.cols && c.y < this.rows), at: performance.now() };
+    buzz(this.init, 'drop');
+    playEffect('wrong');                                      // it does not go there: it is back on its stack
+    return false;
   }
 
   private panTo(p: Pt): void {
@@ -749,7 +800,13 @@ export class OverlapSession implements PuzzleSession {
     this.held = null;
     h.at = this.screen(p);
     const g = this.game;
-    if (!h.moved) {                                           // a tap turns the piece (the press has buzzed already: a second buzz would only cancel it)
+    window.clearTimeout(this.hold);
+    this.hold = 0;
+    if (!h.moved) {                                           // a tap turns the piece (the press has buzzed already: a second buzz would only cancel it), unless the pieces are locked
+      if (g.locked) {
+        this.init.requestDraw();
+        return;
+      }
       g.rotate(h.id);
       playEffect('rotate');
       this.init.online?.send({ t: 'turn', piece: h.id });
@@ -764,17 +821,7 @@ export class OverlapSession implements PuzzleSession {
         buzz(this.init, 'drop');
         playEffect('drop');                                     // (the piece is put down in a tray)
       } else if (box.cell) {
-        if (g.drop(h.id, box.cell.x, box.cell.y) === 'placed') {
-          this.ripples.add(g.cellsNow(h.id).map((c) => ({ x: (box.cell!.x + c.x) * CELL, y: (box.cell!.y + c.y) * CELL, w: CELL, h: CELL })), performance.now(), 0, rippleColor(this.init));
-          buzz(this.init, g.solved ? 'solved' : 'placed');
-          playEffect('placed');                                   // (the last piece rings the bell too, before the end of the puzzle begins)
-          this.init.online?.send({ t: 'put', piece: h.id, x: box.cell.x, y: box.cell.y });          // (a piece that did not fit is not news to the others: it is back on its stack)
-        } else {
-          const cell = box.cell;
-          this.wrong = { cells: g.cellsNow(h.id).map((c) => ({ x: cell.x + c.x, y: cell.y + c.y })).filter((c) => c.x >= 0 && c.y >= 0 && c.x < this.cols && c.y < this.rows), at: performance.now() };
-          buzz(this.init, 'drop');
-          playEffect('wrong');                                    // it does not go there: it is back on its stack
-        }
+        this.putDown(h, box.cell);
       } else {
         buzz(this.init, 'drop');
         playEffect('drop');                                     // (put down over nothing: it is back on its stack)
@@ -877,7 +924,7 @@ export class OverlapSession implements PuzzleSession {
 
   secondary(): void {
     const g = this.game;
-    if (g.solved) return;
+    if (g.solved || g.locked) return;
     const id = this.held ? this.held.id : g.top(this.hoverStack >= 0 ? this.hoverStack : this.activeStack);
     g.rotate(id);
     if (id >= 0) playEffect('rotate');

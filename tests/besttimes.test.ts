@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { bestKey, recordBest, sizeLabels, type BestTime, type BestTimes } from '../src/core/besttimes';
-import { countsForBestTimes, findKind, KINDS } from '../src/core/kinds';
+import { cleanPuzzleSettings, findKind, isFast, KINDS, orientationLocked, solvesByDragging } from '../src/core/kinds';
 import { BestTimeStore } from '../src/store/besttimes';
 
 const entry = (over: Partial<BestTime> = {}): BestTime => ({ ms: 60_000, file: 'dog.jpg', video: false, at: 1000, ...over });
@@ -71,15 +71,65 @@ describe('BestTimeStore', () => {
   });
 });
 
-describe('what counts for best times', () => {
-  it('leaves out a puzzle that starts with pieces placed', () => {
-    expect(countsForBestTimes({ pieces: 200, placed: 0 })).toBe(true);
-    expect(countsForBestTimes({ pieces: 200 })).toBe(true);
-    expect(countsForBestTimes({ total: 100, placed: 5 })).toBe(false);
+describe('fast mode', () => {
+  it('keeps the fast mode times apart from the regular ones', () => {
+    const mem = new Memory();
+    const s = new BestTimeStore(mem);
+    expect(s.record('jigsaw', 1, entry({ ms: 9000 }))).toBe(true);
+    expect(s.record('jigsaw', 1, entry({ ms: 5000 }), true)).toBe(true);
+    expect(s.record('jigsaw', 1, entry({ ms: 7000 }))).toBe(true);
+    expect(s.get('jigsaw', 1)!.ms).toBe(7000);
+    expect(s.get('jigsaw', 1, true)!.ms).toBe(5000);
+    const again = new BestTimeStore(mem);
+    expect(again.get('jigsaw', 1)!.ms).toBe(7000);
+    expect(again.get('jigsaw', 1, true)!.ms).toBe(5000);
   });
 
-  it('says so on the options that place pieces, and the size descriptions leave out the trays, strip length and tabs', () => {
-    for (const id of ['jigsaw', 'overlap'] as const) expect(findKind(id)!.options.find((o) => o.key === 'placed')!.note).toMatch(/best times/);
+  it('is a puzzle with pieces placed at the start or a fast mode check box ticked (so the defaults are fast mode), and only Jigsaw, Overlap and Strips have them', () => {
+    const jig = findKind('jigsaw')!;
+    expect(isFast(jig, { pieces: 200, placed: 0, lock: 0, drag: 0, edges: 0 })).toBe(false);
+    expect(isFast(jig, { pieces: 200 })).toBe(false);
+    expect(isFast(jig, { pieces: 200, placed: 0, lock: 0, drag: 1, edges: 1 })).toBe(true);
+    for (const change of [{ placed: 5 } as Record<string, number>, { lock: 1 }, { drag: 1 }, { edges: 1 }]) expect(isFast(jig, { pieces: 200, ...change })).toBe(true);
+    expect(isFast(findKind('overlap')!, { total: 100, lock: 1 })).toBe(true);
+    expect(isFast(findKind('strips')!, { cells: 100, drag: 0, lock: 0, placed: 0 })).toBe(false);
+    expect(isFast(findKind('strips')!, { cells: 100, drag: 1 })).toBe(true);
+    for (const id of ['focus', 'sliding', 'rotascope'] as const) expect(isFast(findKind(id)!, { pieces: 20, lock: 1, placed: 40 })).toBe(false);
+  });
+
+  it('lists the puzzles in the order Jigsaw, Overlap, Strips, Tile Swap, Sliding Tiles, Rotascope', () => {
+    expect(KINDS.map((k) => k.name)).toEqual(['Jigsaw', 'Overlap', 'Strips', 'Tile Swap', 'Sliding Tiles', 'Rotascope']);
+  });
+
+  it('gives Jigsaw, Overlap and Strips the same fast mode options, in the same order, with these defaults', () => {
+    const names = (id: 'jigsaw' | 'overlap' | 'strips') => findKind(id)!.options.filter((o) => o.fast).map((o) => `${o.key}=${o.def}`);
+    expect(names('jigsaw')).toEqual(['placed=0', 'lock=0', 'drag=1', 'edges=1']);
+    expect(names('overlap')).toEqual(['placed=0', 'lock=0', 'drag=1']);
+    expect(names('strips')).toEqual(['placed=0', 'lock=0', 'drag=1']);
+    expect(findKind('jigsaw')!.options.find((o) => o.key === 'placed')!.max).toBe(80);
+    expect(findKind('focus')!.options.some((o) => o.fast)).toBe(false);
+  });
+
+  it('reads the names that puzzles and rooms made before these options used', () => {
+    expect(orientationLocked({ turning: 0 }, 'turning')).toBe(true);
+    expect(orientationLocked({ turning: 1 }, 'turning')).toBe(false);
+    expect(orientationLocked({ turned: 0 }, 'turned')).toBe(true);
+    expect(orientationLocked({ turned: 1 }, 'turned')).toBe(false);
+    expect(orientationLocked({})).toBe(false);                                      // (Strips)
+    expect(orientationLocked({ lock: 1, turning: 1 }, 'turning')).toBe(true);
+    expect(orientationLocked({ lock: 0, turning: 0 }, 'turning')).toBe(false);
+    expect(solvesByDragging({ snap: 0 })).toBe(true);
+    expect(solvesByDragging({ snap: 1 })).toBe(false);
+    expect(solvesByDragging({})).toBe(true);
+    expect(solvesByDragging({ drag: 0, snap: 0 })).toBe(false);
+  });
+
+  it('keeps only puzzle options, within their limits', () => {
+    expect(cleanPuzzleSettings({ 'jigsaw.placed': 500, 'jigsaw.lock': 1, 'all.light': 1, 'bogus.x': 3, 'jigsaw.drag': 'x', 'strips.size': -4 })).toEqual({ 'jigsaw.placed': 80, 'jigsaw.lock': 1, 'strips.size': 0 });
+    expect(cleanPuzzleSettings(null)).toEqual({});
+  });
+
+  it('says what size sets in words, without the trays, strip length and tabs', () => {
     const ov = findKind('overlap')!;
     expect(ov.sizes!.describe(ov.sizes!.values[2])).toBe('about 200 cells');
     const st = findKind('strips')!;

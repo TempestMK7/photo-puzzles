@@ -322,6 +322,7 @@ describe('api', () => {
         ['GET /me', 'NONE'],
         ['PUT /me', 'NONE'],
         ['POST /me/delete', 'NONE'],
+        ['PUT /me/settings', 'NONE'],            // the puzzle options used last, kept for an account (the function wants an account's token)
         ['POST /me/carry', 'NONE'],
         ['POST /me/link-intent', 'NONE'],        // an account made with a password says that it is about to add Google (the function wants an account's token)
         ['POST /me/patreon', 'NONE'],            // an account joins its Patreon account (the function wants an account's token)
