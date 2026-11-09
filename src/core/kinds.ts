@@ -21,7 +21,7 @@ export interface OptionDef {
   /** A line under the option on the main screen. */
   note?: string;
   /**
-   * A fast mode option: it only changes how the puzzle is played, not which puzzle it is. A puzzle solved with any of them away from its default is a fast mode puzzle, which has its own
+   * A fast mode option: it only changes how the puzzle is played, not which puzzle it is. A puzzle solved with pieces placed at the start or any of its check boxes ticked is a fast mode puzzle, which has its own
    * best times (see `isFast`). Shown under "Fast Mode Options" on the main screen.
    */
   fast?: boolean;
@@ -208,9 +208,9 @@ export function recordKey(kind: KindDef, photoId: string, settings: Settings): s
   return [kind.id, photoId, ...difficulty.map((k) => `${k}=${opts[k]}`)].join('|');
 }
 
-/** Whether a puzzle with these options is a fast mode puzzle: any fast mode option is away from its default (so it has its own best times, apart from the regular ones). */
+/** Whether a puzzle with these options is a fast mode puzzle: pieces are placed at the start, or any of its fast mode check boxes is ticked (so it has its own best times, apart from the regular ones). */
 export function isFast(kind: KindDef, opts: Record<string, number>): boolean {
-  return kind.options.some((o) => o.fast && (opts[o.key] ?? o.def) !== o.def);
+  return kind.options.some((o) => o.fast && (o.toggle ? opts[o.key] === 1 : (opts[o.key] ?? 0) > 0));
 }
 
 /**

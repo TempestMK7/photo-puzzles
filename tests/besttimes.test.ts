@@ -85,13 +85,15 @@ describe('fast mode', () => {
     expect(again.get('jigsaw', 1, true)!.ms).toBe(5000);
   });
 
-  it('is a puzzle with any fast mode option away from its default, and only Jigsaw, Overlap and Strips have them', () => {
+  it('is a puzzle with pieces placed at the start or a fast mode check box ticked (so the defaults are fast mode), and only Jigsaw, Overlap and Strips have them', () => {
     const jig = findKind('jigsaw')!;
-    expect(isFast(jig, { pieces: 200, placed: 0, lock: 0, drag: 1, edges: 1 })).toBe(false);
+    expect(isFast(jig, { pieces: 200, placed: 0, lock: 0, drag: 0, edges: 0 })).toBe(false);
     expect(isFast(jig, { pieces: 200 })).toBe(false);
-    for (const change of [{ placed: 5 } as Record<string, number>, { lock: 1 }, { drag: 0 }, { edges: 0 }]) expect(isFast(jig, { pieces: 200, ...change })).toBe(true);
+    expect(isFast(jig, { pieces: 200, placed: 0, lock: 0, drag: 1, edges: 1 })).toBe(true);
+    for (const change of [{ placed: 5 } as Record<string, number>, { lock: 1 }, { drag: 1 }, { edges: 1 }]) expect(isFast(jig, { pieces: 200, ...change })).toBe(true);
     expect(isFast(findKind('overlap')!, { total: 100, lock: 1 })).toBe(true);
-    expect(isFast(findKind('strips')!, { cells: 100, drag: 0 })).toBe(true);
+    expect(isFast(findKind('strips')!, { cells: 100, drag: 0, lock: 0, placed: 0 })).toBe(false);
+    expect(isFast(findKind('strips')!, { cells: 100, drag: 1 })).toBe(true);
     for (const id of ['focus', 'sliding', 'rotascope'] as const) expect(isFast(findKind(id)!, { pieces: 20, lock: 1, placed: 40 })).toBe(false);
   });
 

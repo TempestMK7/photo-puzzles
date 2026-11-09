@@ -55,8 +55,8 @@ Playable now:
   and right-click, R or the Rotate button turns the selected piece, or the one in your hand when you right-click while dragging it; pieces only join when turned the same way, and only upright
   pieces join the picture); **Solve Pieces By Dragging** (on by default: pieces join as soon as they touch, even before you let go; off: the piece has to stay there, held, for half a second - or
   you let go with the pieces together, which snaps them at once); and, for the Jigsaw only, **Edge Pieces Start In The Picture Area** (on by default) scatters the border pieces at random over
-  the area where the finished picture goes - loose, not in their places - while the others lie round it. With both on, the placed pieces are picked from the inside pieces only.
-  A puzzle solved with any of these away from its default is a **fast mode puzzle**: its time goes to the fast mode best times (a check box on the Best Times screen shows them) instead of the
+  the area where the finished picture goes - loose, not in their places - while the others lie round it. Placed pieces are picked at random from all the pieces that are not placed yet, however the puzzle was made (edge pieces included).
+  A puzzle solved with pieces placed at the start or any of these check boxes ticked (so, until they are unticked, the defaults) is a **fast mode puzzle**: its time goes to the fast mode best times (a check box on the Best Times screen shows them) instead of the
   regular ones (`isFast`, `src/core/kinds.ts`). The options are difficulty for the record of each file too (a changed one starts its own).
 - **Sliding Tiles** - the picture is cut into a grid of tiles with the last one taken out, then shuffled by sliding (so it can always be solved). You choose the size, an *approximate* number of
   tiles (20, 50, 100 or 200; the grid is the one nearest that with tiles as square as the picture allows, so a wide picture gets more columns). Click a tile in the empty cell's row or column and it

@@ -566,7 +566,7 @@ export class LibraryScreen {
         },
       },
       svg(INFO, 'ico'),
-      h('span', { class: 'bubble', role: 'tooltip' }, 'Fast mode options only affect best times tracking. A puzzle that is solved with any fast mode option changed from its usual setting counts as a fast mode puzzle, with its own best times, instead of a regular one.'),
+      h('span', { class: 'bubble', role: 'tooltip' }, 'Fast mode options only affect best times tracking. A puzzle that is solved with any fast mode option enabled or with pieces placed at the start counts as a fast mode puzzle, with its own best times, instead of a regular one.'),
     );
     return h('div', { class: 'fastheading' }, info, h('span', {}, 'Fast Mode Options:'));
   }
