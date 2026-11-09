@@ -1,7 +1,7 @@
 import { buildBoard, isBoardKind, openRoom, type BoardKind } from '../../src/core/boardRoom';
 import { hasHelp, hintsFor, HINTS_LARGE, HINTS_SMALL } from '../../src/core/help';
 import { layoutJigsaw } from '../../src/core/jigsaw';
-import { findKind, optionsOf } from '../../src/core/kinds';
+import { cleanPuzzleSettings, findKind, optionsOf } from '../../src/core/kinds';
 import { overlapGrid } from '../../src/core/overlap';
 import { pictureSize } from '../../src/core/strips';
 import { Rng } from '../../src/core/rng';
@@ -142,6 +142,10 @@ export function checkSettings(raw: RoomSettings, limits: Limits): RoomSettings |
   if (!raw.opts || typeof raw.opts !== 'object') return fail('bad-request');
   const given: Record<string, number> = {};
   for (const [k, v] of Object.entries(raw.opts)) given[`${raw.kind}.${k}`] = v;
+  // an older game says these with other options: turned pieces (Jigsaw `turning`, Overlap `turned`, off unless 1) and the Jigsaw's `snap` (0: while dragging)
+  const old = raw.opts as Record<string, unknown>;
+  if (old.lock === undefined && typeof (old.turning ?? old.turned) === 'number') given[`${raw.kind}.lock`] = (old.turning ?? old.turned) === 1 ? 0 : 1;
+  if (old.drag === undefined && typeof old.snap === 'number') given[`${raw.kind}.drag`] = old.snap === 0 ? 1 : 0;
   const all = optionsOf(given, kind);
   const opts: Record<string, number> = {};
   for (const o of kind.options) if (!o.display && !o.tiers) opts[o.key] = all[o.key];            // what a player sees on their own screen is not part of the puzzle
@@ -186,6 +190,16 @@ export class RoomService {
       await this.recheckPlay(player.id);
     }
     return { ok: true, id: player.id, name: (await this.d.store.getName(player.id)) ?? null, guest: player.guest === true, account: await this.summary(player) };
+  }
+
+  /** The puzzle options the player used last are kept for the account, so that the game starts with them on any device (a guest has no account to keep them for). */
+  async setSettings(player: Player, raw: unknown): Promise<MeResponse | ApiFailure> {
+    if (player.guest) return fail('account-required');
+    if (!raw || typeof raw !== 'object') return fail('bad-request');
+    const settings = cleanPuzzleSettings(raw);
+    const done = await this.changeAccount(player.id, (a) => ({ ...a, settings }));
+    if ('error' in done) return done;
+    return this.profile(player);
   }
 
   async setProfile(player: Player, name: unknown): Promise<MeResponse | ApiFailure> {
@@ -439,6 +453,7 @@ export class RoomService {
     const { patreon, play } = this.d;
     return {
       ...summary,
+      ...(account.settings ? { settings: account.settings } : {}),
       ...(patreon ? { patreon: { on: true, linked: !!account.patreon, active: !!account.patreon?.active } } : {}),
       ...(play ? { play: { on: true, productId: play.productId, active: !!account.play?.active, ...(account.play?.expiresAt ? { expiresAt: account.play.expiresAt } : {}) } } : {}),
     };

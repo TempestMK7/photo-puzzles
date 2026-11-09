@@ -75,9 +75,9 @@ describe('Overlap with cells filled in at the start', () => {
     expect(game.solved).toBe(false);
   });
 
-  it('is a slider from 0 to 50 percent that starts at 0', () => {
+  it('is a slider from 0 to 80 percent that starts at 0', () => {
     const option = KINDS.find((k) => k.id === 'overlap')!.options.find((o) => o.key === 'placed')!;
-    expect([option.min, option.max, option.def]).toEqual([0, 50, 0]);
+    expect([option.min, option.max, option.def]).toEqual([0, 80, 0]);
     expect(optionsOf({}, KINDS.find((k) => k.id === 'overlap')!).placed).toBe(0);
   });
 });
@@ -85,8 +85,7 @@ describe('Overlap with cells filled in at the start', () => {
 describe('Strips with a fifth of the cells filled in at the start', () => {
   const make = (seed: number, picCols = 20, picRows = 14) => generateStrips(new Rng(seed), { picCols, picRows, maxLen: 8, tabs: 3 });
 
-  it('has no slider for it, and fills in 20 percent of the picture\'s cells, no strip being in place', () => {
-    expect(KINDS.find((k) => k.id === 'strips')!.options.some((o) => o.key === 'placed')).toBe(false);
+  it('always fills in 20 percent of the picture cells (Placed At The Start is about whole strips), no strip being in place', () => {
     expect(FILLED_AT_START).toBe(20);
     for (let seed = 1; seed <= 10; seed++) {
       const s = make(seed);

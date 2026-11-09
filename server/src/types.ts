@@ -126,6 +126,8 @@ export interface AccountRecord {
   patreon?: PatreonLink;
   /** The Google Play subscription joined to this one (see `Play`): while it is paid up the account is paid, like with a pledge. */
   play?: PlayLink;
+  /** The puzzle options the player used last (see `cleanPuzzleSettings`), which the game starts with on any device. */
+  settings?: Record<string, number>;
   createdAt: number;
   /** Counts up with every write, so that two writers cannot overwrite each other (a conditional write, as for a room). */
   rev: number;

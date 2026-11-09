@@ -1,4 +1,5 @@
 import './style.css';
+import { SettingsSync } from './online/settingsSync';
 import { Prefs } from './core/prefs';
 import { PhotoLibrary } from './store/photos';
 import { OnlineApi } from './online/api';
@@ -209,6 +210,7 @@ async function main(): Promise<void> {
     },
   });
   play.el.hidden = true;
+  if (api) new SettingsSync(prefs, player, api, () => library.show());          // (the puzzle options last used are the account's, on any device)
   root.append(library.el, play.el);
   if (panel) root.append(panel.el);
   if (hostPanel) root.append(hostPanel.el);

@@ -1,4 +1,5 @@
 import { isEdgePiece, JigsawGame, layoutJigsaw, pickPlaced, rotVec, type JigsawLayout } from './jigsaw';
+import { orientationLocked } from './kinds';
 import { Rng } from './rng';
 
 /** The table is this many puzzles wide and high. */
@@ -34,7 +35,7 @@ export interface JigsawBoard {
 export function buildJigsaw(setup: JigsawSetup): JigsawBoard {
   const { width, height, opts } = setup;
   const rng = new Rng(setup.seed);
-  const turning = opts.turning === 1;
+  const turning = !orientationLocked(opts, 'turning');
   const l = layoutJigsaw(rng, width, height, opts.pieces);
   const puzzleW = l.cols * l.size;
   const puzzleH = l.rows * l.size;

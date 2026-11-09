@@ -177,6 +177,10 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
     const player = req.player ?? (token ? await auth.verify(token) : null);
     if (!player) return { status: 401, body: { ok: false, error: 'unauthorized' } };
 
+    if (parts[0] === 'me' && parts[1] === 'settings' && parts.length === 2 && (req.method === 'PUT' || req.method === 'POST')) {
+      const body = json<{ settings?: unknown }>(req);
+      return body ? reply(await service.setSettings(player, body.settings)) : bad;
+    }
     if (parts[0] === 'me' && parts[1] === 'delete' && parts.length === 2 && req.method === 'POST') return reply(await service.deleteAccount(player));
     if (parts[0] === 'me' && parts.length === 1) {
       if (req.method === 'GET') return reply(await service.profile(player));

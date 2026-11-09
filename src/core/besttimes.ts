@@ -1,7 +1,7 @@
 import { SIZE, type KindDef, type KindId } from './kinds';
 
 /**
- * Best times, one for each kind of puzzle and size (the file, the other options and the seed do not matter: a Large Jigsaw made from a photo and one made from a video compete for the
+ * Best times, one for each kind of puzzle and size, for regular puzzles and for fast mode ones (the file, the other options and the seed do not matter: a Large Jigsaw made from a photo and one made from a video compete for the
  * same place). What is kept is what the list shows: the time, the moves where the puzzle counts them, the file that was used (its name then, since the file may be removed later) and when.
  */
 export interface BestTime {
@@ -16,7 +16,8 @@ export interface BestTime {
 
 export type BestTimes = Record<string, BestTime>;
 
-export const bestKey = (kind: KindId, size: number): string => `${kind}|${size}`;
+/** The key of a best time. Fast mode puzzles (see `isFast`) keep theirs apart from the regular ones. */
+export const bestKey = (kind: KindId, size: number, fast = false): string => `${kind}|${size}${fast ? '|fast' : ''}`;
 
 /** The names of a kind's sizes, with what each one sets in words: [{ name: 'S', detail: 'about 20 pieces' }, ...]. Nothing for a kind that has no sizes. */
 export function sizeLabels(kind: KindDef): { name: string; detail: string }[] {

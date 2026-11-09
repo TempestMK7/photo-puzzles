@@ -11,7 +11,7 @@ describe('kinds', () => {
   const focus = findKind('focus')!;
 
   it('lists every puzzle type as playable', () => {
-    expect(KINDS.filter((k) => k.available).map((k) => k.id)).toEqual(['focus', 'overlap', 'strips', 'jigsaw', 'sliding', 'rotascope']);
+    expect(KINDS.filter((k) => k.available).map((k) => k.id)).toEqual(['jigsaw', 'overlap', 'strips', 'focus', 'sliding', 'rotascope']);
     expect(KINDS.length).toBeGreaterThan(1);
   });
 
@@ -82,12 +82,11 @@ describe('kinds', () => {
     expect(chosen['all.grid']).toBe(1);                                                    // (a choice made since stays)
   });
 
-  it('the jigsaw start options are difficulties, but at their defaults the key is what it was before they existed', () => {
+  it('the fast mode options start at their defaults, and a puzzle with one changed is another puzzle for the record', () => {
     const jigsaw = findKind('jigsaw')!;
-    expect(optionsOf({}, jigsaw)).toMatchObject({ placed: 0, edges: 0 });
-    expect(recordKey(jigsaw, 'p1', {})).toBe('jigsaw|p1|size=1|snap=0|turning=0');
-    expect(recordKey(jigsaw, 'p1', { 'jigsaw.placed': 40 })).not.toBe(recordKey(jigsaw, 'p1', {}));
-    expect(recordKey(jigsaw, 'p1', { 'jigsaw.edges': 1 })).not.toBe(recordKey(jigsaw, 'p1', {}));
+    expect(optionsOf({}, jigsaw)).toMatchObject({ placed: 0, lock: 0, drag: 1, edges: 1 });
+    expect(recordKey(jigsaw, 'p1', {})).toBe('jigsaw|p1|size=1');
+    for (const key of ['placed', 'lock', 'drag', 'edges']) expect(recordKey(jigsaw, 'p1', { [`jigsaw.${key}`]: key === 'drag' || key === 'edges' ? 0 : 1 })).not.toBe(recordKey(jigsaw, 'p1', {}));
     expect(optionValue({ 'jigsaw.placed': 500 }, 'jigsaw', jigsaw.options.find((o) => o.key === 'placed')!)).toBe(80);
   });
 

@@ -1,5 +1,6 @@
 import { nearPoint } from './help';
-import { prefillPatches } from './prefill';
+import { orientationLocked } from './kinds';
+import { placeAtRandom, prefillPatches } from './prefill';
 import { Rng } from './rng';
 
 /** The share of the picture's cells that start filled in, in percent. */
@@ -37,6 +38,8 @@ export interface StripsOptions {
   maxLen: number;
   /** How many tabs the loose strips are spread over (1 - 12). */
   tabs: number;
+  /** Every strip starts the right way up (and the game does not turn them). */
+  locked?: boolean;
 }
 
 export interface StripsSetup {
@@ -144,7 +147,7 @@ export function generateStrips(rng: Rng, o: StripsOptions): StripsSetup {
   const tabs = Math.min(12, Math.max(1, Math.round(o.tabs)));
   const state: StripState[] = defs.map((d) => {
     for (;;) {
-      const angle = rng.below(4);
+      const angle = o.locked ? 0 : rng.below(4);
       const b = boxOf(d, angle);
       const x = rng.below(cols - b.w + 1);
       const y = rng.below(rows - b.h + 1);
@@ -177,7 +180,7 @@ export class StripsGame {
   readonly z: number[];
   moves = 0;
 
-  constructor(setup: StripsSetup) {
+  constructor(setup: StripsSetup, /** Strips cannot be turned (see `orientationLocked`). */ readonly locked = false) {
     this.cols = setup.cols;
     this.rows = setup.rows;
     this.picCols = setup.picCols;
@@ -269,7 +272,7 @@ export class StripsGame {
   rotate(id: number, delta = 1): boolean {
     const s = this.state[id];
     const d = this.defs[id];
-    if (s.locked) return false;
+    if (s.locked || this.locked) return false;
     const before = boxOf(d, s.angle);
     const pivot = Math.floor((d.len - 1) / 2);
     s.angle = (s.angle + delta + 4) % 4;
@@ -311,6 +314,9 @@ export class StripsGame {
 /** The Strips puzzle for a picture of this size: made the same way on a screen and on a server that keeps a shared board. */
 export function makeStrips(seed: number, width: number, height: number, opts: Record<string, number>): { game: StripsGame; picCols: number; picRows: number } {
   const { picCols, picRows } = pictureSize(width, height, opts.cells);
-  const setup = generateStrips(new Rng(seed), { picCols, picRows, maxLen: opts.length, tabs: opts.tabs });
-  return { game: new StripsGame(setup), picCols, picRows };
+  const locked = orientationLocked(opts);
+  const setup = generateStrips(new Rng(seed), { picCols, picRows, maxLen: opts.length, tabs: opts.tabs, locked });
+  const game = new StripsGame(setup, locked);
+  placeAtRandom(game.total, new Rng((seed ^ 0x2f6b9d1) >>> 0), opts.placed ?? 0, (id) => game.hint(id));
+  return { game, picCols, picRows };
 }

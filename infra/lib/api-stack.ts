@@ -172,7 +172,7 @@ export class ApiStack extends Stack {
     // other routes are not checked by the gateway: the function checks the token it is shown, a Cognito one or a guest's (server/src/aws/api.ts). `/guest` gives a guest their token, to
     // whoever asks. The upload of a picture has no sign-in: its address is signed.
     this.api.addRoutes({ path: '/rooms', methods: [POST], integration, authorizer: jwt });
-    for (const [path, methods] of [['/guest', [POST]], ['/me', [GET, PUT]], ['/me/delete', [POST]], ['/me/carry', [POST]], ['/me/link-intent', [POST]], ['/me/providers', [GET]], ['/join', [POST]], ['/rooms', [GET]], ['/rooms/{proxy+}', [GET, POST]]] as const) {
+    for (const [path, methods] of [['/guest', [POST]], ['/me', [GET, PUT]], ['/me/delete', [POST]], ['/me/settings', [PUT]], ['/me/carry', [POST]], ['/me/link-intent', [POST]], ['/me/providers', [GET]], ['/join', [POST]], ['/rooms', [GET]], ['/rooms/{proxy+}', [GET, POST]]] as const) {
       this.api.addRoutes({ path, methods: [...methods], integration });
     }
     // an ad for hints or a bomb, and the hints and bombs themselves, are a guest's too, so the function checks the token (a guest's is turned away there from the ads for credits). The hints that a

@@ -483,6 +483,8 @@ export interface AccountSummary {
   patreon?: { on: boolean; linked: boolean; active: boolean };
   /** Google Play: `on` when the server can check a purchase of `productId` (the subscription that the Android app sells); `active` when this account's subscription is paid up (and so makes it paid), until `expiresAt` (ms) if Google said. */
   play?: { on: boolean; productId: string; active: boolean; expiresAt?: number };
+  /** The puzzle options the player used last (`cleanPuzzleSettings`), kept for the account so that any device starts with them. Nothing until the first has been kept; a guest has none. */
+  settings?: Record<string, number>;
 }
 
 /** The answer to `POST /me/patreon`: where to send the player to join their Patreon account. */

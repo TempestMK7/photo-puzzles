@@ -1,3 +1,4 @@
+import { orientationLocked, solvesByDragging } from '../core/kinds';
 import type { HelpKind } from '../core/help';
 import { rotVec, TRAY_MAX, type Group, type JigsawGame, type JigsawLayout, type JigsawState } from '../core/jigsaw';
 import { applyOp, buildJigsaw, SCATTER_K, TOL_MAX_K, TOL_MIN_K, type JigsawOp, type PieceOp } from '../core/jigsawSetup';
@@ -119,8 +120,8 @@ export class JigsawSession implements PuzzleSession {
   private lastDraw = 0;
 
   constructor(private readonly init: SessionInit) {
-    this.turning = init.opts.turning === 1;
-    this.snap = init.opts.snap ?? SNAP_DRAG;
+    this.turning = !orientationLocked(init.opts, 'turning');
+    this.snap = solvesByDragging(init.opts) ? SNAP_DRAG : SNAP_HOVER;
     this.rotatable = this.turning;
     const board = buildJigsaw({ seed: init.seed, width: init.width, height: init.height, opts: init.opts });
     this.layout_ = board.layout;

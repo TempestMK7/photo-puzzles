@@ -1,6 +1,7 @@
 import type { HelpKind } from '../core/help';
 import { applyBoardOp, boardCheck, type Board, type BoardOp } from '../core/boardRoom';
 import type { RoomEvent, RoomState } from '../core/jigsawRoom';
+import { solvesByDragging } from '../core/kinds';
 import { boxOf, makeStrips, MARGIN, type StripsGame, type StripsState } from '../core/strips';
 import { beginFrame, drawSlice, type View } from '../render';
 import { playEffect } from '../sounds';
@@ -11,6 +12,7 @@ import { FrontLayer, rgba, VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const S = 30;                  // one cell, in board units
+const HOLD_MS = 500;           // how long a strip has to be held over its hole to drop there, when strips are not solved by dragging
 const DWELL_MS = 600;          // a dragged strip that rests on a tab goes to it
 const TAP = 5;                 // CSS pixels
 const EDGE = 40;               // CSS pixels: a strip held this close to the edge of the canvas takes the camera with it...
@@ -40,7 +42,7 @@ interface Drag {
  * (see core/boardRoom.ts). A strip in hand is on its player's screen only.
  */
 export class StripsSession implements PuzzleSession {
-  readonly rotatable = true;
+  readonly rotatable: boolean;
   private game: StripsGame;
   private rules: Board;
   private picCols: number;
@@ -64,6 +66,7 @@ export class StripsSession implements PuzzleSession {
   private canvasH = 1;
   private cam: Camera;
   private rightClick = false;
+  private holdTimer = 0;                                              // a dragged strip lies over its hole (see `placeDrag`)
   private tick = 0;
   videoFrame?: (now: number) => void;
 
@@ -72,6 +75,7 @@ export class StripsSession implements PuzzleSession {
     this.picCols = made.picCols;
     this.picRows = made.picRows;
     this.game = made.game;
+    this.rotatable = !made.game.locked;
     this.rules = { kind: 'strips', game: made.game, picCols: made.picCols, picRows: made.picRows };
     this.cam = new Camera(made.game.cols * S, made.game.rows * S, 4, () => init.requestDraw());
     let sw = init.width;
@@ -112,6 +116,7 @@ export class StripsSession implements PuzzleSession {
 
   dispose(): void {
     this.cascade.cancel();
+    window.clearTimeout(this.holdTimer);
     this.layer?.dispose();
   }
 
@@ -322,10 +327,26 @@ export class StripsSession implements PuzzleSession {
   }
 
   /** Puts the dragged strip where the pointer holds it - or, for a finger, a little above it - and drops it if that is its own hole, turned right. */
-  private placeDrag(d: Drag, now: number): void {
+  private placeDrag(d: Drag, now: number, waited = false): void {
     const p = this.cam.world(d.lift ? d.lift.held(d.at, now) : d.at);
-    this.game.moveTo(d.id, Math.floor(p.x / S) - d.gx, Math.floor(p.y / S) - d.gy);
-    if (this.game.lockIfHome(d.id)) {                              // over its own hole, turned right: it drops by itself, the button need not be released
+    if (!waited) this.game.moveTo(d.id, Math.floor(p.x / S) - d.gx, Math.floor(p.y / S) - d.gy);
+    if (!this.game.isHome(d.id)) {
+      window.clearTimeout(this.holdTimer);
+      this.holdTimer = 0;
+    } else if (!solvesByDragging(this.init.opts) && !waited) {         // over its own hole, turned right, but only a strip held there for a moment drops by itself
+      if (!this.holdTimer) {
+        this.holdTimer = window.setTimeout(() => {
+          this.holdTimer = 0;
+          const cur = this.drag;
+          if (cur && cur.id === d.id) {
+            this.placeDrag(cur, performance.now(), true);
+            this.init.requestDraw();
+          }
+        }, HOLD_MS);
+      }
+    } else if (this.game.lockIfHome(d.id)) {                       // over its own hole, turned right: it drops by itself, the button need not be released
+      window.clearTimeout(this.holdTimer);
+      this.holdTimer = 0;
       this.locked(d.id);
       this.commit(d.id);
       this.drag = null;
@@ -354,6 +375,8 @@ export class StripsSession implements PuzzleSession {
     const d = this.drag;
     this.drag = null;
     window.clearTimeout(this.dwell);
+    window.clearTimeout(this.holdTimer);
+    this.holdTimer = 0;
     if (!d) return;
     if (d.moved && this.overTab >= 0 && this.overTab !== this.tab) {                  // let go over another tab: the strip goes there
       this.game.moveToTab(d.id, this.overTab);
@@ -375,6 +398,8 @@ export class StripsSession implements PuzzleSession {
     this.cam.endPan();
     this.rightClick = false;
     window.clearTimeout(this.dwell);
+    window.clearTimeout(this.holdTimer);
+    this.holdTimer = 0;
     this.overTab = -1;
     if (this.drag?.moved) this.commit(this.drag.id);                 // (where it was put stays: the room has to know)
     this.drag = null;
@@ -434,6 +459,7 @@ export class StripsSession implements PuzzleSession {
 
   /** Turns a strip a quarter. A tap has buzzed when it pressed, so it only buzzes again if the strip locks; the other ways of turning (right button, R, a second finger) buzz. */
   private turn(id: number, tap = false): void {
+    if (this.game.locked) return;                                     // (the strips are locked the right way up)
     const inHand = this.drag?.id === id;
     playEffect('rotate');
     if (this.game.rotate(id)) {
@@ -616,6 +642,8 @@ export class StripsSession implements PuzzleSession {
 
   private dragEnds(): void {
     window.clearTimeout(this.dwell);
+    window.clearTimeout(this.holdTimer);
+    this.holdTimer = 0;
     this.overTab = -1;
     this.drag = null;
   }

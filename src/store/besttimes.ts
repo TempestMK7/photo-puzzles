@@ -30,11 +30,11 @@ export class BestTimeStore {
       if (!text) return;
       const raw = JSON.parse(text) as Record<string, Partial<BestTime>>;
       for (const k of KINDS) {
-        for (let size = 0; size < (k.sizes?.values.length ?? 0); size++) {
-          const e = raw[bestKey(k.id, size)];
+        for (let size = 0; size < (k.sizes?.values.length ?? 0); size++) for (const fast of [false, true]) {
+          const e = raw[bestKey(k.id, size, fast)];
           if (!e || typeof e !== 'object') continue;
           if (typeof e.ms !== 'number' || !Number.isFinite(e.ms) || e.ms < 0 || typeof e.at !== 'number' || !Number.isFinite(e.at)) continue;
-          this.data[bestKey(k.id, size)] = {
+          this.data[bestKey(k.id, size, fast)] = {
             ms: e.ms,
             ...(typeof e.moves === 'number' && e.moves >= 0 ? { moves: Math.floor(e.moves) } : {}),
             file: typeof e.file === 'string' ? e.file : '',
@@ -49,8 +49,8 @@ export class BestTimeStore {
   }
 
   /** A solved puzzle: true when it is the new best of its kind and size. */
-  record(kind: KindId, size: number, entry: BestTime): boolean {
-    const isBest = recordBest(this.data, bestKey(kind, size), entry);
+  record(kind: KindId, size: number, entry: BestTime, fast = false): boolean {
+    const isBest = recordBest(this.data, bestKey(kind, size, fast), entry);
     if (isBest) {
       try {
         this.storage?.setItem(ownerKey(KEY, this.owner), JSON.stringify(this.data));
@@ -61,7 +61,7 @@ export class BestTimeStore {
     return isBest;
   }
 
-  get(kind: KindId, size: number): BestTime | undefined {
-    return this.data[bestKey(kind, size)];
+  get(kind: KindId, size: number, fast = false): BestTime | undefined {
+    return this.data[bestKey(kind, size, fast)];
   }
 }

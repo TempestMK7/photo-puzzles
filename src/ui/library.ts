@@ -1,4 +1,4 @@
-import { describeDifficulty, findKind, KINDS, optionValue, recordKey, settingsOfKey, type KindDef } from '../core/kinds';
+import { describeDifficulty, findKind, KINDS, optionValue, recordKey, settingsOfKey, type KindDef, type OptionDef } from '../core/kinds';
 import { pickAnother } from '../core/pick';
 import { randomSeedText } from '../core/rng';
 import { isVideoFile } from '../image';
@@ -16,6 +16,9 @@ import { FILTER_ICON, KIND_ICONS } from './icons';
 /** The reroll button: the refresh symbol (two arrows chasing each other round a circle). */
 const REFRESH =
   '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 0-14-5.3L4 9"/><path d="M4 4v5h5"/><path d="M4 12a8 8 0 0 0 14 5.3L20 15"/><path d="M20 20v-5h-5"/></svg>';
+/** The information symbol: an "i" in a circle. */
+const INFO =
+  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6"/><circle cx="12" cy="7.5" r="0.6" fill="currentColor"/></svg>';
 import { aiMark, attribution, creditLine, siteMark, videoMark } from './stocksite';
 import { AddFilesDialog } from './addfiles';
 import { settingsButton } from './settings';
@@ -505,7 +508,6 @@ export class LibraryScreen {
   private renderChosen(): void {
     const stock = this.tab === 'stock' ? this.stockChosen : undefined;
     const e = this.tab === 'stock' ? (stock ? this.entryOfStock(stock) : undefined) : this.chosen;
-    const { prefs } = this.deps;
     // what the middle shows: a stock item as it is on its site, or the library's own photo
     const shown = stock ? { video: stock.type === 'video', url: stock.preview, name: stock.title, credit: stockCredit(stock) } : e ? { video: e.video, url: e.previewUrl, name: e.name, credit: e.credit } : undefined;
     if (shown?.video) {                                            // a video plays (silently, looped) in the preview
@@ -539,8 +541,40 @@ export class LibraryScreen {
     this.addStockBtn.hidden = this.tab !== 'stock';
     this.addStockBtn.disabled = !stock || !!e || !!this.stockAbort;
     this.addStockBtn.textContent = e ? 'In Local Files' : 'Add to Local Files';
-    this.optionsEl.replaceChildren(
-      ...this.kind.options.map((o) => {
+    const fields = this.kind.options.map((o) => ({ o, el: this.optionField(o) }));
+    const fast = fields.filter((f) => f.o.fast).map((f) => f.el);
+    this.optionsEl.replaceChildren(...fields.filter((f) => !f.o.fast).map((f) => f.el), ...(fast.length ? [this.fastHeading(), ...fast] : []));
+  }
+
+  /** "Fast Mode Options:", with the information symbol that says what they are for (on hover, on keyboard focus, and on a tap). */
+  private fastHeading(): HTMLElement {
+    const info = h(
+      'button',
+      {
+        type: 'button',
+        class: 'info',
+        'aria-label': 'About fast mode options',
+        'aria-expanded': 'false',
+        onclick: () => {
+          const open = !info.classList.contains('open');
+          info.classList.toggle('open', open);
+          info.setAttribute('aria-expanded', String(open));
+        },
+        onblur: () => {
+          info.classList.remove('open');
+          info.setAttribute('aria-expanded', 'false');
+        },
+      },
+      svg(INFO, 'ico'),
+      h('span', { class: 'bubble', role: 'tooltip' }, 'Fast mode options only affect best times tracking. A puzzle that is solved with any fast mode option changed from its usual setting counts as a fast mode puzzle, with its own best times, instead of a regular one.'),
+    );
+    return h('div', { class: 'fastheading' }, info, h('span', {}, 'Fast Mode Options:'));
+  }
+
+  /** One option as it is shown on the main screen: a check box, a list of choices or a slider. */
+  private optionField(o: OptionDef): HTMLElement {
+    const { prefs } = this.deps;
+    return (() => {
         const v = optionValue(prefs.data.settings, this.kind.id, o);
         const key = `${this.kind.id}.${o.key}`;
         if (o.toggle) {
@@ -586,8 +620,7 @@ export class LibraryScreen {
           }),
           o.note ? h('small', { class: 'optnote' }, o.note) : null,
         );
-      }),
-    );
+    })();
   }
 
   // ---------------------------------------------------------------------------------------------------------------- actions

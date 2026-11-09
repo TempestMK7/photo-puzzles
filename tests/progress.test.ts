@@ -26,17 +26,15 @@ describe('settingsOfKey', () => {
 describe('describeDifficulty', () => {
   it('names each difficulty option and its value, but not the display settings', () => {
     const jig = findKind('jigsaw')!;
-    const text = describeDifficulty(jig, { 'jigsaw.size': 3, 'jigsaw.turning': 1, 'jigsaw.snap': 2 });
-    expect(text).toBe('Size: XL (about 500 pieces) · Turned pieces: on · Snap on release');
+    const text = describeDifficulty(jig, { 'jigsaw.size': 3, 'jigsaw.lock': 1, 'jigsaw.drag': 0 });
+    expect(text).toBe('Size: XL (about 500 pieces) · Lock Piece Orientation: on · Solve Pieces By Dragging: off');
     expect(text).not.toContain('Vibration');
   });
 
   it('leaves out options added later while they are at their default, and says them once they are not', () => {
     const jig = findKind('jigsaw')!;
-    expect(describeDifficulty(jig, { 'jigsaw.placed': 0, 'jigsaw.edges': 0 })).toBe('Size: M (about 100 pieces) · Turned pieces: off · Snap while dragging');
-    expect(describeDifficulty(jig, { 'jigsaw.placed': 25, 'jigsaw.edges': 1 })).toBe(
-      'Size: M (about 100 pieces) · Placed at the start (%): 25 · Edge pieces start in the picture area: on · Turned pieces: off · Snap while dragging',
-    );
+    expect(describeDifficulty(jig, { 'jigsaw.placed': 0, 'jigsaw.edges': 1 })).toBe('Size: M (about 100 pieces)');
+    expect(describeDifficulty(jig, { 'jigsaw.placed': 25, 'jigsaw.edges': 0 })).toBe('Size: M (about 100 pieces) · Placed At The Start (%): 25 · Edge Pieces Start In The Picture Area: off');
   });
 
   it('uses the defaults for what is missing', () => {
