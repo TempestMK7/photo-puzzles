@@ -382,6 +382,8 @@ export class RoomService {
     const out: AdminRejected[] = [];
     for (const f of held) {
       out.push({
+        upheld: (await this.d.store.getAccount(f.ownerId))?.upheld ?? 0,
+        banned: await this.isBanned(f.ownerId),
         id: f.id,
         ownerId: f.ownerId,
         ownerName: names.get(f.ownerId) ?? '',
@@ -402,16 +404,19 @@ export class RoomService {
   }
 
   /**
-   * For the operator: rules on a rejection. **Valid**: the file is deleted and the credit stays spent (the case is closed). **Invalid**: the credit is given back, the player is shown on their next
+   * For the operator: rules on a rejection. **Valid**: the file is deleted, the credit stays spent and the player's count of upheld rejections goes up by one (the case is closed). **Ban**:
+   * the same as valid, and the player is banned from online puzzles as well (`adminBan`). **Invalid**: the credit is given back, the player is shown on their next
    * sign-in that a moderator approved the file, and the file is kept (as any checked file is) so that they can make a puzzle from it again without another look. False if there is no such case
    * (it was ruled on already, or it ran out: a case nobody rules on ends as valid after a month).
    */
-  async adminReview(fileId: string, verdict: 'valid' | 'invalid'): Promise<boolean> {
+  async adminReview(fileId: string, verdict: 'valid' | 'invalid' | 'ban'): Promise<boolean> {
     const { store, clock, limits } = this.d;
     const file = await store.getFile(fileId);
     if (!file?.held || file.expiresAt <= clock.now()) return false;
-    if (verdict === 'valid') {
-      await this.removeFile(fileId);
+    if (verdict === 'valid' || verdict === 'ban') {
+      await this.removeFile(fileId);                                                    // (first: a second press finds no case, and does not count it twice)
+      if (await store.getAccount(file.ownerId)) await this.changeAccount(file.ownerId, (a) => ({ ...a, upheld: (a.upheld ?? 0) + 1 }));
+      if (verdict === 'ban') await this.adminBan(file.ownerId, `Rejected file: ${file.held.label}`);
       return true;
     }
     const now = clock.now();

@@ -420,6 +420,48 @@ describe.each(stores)('the room service on %s', (_name, store) => {
         expect(await w.service.ackNotices({ id: 'g1', name: 'G', guest: true }, [])).toMatchObject({ error: 'account-required' });
       });
 
+      it('counts the rejections that are ruled valid for each player and shows the count with every new case; invalid does not count', async () => {
+        const { w, id } = await rejected();
+        const again = async () => {
+          const made = await w.service.createRoom(ann, { ...request(), sourceId: 'photo-2' });
+          if (!made.ok) throw new Error('create failed');
+          await w.service.finishUpload(made.roomId, jpeg(400, 300));
+          const known = new Set(seen);
+          const fresh = (await w.service.adminRejected()).map((c) => c.id).filter((c) => !known.has(c));
+          seen.push(...fresh);
+          return fresh;
+        };
+        const seen = [id];
+        expect((await w.service.adminRejected())[0]).toMatchObject({ upheld: 0, banned: false });
+        const [second] = await again();
+        expect(await w.service.adminReview(id, 'valid')).toBe(true);
+        expect((await w.service.profile(ann)).account).not.toHaveProperty('upheld');                          // (the count is the operator's: the player is not shown it)
+        expect(await w.service.adminReview(id, 'valid')).toBe(false);                                         // (not counted twice)
+        expect((await w.service.adminRejected()).find((c) => c.id === second)).toMatchObject({ upheld: 1 });
+        const [third] = await again();
+        expect(await w.service.adminReview(second, 'invalid')).toBe(true);
+        expect((await w.service.adminRejected()).find((c) => c.id === third)).toMatchObject({ upheld: 1 });   // (invalid does not count)
+        expect(await w.service.adminReview(third, 'valid')).toBe(true);
+        expect(await w.store.getAccount('bob')).toBeUndefined();
+        expect((await w.store.getAccount('ann'))!.upheld).toBe(2);
+      });
+
+      it('ban: the same as valid (the file goes, the credit stays spent, the count goes up) and the player is banned, with everything else they sent', async () => {
+        const { w, id } = await rejected();
+        const other = await w.service.createRoom(ann, { ...request(), sourceId: 'photo-2' });
+        if (!other.ok) throw new Error('create failed');
+        await w.service.finishUpload(other.roomId, jpeg(400, 300));
+        const before = (await w.service.profile(ann)).account.photo;
+        expect((await w.service.adminRejected())[0].banned).toBe(false);
+        expect(await w.service.adminReview(id, 'ban')).toBe(true);
+        expect((await w.service.profile(ann)).account.photo).toBe(before);
+        expect((await w.store.getAccount('ann'))!.upheld).toBe(1);
+        expect(await w.service.isBanned('ann')).toBe(true);
+        expect((await w.service.adminBans())[0]).toMatchObject({ playerId: 'ann', reason: 'Rejected file: Violence' });
+        expect(await w.service.adminRejected()).toEqual([]);                                                  // (what else they sent went with the ban)
+        expect(await w.service.adminReview(id, 'ban')).toBe(false);
+      });
+
       it('cannot be used for a puzzle while it waits, and a case nobody rules on ends as valid after a month', async () => {
         const { w, id } = await rejected();
         expect(await w.service.createRoom(ann, { ...request(), fileId: id })).toMatchObject({ ok: false, error: 'file-gone' });

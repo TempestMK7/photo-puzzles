@@ -149,7 +149,7 @@ The token is an account's (a Cognito ID token) or a guest's. **A guest can join 
 - `GET /rooms` -> the player's rooms (`RoomSummary`). `GET /rooms/{id}` -> `RoomDescriptor`.
 - `POST /rooms/{id}/command` `Command` -> `{ ok, event }` or a refusal. `POST /rooms/{id}/renew`.
 - `POST /rooms/{id}/leave`, `/close` (owner), `/invite/regenerate` (owner), `/members/{id}/remove` (owner: sends a member out for good: that player's id is kept in the room and the code, a new code and the link all answer `403` `removed`), `/knock/{id}/answer`, `/report` (a member: `{ reason, note? }` with a reason of `illegal`, `adult`, `harassment`, `copyright` or `other` and a note of at most 300 characters; five an hour per player, then `429` `rate-limited`). A report is kept for 90 days with who was in the puzzle, and the operator is e-mailed (the alarm topic). Nothing happens to the puzzle by itself.
-- **Banned players:** the operator can stop a player (`banned`, `403`): they leave every puzzle, the ones they made end, and every request but `/me` (and deleting their account) is refused. See the operator's function in `infra/README.md`.
+- **Banned players:** the operator can stop a player (`banned`, `403`): they leave every puzzle, the ones they made end, and making, joining or doing anything in an online puzzle is refused (`POST /join` and everything under `/rooms`). Everything else is as for anyone: their account, settings, hints and bombs, credits and ads, the stock library; and the game plays offline as usual. See the operator's function in `infra/README.md`.
 
 Failures are `{ ok: false, error }` with one of the `ApiError` values.
 

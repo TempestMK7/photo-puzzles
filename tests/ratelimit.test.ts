@@ -208,7 +208,18 @@ describe('the limits on the API', () => {
       expect((await call('POST', `/rooms/${made.roomId}/report`, { token: ann, body: { reason: 'nonsense' } })).status).toBe(429);
     });
 
-    it('turns a banned player away from everything but their own account, and lets them in again when it is lifted', async () => {
+    it('lets a banned player do everything but make or join online puzzles: their account, settings, hints and bombs, notices, and offline play', async () => {
+      const { call, w } = setup();
+      await w.service.adminBan('ann1', 'no');
+      expect((await call('GET', '/me', { token: ann })).status).toBe(200);
+      expect((await call('PUT', '/me/settings', { token: ann, body: { settings: { 'jigsaw.lock': 1 } } })).status).toBe(200);
+      expect((await call('POST', '/me/notices/ack', { token: ann, body: { ids: [] } })).status).toBe(200);
+      expect((await call('POST', '/items/use', { token: ann, body: { item: 'hint' } })).status).toBe(200);
+      expect((await call('POST', '/items/award', { token: ann, body: { size: 0 } })).status).not.toBe(403);
+      expect((await call('POST', '/rooms', { token: ann, body: {} })).body).toMatchObject({ error: 'banned' });
+    });
+
+    it('turns a banned player away from making and joining puzzles and from everything in one, and lets them in again when it is lifted', async () => {
       const { call, w } = setup();
       const made = await open(w, { id: 'bob1', name: 'Bob' });
       await w.service.adminBan('ann1', 'no');

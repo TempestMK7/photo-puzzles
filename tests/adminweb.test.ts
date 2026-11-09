@@ -53,7 +53,7 @@ describe('the admin routes', () => {
     const { w, call } = setup();
     const made = await open(w);
     for (const who of [[], ['users'], ['admin'], ['Admins']]) {
-      for (const [method, path] of [['GET', '/admin/me'], ['GET', '/admin/players'], ['GET', '/admin/rooms'], ['GET', `/admin/room/${made.roomId}`], ['POST', `/admin/room/${made.roomId}/remove`], ['GET', '/admin/files'], ['POST', '/admin/file/x/remove'], ['GET', '/admin/rejected'], ['POST', '/admin/rejected/x/valid'], ['POST', '/admin/account'], ['GET', '/admin/reports'], ['GET', '/admin/bans'], ['POST', '/admin/ban'], ['POST', '/admin/unban'], ['POST', '/admin/delete'], ['GET', '/admin/logs/groups'], ['GET', '/admin/logs']]) {
+      for (const [method, path] of [['GET', '/admin/me'], ['GET', '/admin/players'], ['GET', '/admin/rooms'], ['GET', `/admin/room/${made.roomId}`], ['POST', `/admin/room/${made.roomId}/remove`], ['GET', '/admin/files'], ['POST', '/admin/file/x/remove'], ['GET', '/admin/rejected'], ['POST', '/admin/rejected/x/valid'], ['POST', '/admin/rejected/x/ban'], ['POST', '/admin/account'], ['GET', '/admin/reports'], ['GET', '/admin/bans'], ['POST', '/admin/ban'], ['POST', '/admin/unban'], ['POST', '/admin/delete'], ['GET', '/admin/logs/groups'], ['GET', '/admin/logs']]) {
         expect(await call(method, path, { groups: who, body: { id: 'ann' } }), `${method} ${path} as ${who}`).toEqual({ status: 403, body: { ok: false, error: 'unauthorized' } });
       }
     }

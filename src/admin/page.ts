@@ -554,7 +554,7 @@ class AdminPage {
       h(
         'div',
         { class: 'row' },
-        h('span', { class: 'dim' }, `${list.length} waiting, newest first. Valid: the file is deleted and the credit stays spent. Invalid: the credit is given back, the player is told a moderator approved it on their next sign-in, and the file is kept for another puzzle. A case nobody rules on ends as valid after a month.`),
+        h('span', { class: 'dim' }, `${list.length} waiting, newest first. Mark as invalid: the credit is given back, the player is told a moderator approved it on their next sign-in, and the file is kept for another puzzle. Mark as valid: the file is deleted, the credit stays spent, and the player's count of upheld rejections goes up. Ban player: the same as valid, and the player cannot make or join online puzzles any more. A case nobody rules on ends as valid after a month (without counting).`),
         h('button', { type: 'button', class: 'small', onclick: () => void this.fill() }, 'Refresh'),
       ),
       ...list.map((r) =>
@@ -569,12 +569,22 @@ class AdminPage {
             { class: 'caseinfo' },
             h('b', {}, r.label),
             h('span', { class: 'dim' }, `${r.ownerName || short(r.ownerId)} · ${relative(r.at)} · ${r.width}×${r.height}${r.type === 'video' ? ` · ${formatTime(r.ms ?? 0)}` : ''} · ${r.paid ? `${r.paid} credit spent` : 'nothing was paid'}`),
-            h(
-              'div',
-              { class: 'row wrap' },
-              h('button', { type: 'button', class: 'small danger', title: 'The check was right: delete the file, the credit stays spent', onclick: () => void this.rule(r, 'valid') }, 'Valid: delete it'),
-              h('button', { type: 'button', class: 'small', title: 'The check was wrong: give the credit back and tell the player', onclick: () => void this.rule(r, 'invalid') }, 'Invalid: approve it'),
-            ),
+            h('span', { class: r.upheld ? 'upheld' : 'dim' }, `${r.upheld} rejection${r.upheld === 1 ? '' : 's'} of this player upheld so far${r.banned ? ' · already banned from online puzzles' : ''}`),
+            this.asked === `banrej:${r.id}`
+              ? h(
+                  'span',
+                  { class: 'ask', role: 'alertdialog', 'aria-label': 'Ban this player' },
+                  'Mark it valid, delete the file and everything else this player sent, and stop them making or joining online puzzles? ',
+                  h('button', { type: 'button', class: 'small danger', onclick: () => void this.rule(r, 'ban') }, 'Ban player'),
+                  h('button', { type: 'button', class: 'small', onclick: () => this.ask('') }, 'Cancel'),
+                )
+              : h(
+                  'div',
+                  { class: 'row wrap' },
+                  h('button', { type: 'button', class: 'small', title: 'The check was wrong: give the credit back, tell the player, keep the file', onclick: () => void this.rule(r, 'invalid') }, 'Mark rejection as invalid'),
+                  h('button', { type: 'button', class: 'small danger', title: 'The check was right: delete the file, the credit stays spent, and the player\'s count goes up', onclick: () => void this.rule(r, 'valid') }, 'Mark rejection as valid'),
+                  h('button', { type: 'button', class: 'small danger', title: 'Mark it valid and ban the player from online puzzles', onclick: () => this.ask(`banrej:${r.id}`) }, 'Ban player…'),
+                ),
           ),
         ),
       ),
@@ -582,10 +592,12 @@ class AdminPage {
     ];
   }
 
-  private async rule(r: AdminRejected, verdict: 'valid' | 'invalid'): Promise<void> {
+  private async rule(r: AdminRejected, verdict: 'valid' | 'invalid' | 'ban'): Promise<void> {
+    this.asked = '';
     const res = await this.api.post(`/admin/rejected/${encodeURIComponent(r.id)}/${verdict}`);
-    this.message = res.ok ? (verdict === 'valid' ? 'Closed as valid: the file was deleted.' : 'Approved: the credit was given back and the player will be told.') : sayAdminError(res);
-    if (res.ok || res.error === 'not-found') this.rejected = this.rejected.filter((x) => x.id !== r.id);
+    this.message = res.ok ? (verdict === 'ban' ? 'Closed as valid, and the player is banned from online puzzles.' : verdict === 'valid' ? 'Closed as valid: the file was deleted and the count of upheld rejections went up.' : 'Approved: the credit was given back and the player will be told.') : sayAdminError(res);
+    if (res.ok || res.error === 'not-found') this.rejected = this.rejected.filter((x) => (verdict === 'ban' ? x.ownerId !== r.ownerId : x.id !== r.id));
+    if (res.ok && verdict !== 'invalid') this.players = { list: [], next: null };
     this.redraw();
   }
 
