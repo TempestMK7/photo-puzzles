@@ -30,6 +30,8 @@ import { RefWindow } from './refwindow';
 import { openHowTo } from './howto';
 import { howtoNew, nextStep, type Step } from '../core/tutorial';
 import type { Tutorial } from './tutorial';
+import type { RateStore } from '../store/rate';
+import { canRate, rateApp } from '../platform';
 
 const PHOTO_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-8 9"/></svg>';
 const HOWTO_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/></svg>';
@@ -53,6 +55,8 @@ export interface PlayDeps {
   inventory?: () => HTMLButtonElement;
   /** The walk-through of the game: What the player has been shown, and the bubble that points things out. */
   tutorial?: Tutorial;
+  /** What is counted for the "Rate Me!" prompt (the mobile apps only: see `rateLines`). */
+  rate?: RateStore;
   /** An ad for hints or a bomb can be watched now (the buttons of hints and bombs glow then). */
   helpAdReady?: () => boolean;
   /** Opens the inventory at the hints or the bombs (a button with none left leads there). */
@@ -848,6 +852,28 @@ export class PlayScreen {
    * What the end-of-puzzle window says about hints: what the puzzle gave (a free account stops at so many a day, and the window says how many it can still earn), that it has had all of today's, or
    * - to someone who is not signed in, who earns none - how to earn them.
    */
+  /**
+   * The "Rate Me!" prompt, in the dialog of a solved puzzle: only in an app that can open its page in the store, after three solved puzzles, and (however the player answers) not again for three days;
+   * pressing Rate Me! is the last time.
+   */
+  private rateLines(): HTMLElement[] {
+    const rate = this.deps.rate;
+    if (!rate || !canRate() || !rate.shouldAsk()) return [];
+    rate.asked();
+    const box = h('div', { class: 'ratebox' });
+    const close = (): void => box.remove();
+    box.append(
+      h('p', {}, 'Enjoying PuzzleVidio? A rating helps other families find it.'),
+      h(
+        'div',
+        { class: 'buttons' },
+        h('button', { type: 'button', class: 'primary', onclick: () => (rate.rated(), rateApp(), close()) }, 'Rate Me!'),
+        h('button', { type: 'button', onclick: close }, 'Not Now'),
+      ),
+    );
+    return [box];
+  }
+
   private earnLines(given: number): HTMLElement[] {
     const { player, online } = this.deps;
     if (!player?.hasAccounts || !online) return [];
@@ -1035,6 +1061,7 @@ export class PlayScreen {
     o.shown = true;
     const d = o.room.descriptor;
     this.deps.achievements?.record({ type: 'solved', kind: this.kind.id, size: sizeIndexOf(this.kind, d.settings.opts), video: d.media.type === 'video', online: true, once: d.id });
+    this.deps.rate?.solved();
     const player = this.deps.player;
     // the server gave the hints to everyone with an account (as many as each may earn today) before it said that the puzzle was solved: what this player was given is what their count grew by
     const before = player?.summary().hints ?? 0;
@@ -1063,6 +1090,7 @@ export class PlayScreen {
         (this.saveDialogBtn = h('button', { type: 'button', disabled: this.online.saved, title: this.online.saved ? 'This is in your library already' : '', onclick: () => void this.savePicture() }, this.online.room.descriptor.media.type === 'video' ? 'Save video' : 'Save picture')),
         h('button', { type: 'button', class: 'primary', onclick: () => this.leave() }, 'Leave'),
       ),
+      ...this.rateLines(),
     );
     this.dialogEl.hidden = false;
   }
@@ -1552,6 +1580,7 @@ export class PlayScreen {
     const isBest = times?.record(this.kind.id, size, { ms: this.elapsed, moves: this.session.moves?.(), file: entry.name, video: entry.video, at: Date.now() }, fast) || false;
     const label = `${this.kind.name} ${sizeLabels(this.kind)[size]?.name ?? ''}`.trim();
     this.deps.achievements?.record({ type: 'solved', kind: this.kind.id, size, video: entry.video, online: false });
+    this.deps.rate?.solved();
     const award = this.awardSolved();
     // after the last move has finished showing (and the server has said what the puzzle gave, if it does so quickly)
     window.setTimeout(() => void Promise.race([award, new Promise<number>((r) => window.setTimeout(() => r(0), 800))]).then((n) => this.showDialog(isBest, times?.get(this.kind.id, size, fast)?.ms ?? this.elapsed, label, n, fast)), 700);
@@ -1577,6 +1606,7 @@ export class PlayScreen {
         h('button', { type: 'button', class: 'primary', onclick: () => this.newPuzzle() }, 'New Puzzle (Same File)'),
         ...(this.entry && this.deps.otherPhoto(this.entry.id) ? [h('button', { type: 'button', title: 'The same settings on another file of your library', onclick: () => this.otherPhotoPuzzle() }, 'New Puzzle (Random Local File)')] : []),
       ),
+      ...this.rateLines(),
     );
     this.dialogEl.hidden = false;
   }

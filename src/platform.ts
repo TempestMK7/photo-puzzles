@@ -32,6 +32,7 @@ interface Native {
   buySubscription?: (productId: string, accountId: string) => void;
   restorePurchases?: () => void;
   manageSubscription?: (productId: string) => void;
+  rateApp?: () => void;
 }
 
 const nativeHost = (): Native | undefined => (typeof window === 'undefined' ? undefined : (window as unknown as { PhotoPuzzlesNative?: Native }).PhotoPuzzlesNative);
@@ -82,6 +83,20 @@ export function takeSignIn(host: Native | undefined = nativeHost()): string {
     return typeof url === 'string' ? url : '';
   } catch {
     return '';
+  }
+}
+
+/** Whether the app can send the player to its page in the store to rate it (the Android app: `PhotoPuzzlesNative.rateApp()`; not the web page, Steam or itch). */
+export function canRate(host: Native | undefined = nativeHost()): boolean {
+  return typeof host?.rateApp === 'function' && platform(host) === 'android';
+}
+
+/** Opens the app's page in the store, where the player can rate it. */
+export function rateApp(host: Native | undefined = nativeHost()): void {
+  try {
+    host?.rateApp?.();
+  } catch {
+    /* no store to open it with: nothing happens */
   }
 }
 

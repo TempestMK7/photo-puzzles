@@ -418,6 +418,26 @@ public class MainActivity extends Activity {
             billing.restore();
         }
 
+        /** Opens the app's page in Google Play (or, with no Play app, in a browser), where the player can rate it: the page's "Rate Me!" prompt. */
+        @JavascriptInterface
+        public void rateApp() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    String id = getPackageName();
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + id)));
+                    } catch (Exception e) {
+                        try {
+                            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=" + id)));
+                        } catch (Exception e2) {
+                            /* nothing to open it with: nothing happens */
+                        }
+                    }
+                }
+            });
+        }
+
         /** Opens Google Play's page for managing the subscription. */
         @JavascriptInterface
         public void manageSubscription(String productId) {
