@@ -282,6 +282,21 @@ body.dragging .library::after {
   .play .bar .stats { grid-area: stats; }
   .play .bar .view-group { grid-area: view; justify-self: end; margin-left: 0; }
 }
+/* Show Photo: an icon with its words, and the words go when there is little room */
+.play button.ref-btn { display: inline-flex; align-items: center; gap: 6px; }
+.ref-btn .ico { display: inline-flex; color: var(--accent2); }
+@media (max-width: 380px) { .play .bar .view-group .ref-btn .label { display: none; } }
+/* a phone on its side (wide, but not tall): the whole header is one smaller line, and the title gives way to the buttons; the words of Show Photo go below 900 px */
+@media (orientation: landscape) and (max-height: 520px) {
+  .play .bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 4px 10px; padding-top: max(4px, env(safe-area-inset-top)); padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
+  .play .bar > *, .play .bar .view-group, .play .bar .tool-group { flex: 0 0 auto; margin: 0; white-space: nowrap; }
+  .play .bar .view-group { margin-left: auto; }
+  .play .bar .title { display: block; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+  .play .bar button { padding: 4px 10px; font-size: 13px; }
+  .play .bar .tool-group button.settings-btn, .play .bar .tool-group button.inventory-btn, .play .bar .tool-group button.toggle, .play .bar .helps button { padding: 4px 9px; font-size: 14px; }
+  .play .bar .tool-group, .play .bar .view-group, .play .bar .helps { gap: 6px; flex-wrap: nowrap; }
+}
+@media (orientation: landscape) and (max-height: 520px) and (max-width: 900px) { .play .bar .view-group .ref-btn .label { display: none; } }
 .play main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-bottom: env(safe-area-inset-bottom); }
 .stage { flex: 1; min-height: 0; position: relative; }
 .vbar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--panel); border-top: 1px solid var(--line); }
