@@ -5,7 +5,8 @@ of their family. Plain words, no puzzle jargon, nothing the app does not do. Lim
 its length; check it again after editing.
 
 **Say only what is true.** Before pasting, check every line against the app as it will be released (prices, what is free, which puzzles there are). The listing, the in-app text, the
-privacy policy and the Data safety form must agree.
+privacy policy and the Data safety form must agree. In particular the line "A picture is shared only when you start a puzzle with friends" has to match the privacy policy: such a
+picture goes to our server, and is looked at by an automatic safety check, before the others see it.
 
 ## App name (30)
 
@@ -33,12 +34,12 @@ Pick a picture of the grandchildren, a holiday, a wedding or your garden, and Pu
 YOUR OWN PICTURES, YOUR OWN PUZZLES
 - Make a puzzle from any photo on your phone.
 - Make a puzzle from a video, too: the video keeps playing while you solve it.
-- A finished puzzle is the picture you love. Save it, look at it, make another.
+- A finished puzzle is the picture you love. Look at it, then make another.
 
 PLAY TOGETHER
 - Start a puzzle and send a link to your family. Everyone works on the same puzzle at the same time.
 - A grandmother in one town and a grandchild in another can put the same picture together.
-- You see where the others are working and what each person has placed.
+- You see how many pieces each person has put in place.
 
 SIX KINDS OF PUZZLE
 - Jigsaw: classic interlocking pieces, from a quick 50 pieces up to thousands.
@@ -49,7 +50,7 @@ SIX KINDS OF PUZZLE
 YOU SET THE DIFFICULTY
 - Choose a size from small to very large. Start gentle and work up.
 - Turn off turning pieces, start with part of the picture already in place, and make pieces snap in as you drag them.
-- Stuck? Use a hint to be shown where a piece goes, or a bomb to place a patch of pieces at once.
+- Stuck? A hint puts one piece in its place for you, and a bomb places a patch of pieces at once (in Jigsaw, Tile Swap, Overlap and Strips).
 
 MADE TO BE RELAXING
 - No timer pressure: a clock keeps your best time if you want one, and you can ignore it.
@@ -89,7 +90,7 @@ publish), and show the real screen. Captions at the top, the phone below.
 | 3 | A puzzle with friends: the players' chips over the board, pieces in several colours | **Solve it together, from anywhere** |
 | 4 | A video puzzle half done (the board shows a moving picture) | **Puzzles from your videos, too** |
 | 5 | The size slider and the options | **Easy to hard: you choose** |
-| 6 | The Hint button lit and a hint showing where a piece goes | **Stuck? Ask for a hint** |
+| 6 | The Hint button, and a piece that has just been put in its place for the player | **Stuck? Ask for a hint** |
 | 7 | The "Solved!" window with confetti | **The best part: finishing it** |
 
 Landscape screenshots are needed for tablets (7- and 10-inch) if the app is offered on them.
