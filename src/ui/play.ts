@@ -31,6 +31,7 @@ import { openHowTo } from './howto';
 import { howtoNew, nextStep, type Step } from '../core/tutorial';
 import type { Tutorial } from './tutorial';
 
+const PHOTO_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-8 9"/></svg>';
 const HOWTO_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/></svg>';
 
 export interface PlayDeps {
@@ -127,7 +128,8 @@ export class PlayScreen {
   private stage = h('div', { class: 'stage' }, this.canvas, this.dialogEl, this.viewBar, this.zoomEl, this.trayBar, this.trayHead, this.helpNote);
   /** The original picture or video in a window of its own, for looking at while solving. */
   private ref = new RefWindow(this.stage, () => this.toggleRef(false));
-  private refBtn = h('button', { type: 'button', class: 'toggle', title: 'Look at the original photo', 'aria-pressed': 'false', onclick: () => this.toggleRef() }, 'Show Photo');
+  private refLabel = h('span', { class: 'label' }, 'Show Photo');
+  private refBtn = h('button', { type: 'button', class: 'toggle ref-btn', title: 'Look at the original photo', 'aria-label': 'Show Photo', 'aria-pressed': 'false', onclick: () => this.toggleRef() }, svg(PHOTO_ICON, 'ico'), this.refLabel);
   private main = h('main', {}, this.tabsEl, this.stage, this.vbar);
   // hints and bombs (Tile Swap, Overlap, Strips, Jigsaw): the player picks one, then taps the board; it comes out of their account (see core/help.ts)
   /** Opens the window with the controls and rules of this puzzle type; it glows until it has been opened for the type. */
@@ -320,7 +322,8 @@ export class PlayScreen {
   /** The button for the original says what it shows: the photo or the video that the puzzle is cut from. */
   private refreshRefLabel(): void {
     const word = this.mediaWord();
-    this.refBtn.textContent = `Show ${word}`;
+    this.refLabel.textContent = `Show ${word}`;
+    this.refBtn.setAttribute('aria-label', `Show ${word}`);
     this.refBtn.title = `Look at the original ${word.toLowerCase()}`;
   }
 
