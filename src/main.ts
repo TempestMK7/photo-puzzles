@@ -28,6 +28,7 @@ import { browserSignIn, takeSignIn, tellAchievements } from './platform';
 import { InventoryUi } from './ui/inventory';
 import { Tutorial } from './ui/tutorial';
 import { TutorialStore } from './store/tutorial';
+import { RateStore } from './store/rate';
 import { DELETE_HASH, ProfileDialog, takeAccountDeletedNotice } from './ui/profile';
 import { SignInDialog } from './ui/signin';
 
@@ -137,6 +138,7 @@ async function main(): Promise<void> {
     player,
     inventory: inventory?.button.bind(inventory),
     tutorial,
+    rate: new RateStore(storage()),
     helpAdReady: () => !!inventory?.helpAdReady(),
     openHelp: (kind) => inventory?.show(kind),
     photoAdded: (id) => void library.photoAdded(id),

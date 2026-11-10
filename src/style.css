@@ -340,6 +340,8 @@ body.dragging .library::after {
 }
 .dialog h2 { margin: 0 0 8px; font-size: 26px; color: var(--accent2); }
 .dialog p { margin: 4px 0; }
+/* the "Rate Me!" prompt (the mobile apps), under the buttons of a solved puzzle */
+.dialog .ratebox { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .dialog .best { color: var(--accent2); font-weight: 600; margin-bottom: 14px; }
 .dialog .buttons { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 .dialog .buttons + .buttons { margin-top: 10px; }

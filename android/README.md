@@ -112,3 +112,5 @@ Creating a release tag (`v1.2.0`, on a commit of main) starts it by itself (the 
 3. `gh secret set PLAY_SERVICE_ACCOUNT_JSON < the-key.json`, then delete the downloaded key file. The key is a password: it is never committed.
 
 The workflow's action (`r0adkll/upload-google-play`) is pinned to a commit. A new permission in the Play Console can take some minutes to reach the API; a "caller does not have permission" error in the first run is usually that.
+
+**Rate Me!** The solved-puzzle dialog asks the player to rate the app (`src/ui/play.ts` `rateLines`, `src/core/ratePrompt.ts`: after 3 solved puzzles, not again for 3 days after it was shown, never again once *Rate Me!* was pressed) only where `PhotoPuzzlesNative.rateApp()` exists and `platform()` is android. `rateApp()` opens the app's page in Google Play (`market://details?id=<package id>`, or the https page when there is no Play app). The counts are kept on the device (`src/store/rate.ts`).
