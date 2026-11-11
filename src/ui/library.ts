@@ -5,7 +5,6 @@ import { isVideoFile } from '../image';
 import { readMp4Orientation } from '../mp4';
 import { formatAgo, formatTime, type Prefs } from '../core/prefs';
 import { STOCK_NAMES, type StockItem, type StockSite, type StockType } from '../online/protocol';
-import { fetchLink, parseLink } from '../store/link';
 import { downloadStock, searchStock, stockCredit } from '../store/stock';
 import type { SaveRecord, SaveStore } from '../store/saves';
 import type { PhotoEntry, PhotoLibrary } from '../store/photos';
@@ -20,7 +19,6 @@ const REFRESH =
 const INFO =
   '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6"/><circle cx="12" cy="7.5" r="0.6" fill="currentColor"/></svg>';
 import { aiMark, attribution, creditLine, siteMark, videoMark } from './stocksite';
-import { AddFilesDialog } from './addfiles';
 import { settingsButton } from './settings';
 
 export interface LibraryDeps {
@@ -126,7 +124,6 @@ export class LibraryScreen {
   private marked = new Set<string>();
   private fileInput = h('input', { type: 'file', accept: 'image/*,video/*,.webm,.mp4,.m4v,.mov,.mkv', multiple: true, hidden: true, onchange: () => this.filesChosen() });
   /** Add Files: from the file browser, or from links (which are downloaded while the window stays open). */
-  private addDialog = new AddFilesDialog({ browse: () => this.fileInput.click(), download: (url, onStatus, signal) => fetchLink(url, onStatus, signal), add: (file) => this.addFiles([file]) });
   /** The question of a puzzle that matches one in progress: continue it or start a new one. */
   private matchEl = h('div', { class: 'inprogress', role: 'dialog', 'aria-label': 'A puzzle like this is in progress', hidden: true });
   private photoNoteEl = h('div', { class: 'note', 'aria-live': 'polite' });
@@ -234,7 +231,6 @@ export class LibraryScreen {
       this.fileInput,
       this.loadingEl,
       this.progressEl,
-      this.addDialog.el,
       this.matchEl,
       this.filterEl,
     );
@@ -740,18 +736,10 @@ export class LibraryScreen {
     return this.queued(() => this.addNow(files));
   }
 
-  /** A link that was dropped or pasted: the Add Files window opens and downloads it (and shows how it is going). */
-  addLink(text: string): void {
-    this.addDialog.open();
-    this.addDialog.addLink(text);
-  }
-
-  /** Control-V on the main screen: a link, or a picture copied from somewhere, is added. */
+  /** Control-V on the main screen: a picture copied from somewhere is added. */
   pasted(data: DataTransfer): void {
     const files = [...data.files];
-    const text = data.getData('text/plain');
     if (files.length) void this.addFiles(files);
-    else if (parseLink(text)) void this.addLink(text);
   }
 
   private async addNow(files: File[]): Promise<void> {
@@ -1182,7 +1170,7 @@ export class LibraryScreen {
     const btn = (label: string, onclick: () => void, extra: Record<string, unknown> = {}) => h('button', { type: 'button', onclick, ...extra }, label);
     if (this.removing === 'no') {
       this.footEl.replaceChildren(
-        btn('Add Files', () => this.addDialog.open(), { title: 'Add photos and videos from this device or from a link' }),
+        btn('Add Files', () => this.fileInput.click(), { title: 'Add photos and videos from this device' }),
         btn('Remove Files', () => this.setRemoving('choose'), { disabled: mine.length === 0, title: mine.length ? 'Choose photos and videos to remove' : 'There are no files to remove' }),
       );
     } else if (this.removing === 'choose') {
