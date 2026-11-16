@@ -62,6 +62,12 @@ const ICONS: Record<InventoryItem | 'bag', string> = {
   bag: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 7V5a4 4 0 0 1 8 0v2"/><path d="M5 7h14l1 13H4z"/><path d="M9 12h6"/></svg>',
 };
 
+/** The day the bubble about the gift was last shown (local storage). */
+const GIFT_TOLD_KEY = 'photo-puzzles/gift-told/v1';
+
+/** The first of these buttons that is on the screen now (the main screen's or the play screen's). */
+const visibleButton = (buttons: HTMLButtonElement[]): HTMLButtonElement | null => buttons.find((b) => b.isConnected && b.getClientRects().length > 0) ?? null;
+
 const NAMES: Record<InventoryItem, string> = { photo: 'Photo credits', video: 'Video credits', hint: 'Hints', bomb: 'Bombs' };
 
 export interface InventoryDeps {
@@ -87,6 +93,8 @@ export class InventoryUi {
   private focus: InventoryItem | null = null;
   private busy: InventoryItem | null = null;
   private message: { item: InventoryItem; text: string } | null = null;
+  private giftMessage = '';
+  private giftBusy = false;
   private timer = 0;
   /** What the account said last, and when it came (the wait it reports is counted from then). */
   private last: object | null = null;
@@ -143,13 +151,15 @@ export class InventoryUi {
       this.seenAt = Date.now();
     }
     const here = this.available();
-    const ready = (here && a.helpAdReady) || this.photoAdReady();
-    const title = !(here && a.helpAdReady) && ready ? 'Inventory: you can watch an ad for photo credits' : ready ? (a.helpAdNoAd ? 'Inventory: free hints or a bomb are ready to take' : 'Inventory: you can watch an ad for hints or a bomb') : 'Inventory: your credits, hints and bombs';
+    const gift = this.giftReady();
+    const ready = (here && a.helpAdReady) || this.photoAdReady() || gift;
+    const title = gift ? `Inventory: today's gift of ${a.giftHints} hints is ready` : !(here && a.helpAdReady) && ready ? 'Inventory: you can watch an ad for photo credits' : ready ? (a.helpAdNoAd ? 'Inventory: free hints or a bomb are ready to take' : 'Inventory: you can watch an ad for hints or a bomb') : 'Inventory: your credits, hints and bombs';
     for (const b of this.buttons) {
       b.classList.toggle('glow', ready);
       b.title = title;
       b.setAttribute('aria-label', title);
     }
+    this.tellGift();
     window.clearTimeout(this.timer);
     if (here && !a.helpAdReady) {
       // when the wait is over the account is asked, and if it says so the buttons light up
@@ -158,6 +168,53 @@ export class InventoryUi {
       if (ask && this.waitLeft() <= 0) void this.deps.identity.refreshProfile();
     }
     if (this.open) this.draw();
+  }
+
+  /** The player has an account that has not taken today's gift of hints. */
+  private giftReady(): boolean {
+    const a = this.deps.identity.summary();
+    return a.type !== 'guest' && a.giftReady;
+  }
+
+  /** Once a day, when the gift is ready and nothing else is being pointed out, a bubble over the Inventory button says so (what day it was told is kept on the device). */
+  private tellGift(): void {
+    const t = this.deps.tutorial;
+    if (!t || !this.giftReady() || this.open || t.coach.current || !visibleButton(this.buttons)) return;
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      if (localStorage.getItem(GIFT_TOLD_KEY) === today) return;
+      localStorage.setItem(GIFT_TOLD_KEY, today);
+    } catch {
+      return;                                                  // (nothing can be kept: it is not told, so that it does not come again and again)
+    }
+    t.coach.show({ target: () => visibleButton(this.buttons), title: "Today's gift", text: `Open the Inventory to take ${plural(this.deps.identity.summary().giftHints, 'free hint', 'free hints')}. There is a new gift every day.`, dismiss: 'Got it' });
+  }
+
+  /** Takes the daily gift. */
+  private async takeGift(): Promise<void> {
+    if (this.giftBusy) return;
+    this.giftBusy = true;
+    this.giftMessage = '';
+    try {
+      const out = await this.deps.api.claimGift();
+      if (out.ok) {
+        this.deps.identity.setSummary(out.account);
+        this.giftMessage = `You got ${plural(out.account.giftHints, 'hint', 'hints')}. Come back tomorrow for more.`;
+      } else if (out.error === 'offline') this.giftMessage = 'Could not reach the server.';
+      else {
+        if ('account' in out && out.account) this.deps.identity.setSummary(out.account);
+        this.giftMessage = out.error === 'gift-taken' ? "You have taken today's gift. Come back tomorrow." : sayError(out.error, out as ApiFailure);
+      }
+    } finally {
+      this.giftBusy = false;
+      this.refresh();
+    }
+  }
+
+  /** Opens the dialog at an item and starts the ad (or the taking) for it at once: the play screen has asked the player and they said yes. */
+  watch(item: InventoryItem): void {
+    this.show(item);
+    void this.get(item);
   }
 
   /** Opens the dialog; `item` is the one the player is told about first (the credits that a puzzle needed and the account has not got, say). */
@@ -223,6 +280,18 @@ export class InventoryUi {
     this.body.replaceChildren(
       h('p', { class: 'who' }, a.type === 'guest' ? 'Not signed in' : `${ACCOUNT_NAMES[a.type]} account`),
       ...(a.type === 'guest' ? [h('button', { type: 'button', class: 'primary', onclick: () => void this.signIn() }, 'Sign in or create an account')] : []),
+      ...(this.giftReady() || this.giftMessage
+        ? [
+            h(
+              'section',
+              { class: 'inv-item gift focus' },
+              h('div', { class: 'head' }, svg(ICONS.hint, 'ico'), h('h3', {}, "Today's gift")),
+              h('p', {}, `A free gift of ${plural(a.giftHints, 'hint', 'hints')} every day, for every account.`),
+              ...(this.giftReady() ? [h('div', { class: 'row' }, h('button', { type: 'button', class: 'primary', disabled: this.giftBusy, onclick: () => void this.takeGift() }, `Take ${plural(a.giftHints, 'hint', 'hints')}`))] : []),
+              h('p', { class: 'status', role: 'status' }, this.giftMessage),
+            ),
+          ]
+        : []),
       ...sections,
       ...(adPrivacy() ? [h('button', { type: 'button', class: 'small', onclick: () => adPrivacy()?.() }, 'Ad privacy choices')] : []),
     );

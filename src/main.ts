@@ -141,6 +141,7 @@ async function main(): Promise<void> {
     rate: new RateStore(storage()),
     helpAdReady: () => !!inventory?.helpAdReady(),
     openHelp: (kind) => inventory?.show(kind),
+    watchHelpAd: (kind) => inventory?.watch(kind),
     photoAdded: (id) => void library.photoAdded(id),
   });
   // the pop-ups for signing in (the game's own pages, in a build whose accounts have them) and for the profile, with the round badge on the main screen

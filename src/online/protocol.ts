@@ -44,6 +44,8 @@ export const DEFAULT_LIMITS = {
   adBombs: 1,
   /** About how long after one ad for hints or bombs the next can be had (it is made random, from 0.8 to 1.2 times this: 20 to 30 minutes, so that it cannot be waited for to the minute). */
   helpAdMs: 25 * 60 * 1000,
+  /** The hints of the daily gift: an account (not a guest) can take them once a day (a day of UTC). */
+  giftHints: 2,
   /** How long after an account is made the first ad for hints or bombs can be had. */
   helpAdFirstMs: 15 * 60 * 1000,
   /** A puzzle nobody has touched for this long is gone, with its picture and its codes. */
@@ -169,6 +171,8 @@ export type ApiError =
   | 'plan-required'
   /** An ad could not be counted: see `ApiFailure.reason`. */
   | 'ad-refused'
+  /** The daily gift has been taken today. */
+  | 'gift-taken'
   /** Ads are not accepted by this server (it cannot tell that one was watched). */
   | 'ads-off'
   | 'patreon-off'
@@ -482,6 +486,9 @@ export interface AccountSummary {
   helpAdHints: number;
   helpAdBombs: number;
   helpAdNoAd: boolean;
+  /** The daily gift: `giftReady` when the account has not taken today's (a day of UTC), and what it is, `giftHints` hints. A guest has none. */
+  giftReady: boolean;
+  giftHints: number;
   /** Patreon: `on` when the server can join accounts to it; `linked` when this account is joined to a Patreon account, and `active` when that one's pledge is paid up (and so makes this account paid). */
   patreon?: { on: boolean; linked: boolean; active: boolean };
   /** What the operator wants this player told, shown once on the next sign-in and then acknowledged (`POST /me/notices/ack`). */
@@ -511,7 +518,7 @@ export interface PatreonStartResponse {
 }
 
 /** What somebody who has not signed in sees before the server has said (a guest the server knows has hints and bombs, and an ad to watch for more: see `RoomService.summary`): nothing. */
-export const GUEST_ACCOUNT: AccountSummary = { type: 'guest', photo: 0, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 0, videoAdsLeft: 0, adPhoto: 0, adVideo: 0, hints: 0, bombs: 0, earnPerDay: 0, earnLeft: 0, earnInfinite: false, helpAdReady: false, helpAdIn: 0, helpAdHints: 0, helpAdBombs: 0, helpAdNoAd: false };
+export const GUEST_ACCOUNT: AccountSummary = { type: 'guest', photo: 0, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 0, videoAdsLeft: 0, adPhoto: 0, adVideo: 0, hints: 0, bombs: 0, earnPerDay: 0, earnLeft: 0, earnInfinite: false, helpAdReady: false, helpAdIn: 0, helpAdHints: 0, helpAdBombs: 0, helpAdNoAd: false, giftReady: false, giftHints: 0 };
 
 /**
  * What an account holds to use in a puzzle (see core/help.ts): a hint places one piece, a bomb every piece round a point. Every account is given some when it is made (a guest too: `guestHints`, `guestBombs`, which the account

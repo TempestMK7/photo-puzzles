@@ -949,6 +949,8 @@ export class RoomService {
       Object.assign(a, helpHeld(a, this.d.limits));                                  // (an account from before they existed is given its starting number now)
       if (a[key]! < 1) return fail('no-credits', { item });
       a[key]!--;
+      if (item === 'hint') a.hintsUsed = (a.hintsUsed ?? 0) + 1;
+      else a.bombsUsed = (a.bombsUsed ?? 0) + 1;
       if (id) a.spent = [...(a.spent ?? []), id].slice(-SPENT_KEEP);
       return a;
     });
@@ -972,6 +974,22 @@ export class RoomService {
     if (req.id !== undefined && !(typeof req.id === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(req.id))) return fail('bad-request');
     const taken = await this.takeItem(who, req.item, req.id);
     if (taken) return taken;
+    return { ok: true, account: await this.summary(who) };
+  }
+
+  /** The daily gift: an account that has not taken today's (a day of UTC) is given `giftHints` hints. A guest has none. */
+  async claimGift(who: Player): Promise<ItemResponse> {
+    if (who.guest) return fail('account-required');
+    const { limits, clock } = this.d;
+    const today = dayOf(clock.now());
+    const done = await this.changeAccount(who.id, (a) => {
+      if (a.giftDay === today) return fail('gift-taken');
+      Object.assign(a, helpHeld(a, limits));
+      a.hints! += limits.giftHints;
+      a.giftDay = today;
+      return a;
+    });
+    if ('error' in done) return done.error === 'gift-taken' ? { ...done, account: await this.summary(who) } : done;
     return { ok: true, account: await this.summary(who) };
   }
 
@@ -1025,12 +1043,12 @@ export class RoomService {
   }
 
   /** For the operator: the type and credits of each of these accounts (an account that has never been asked about shows what it will start with). */
-  async adminAccounts(ids: string[]): Promise<Map<string, { type: AccountType; photo: number; video: number; hints: number; bombs: number }>> {
+  async adminAccounts(ids: string[]): Promise<Map<string, { type: AccountType; photo: number; video: number; hints: number; bombs: number; hintsUsed: number; bombsUsed: number }>> {
     const { limits } = this.d;
-    const out = new Map<string, { type: AccountType; photo: number; video: number; hints: number; bombs: number }>();
+    const out = new Map<string, { type: AccountType; photo: number; video: number; hints: number; bombs: number; hintsUsed: number; bombsUsed: number }>();
     for (const id of ids) {
       const a = await this.d.store.getAccount(id);
-      out.set(id, a ? { type: a.type, photo: a.photo, video: a.video, ...helpHeld(a, limits) } : { type: 'free', photo: limits.freePhotoCredits, video: 0, hints: limits.startHints, bombs: limits.startBombs });
+      out.set(id, a ? { type: a.type, photo: a.photo, video: a.video, ...helpHeld(a, limits), hintsUsed: a.hintsUsed ?? 0, bombsUsed: a.bombsUsed ?? 0 } : { type: 'free', photo: limits.freePhotoCredits, video: 0, hints: limits.startHints, bombs: limits.startBombs, hintsUsed: 0, bombsUsed: 0 });
     }
     return out;
   }

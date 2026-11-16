@@ -232,9 +232,9 @@ class AdminPage {
     return h(
       'div',
       {},
-      h('div', { class: 'row' }, h('span', { class: 'dim' }, `${p.list.length} account${p.list.length === 1 ? '' : 's'}${p.next ? ' so far' : ''}`), this.refreshButton()),
+      h('div', { class: 'row' }, h('span', { class: 'dim' }, `${p.list.length} account${p.list.length === 1 ? '' : 's'}${p.next ? ' so far' : ''} · hints used ${p.list.reduce((n, u) => n + (u.hintsUsed ?? 0), 0)}, bombs used ${p.list.reduce((n, u) => n + (u.bombsUsed ?? 0), 0)}`), this.refreshButton()),
       this.table(
-        ['Name', 'E-mail', 'Joined', 'Status', 'Type', 'Photo credits', 'Video credits', 'Hints', 'Bombs', 'Id', '', ''],
+        ['Name', 'E-mail', 'Joined', 'Status', 'Type', 'Photo credits', 'Video credits', 'Hints', 'Bombs', 'Used (hints / bombs)', 'Id', '', ''],
         p.list.map((u) => {
           const edit = this.editOf(u);
           return [
@@ -251,6 +251,7 @@ class AdminPage {
             this.creditInput(u, edit, 'video'),
             this.creditInput(u, edit, 'hints'),
             this.creditInput(u, edit, 'bombs'),
+            `${u.hintsUsed ?? 0} / ${u.bombsUsed ?? 0}`,
             this.copy(u.id),
             h('button', { type: 'button', class: 'small', onclick: () => void this.saveAccount(u) }, 'Save'),
             this.banControl(u),

@@ -123,6 +123,11 @@ export interface AccountRecord {
   /** The day (UTC, YYYY-MM-DD) that `hintsEarned` is counted for: the hints that solved puzzles gave that day (a free account may earn so many a day). */
   hintDay?: string;
   hintsEarned?: number;
+  /** The day (UTC, YYYY-MM-DD) that the daily gift was last taken. */
+  giftDay?: string;
+  /** How many hints and bombs the account has used (what the admin page shows, to see whether they are found). */
+  hintsUsed?: number;
+  bombsUsed?: number;
   /** When the next ad for hints or bombs can be had (a time of the server's clock); a time that has passed means now. Nothing (no ad has been had): `helpAdFirstMs` after `createdAt`. */
   helpAdAt?: number;
   /** The ids of the last hints and bombs the game spent with an id (a spend it could not send at once is sent again later: each id counts once). */
@@ -434,6 +439,8 @@ export interface Limits {
   adHints: number;
   adBombs: number;
   helpAdMs: number;
+  /** The hints of the daily gift. */
+  giftHints: number;
   helpAdFirstMs: number;
   idleMs: number;
   solvedKeepMs: number;
