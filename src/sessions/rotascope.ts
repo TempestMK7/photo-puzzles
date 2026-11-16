@@ -90,6 +90,27 @@ export class RotascopeSession implements PuzzleSession {
     return { r0: (g.boundary(0) / g.ratio) * this.radius, a0: g.startAngle(piece < 0 ? 0 : g.colOf(piece)) };
   }
 
+  /**
+   * How far a piece (drawn with this extent) is on its way into the middle: 0 in a ring, 1 when it lies in the middle, where it fills the whole disc. The middle's own extent is the one that is a
+   * ring smaller than ring 0 (`extent`), so the sliding between the two gives every share in between.
+   */
+  private morph(e: Extent): number {
+    const edge = this.game.boundary(0) * this.radius;
+    return Math.max(0, Math.min(1, (edge - e.r0) / (edge - edge / this.game.ratio)));
+  }
+
+  /**
+   * The shape a piece is drawn in: the wedge of a ring (`m` 0) opens out as it goes into the middle until it is the whole disc (`m` 1): its inner edge goes to the centre point, its outer edge to the
+   * disc's edge, and its width from one wedge's angle to the full circle. What was in the wedge is spread over that shape (the picture bends round with it), so that the piece fills the space.
+   */
+  private shape(e: Extent): { inner: number; outer: number; a0: number; width: number } {
+    const g = this.game;
+    const m = this.morph(e);
+    const edge = g.boundary(0) * this.radius;
+    const outerRing = e.r0 * g.ratio;
+    return { inner: m === 0 ? e.r0 : edge * (1 - m), outer: m === 0 ? outerRing : outerRing + (edge - outerRing) * m, a0: e.a0, width: g.step + m * (360 - g.step) };
+  }
+
   /** The outline of a wedge, a little wider than it is (`grow`) so that neighbours overlap instead of leaving a hairline between them. */
   private wedge(ctx: CanvasRenderingContext2D, e: Extent, grow = 0): void {
     const r0 = Math.max(0, e.r0 - grow);
@@ -105,6 +126,7 @@ export class RotascopeSession implements PuzzleSession {
 
   /** Draws a piece of the picture into a wedge: the picture is turned and scaled about the middle so that the piece's own wedge lands on this one. */
   private piece(ctx: CanvasRenderingContext2D, piece: number, e: Extent, grow: number): void {
+    if (this.morph(e) > 0) return this.fan(ctx, piece, e);
     const home = this.extent(piece);
     const c = this.side / 2;
     ctx.save();
@@ -119,26 +141,101 @@ export class RotascopeSession implements PuzzleSession {
     ctx.restore();
   }
 
+  /**
+   * A piece that is going into the middle (or in it), drawn as small triangles, each a straight copy of the part of the picture that lies where its corners come from (`shape`: the piece's own
+   * wedge is bent round into the disc). Each slice reaches over the next one, which is drawn after it, so that no hairline shows where one ends (the edge of a slice that is a straight cut
+   * of the picture would let what is under the piece show through); only the last slice stops where the first begins, which is where the piece's wedge has its own edge.
+   */
+  private fan(ctx: CanvasRenderingContext2D, piece: number, e: Extent): void {
+    const g = this.game;
+    const home = this.extent(piece);
+    const s = this.shape(e);
+    const c = this.side / 2;
+    const pt = (r: number, deg: number): [number, number] => [c + r * Math.cos(deg * RAD), c + r * Math.sin(deg * RAD)];
+    const steps = Math.max(8, Math.ceil(s.width / 4));
+    const tri = (d: [number, number][], t: [number, number][]): void => this.textured(ctx, d, t);
+    for (let i = 0; i < steps; i++) {
+      const over = i < steps - 1 ? 1 : 0;                                       // (a whole slice more: the next one covers it)
+      const da = s.a0 + (s.width * i) / steps;
+      const db = s.a0 + (s.width * (i + 1 + over)) / steps;
+      const ha = home.a0 + (g.step * i) / steps;
+      const hb = home.a0 + (g.step * (i + 1 + over)) / steps;
+      const d00 = pt(s.inner, da);
+      const d10 = pt(s.inner, db);
+      const d01 = pt(s.outer, da);
+      const d11 = pt(s.outer, db);
+      const s00 = pt(home.r0, ha);
+      const s10 = pt(home.r0, hb);
+      const s01 = pt(home.r0 * g.ratio, ha);
+      const s11 = pt(home.r0 * g.ratio, hb);
+      if (s.inner > 0.5) tri([d00, d10, d01], [s00, s10, s01]);                 // (at the centre point the inner corners are one: a single triangle)
+      tri([d10, d11, d01], [s10, s11, s01]);
+    }
+  }
+
+  /** Draws the part of the picture that lies in the triangle `t` into the triangle `d` (an affine copy: the picture is moved, turned and stretched so that the three corners meet). */
+  private textured(ctx: CanvasRenderingContext2D, d: [number, number][], t: [number, number][]): void {
+    const [[x0, y0], [x1, y1], [x2, y2]] = t;
+    const [[u0, v0], [u1, v1], [u2, v2]] = d;
+    const k = x0 * (y1 - y2) + x1 * (y2 - y0) + x2 * (y0 - y1);
+    if (Math.abs(k) < 1e-9) return;
+    const a = (u0 * (y1 - y2) + u1 * (y2 - y0) + u2 * (y0 - y1)) / k;
+    const b = (v0 * (y1 - y2) + v1 * (y2 - y0) + v2 * (y0 - y1)) / k;
+    const cc = (u0 * (x2 - x1) + u1 * (x0 - x2) + u2 * (x1 - x0)) / k;
+    const dd = (v0 * (x2 - x1) + v1 * (x0 - x2) + v2 * (x1 - x0)) / k;
+    const ee = (u0 * (x1 * y2 - x2 * y1) + u1 * (x2 * y0 - x0 * y2) + u2 * (x0 * y1 - x1 * y0)) / k;
+    const ff = (v0 * (x1 * y2 - x2 * y1) + v1 * (x2 * y0 - x0 * y2) + v2 * (x0 * y1 - x1 * y0)) / k;
+    // the destination triangle, pushed out from its middle by half a pixel of the board
+    const mx = (u0 + u1 + u2) / 3;
+    const my = (v0 + v1 + v2) / 3;
+    const out = (u: number, v: number): [number, number] => {
+      const dx = u - mx;
+      const dy = v - my;
+      const len = Math.hypot(dx, dy) || 1;
+      return [u + (dx / len) * 0.6, v + (dy / len) * 0.6];
+    };
+    const p0 = out(u0, v0);
+    const p1 = out(u1, v1);
+    const p2 = out(u2, v2);
+    // only the part of the picture that the triangle takes its colours from is copied (padded a little, and inside the picture)
+    const sx = Math.max(0, Math.floor(Math.min(x0, x1, x2)) - 2);
+    const sy = Math.max(0, Math.floor(Math.min(y0, y1, y2)) - 2);
+    const sw = Math.min(this.side, Math.ceil(Math.max(x0, x1, x2)) + 2) - sx;
+    const sh = Math.min(this.side, Math.ceil(Math.max(y0, y1, y2)) + 2) - sy;
+    if (sw <= 0 || sh <= 0) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(p0[0], p0[1]);
+    ctx.lineTo(p1[0], p1[1]);
+    ctx.lineTo(p2[0], p2[1]);
+    ctx.closePath();
+    ctx.clip();
+    ctx.transform(a, b, cc, dd, ee, ff);
+    ctx.drawImage(this.init.source, this.cropX + sx, this.cropY + sy, sw, sh, sx, sy, sw, sh);
+    ctx.restore();
+  }
+
   /** A piece of a video puzzle as triangles: every point of its wedge takes its colour from the point of the picture that the piece's own wedge has there (turned and scaled). */
   private pieceGl(L: VideoLayer, piece: number, e: Extent): void {
     const g = this.game;
     const home = this.extent(piece);
     const c = this.side / 2;
-    const steps = Math.max(2, Math.ceil(g.step / 5));
+    const s = this.shape(e);
+    const steps = Math.max(2, Math.ceil(s.width / 5));
     const pt = (r: number, deg: number): [number, number] => [c + r * Math.cos(deg * RAD), c + r * Math.sin(deg * RAD)];
     const src = (r: number, deg: number): [number, number] => {
       const [x, y] = pt(r, deg);
       return [(this.cropX + x) / L.vw, (this.cropY + y) / L.vh];
     };
     for (let i = 0; i < steps; i++) {
-      const da = e.a0 + (g.step * i) / steps;
-      const db = e.a0 + (g.step * (i + 1)) / steps;
+      const da = s.a0 + (s.width * i) / steps;
+      const db = s.a0 + (s.width * (i + 1)) / steps;
       const ha = home.a0 + (g.step * i) / steps;
       const hb = home.a0 + (g.step * (i + 1)) / steps;
-      const d00 = pt(e.r0, da);
-      const d10 = pt(e.r0, db);
-      const d01 = pt(e.r0 * g.ratio, da);
-      const d11 = pt(e.r0 * g.ratio, db);
+      const d00 = pt(s.inner, da);
+      const d10 = pt(s.inner, db);
+      const d01 = pt(s.outer, da);
+      const d11 = pt(s.outer, db);
       const s00 = src(home.r0, ha);
       const s10 = src(home.r0, hb);
       const s01 = src(home.r0 * g.ratio, ha);
@@ -303,11 +400,11 @@ export class RotascopeSession implements PuzzleSession {
       }
       const e = this.extent(cell);
       this.piece(ctx, p, e, grow);
-      if (grid) this.outline(ctx, e, line);
+      if (grid && this.morph(e) === 0) this.outline(ctx, e, line);
     }
     for (const [p, e] of moving) {
       this.piece(ctx, p, e, grow);
-      if (grid) this.outline(ctx, e, line);
+      if (grid && this.morph(e) === 0) this.outline(ctx, e, line);
     }
     if (grid) {
       ctx.lineWidth = line * 1.5;
