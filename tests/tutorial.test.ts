@@ -31,6 +31,20 @@ describe('what the screen points out next', () => {
     expect(nextStep(seen(), here({ helpers: false }))).toBeNull();
   });
 
+  it('shows each bubble once: one that has been shown is not shown in the next puzzle, even if it was not acted on, and the next step takes its place', () => {
+    expect(nextStep(seen({ told: ['hint'] }), here())).toBe('bomb');                           // (the hint bubble was shown, not used)
+    expect(nextStep(seen({ told: ['hint', 'bomb'] }), here())).toBeNull();
+    expect(nextStep({ ...NO_PROGRESS, told: ['howto'] }, here())).toBe('hint');                // (How To Play told but never pressed: the rest are not held back by it)
+    expect(nextStep({ ...NO_PROGRESS, told: ['howto', 'hint', 'bomb'] }, here())).toBeNull();
+    expect(nextStep(seen({ hint: true, bomb: true, told: ['ad'] }), here())).toBeNull();
+  });
+
+  it('keeps the bubble that is on the screen until it is put away or done, though it has been told', () => {
+    expect(nextStep(seen({ told: ['hint'] }), here(), 'hint')).toBe('hint');
+    expect(nextStep({ ...NO_PROGRESS, told: ['howto'] }, here(), 'howto')).toBe('howto');
+    expect(nextStep(seen({ hint: true, told: ['hint'] }), here(), 'hint')).toBe('bomb');       // (done: the next)
+  });
+
   it('lights the button of each kind of puzzle until it has been pressed there', () => {
     expect(howtoNew(seen(), 'jigsaw')).toBe(false);
     expect(howtoNew(seen(), 'overlap')).toBe(true);
@@ -53,7 +67,20 @@ describe('what is kept', () => {
     a.done('hint');
     expect(told).toBe(2);
     const b = new TutorialStore(storage);
-    expect(b.data).toEqual({ howto: ['jigsaw'], hint: true, bomb: false, ad: false });
+    expect(b.data).toEqual({ howto: ['jigsaw'], hint: true, bomb: false, ad: false, told: [] });
+  });
+
+  it('remembers which bubbles were shown, and ignores what is not a step', () => {
+    const storage = memory();
+    const a = new TutorialStore(storage);
+    a.tell('hint');
+    a.tell('hint');
+    a.tell('ad');
+    expect(new TutorialStore(storage).data.told).toEqual(['hint', 'ad']);
+    storage.setItem('photo-puzzles/tutorial/v1', JSON.stringify({ howto: [], told: ['bomb', 'nonsense', 4] }));
+    expect(new TutorialStore(storage).data.told).toEqual(['bomb']);
+    storage.setItem('photo-puzzles/tutorial/v1', JSON.stringify({ howto: ['jigsaw'], hint: true }));       // (kept before `told` existed)
+    expect(new TutorialStore(storage).data.told).toEqual([]);
   });
 
   it('starts over when what was kept is unreadable', () => {
