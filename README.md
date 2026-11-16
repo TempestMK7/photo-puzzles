@@ -33,11 +33,11 @@ Playable now:
   first and turned the way it lies in the picture, and it stays and shows its part. The empty board is a pattern of spokes radiating from a centre off the board, drawn in code (wedges of colour, wedges with fine rays, rays alone - no rings - one per puzzle, with its
   centre off the board); some pieces have a *window* on one of their overlap cells that shows the bit of that pattern from where the piece belongs, as a hint, and turns into the picture for every piece that
   has it when any piece is placed over that cell.
-  Options: the size (about 50, 100, 200, 500 or 1000 cells, in the picture's proportions) and the fast mode options (see the Jigsaw): **Placed At The Start (%)** places that share of the pieces at random (`placeAtRandom`, `src/core/prefill.ts`; the pieces are the same whatever the share), **Lock Piece Orientation** starts every piece upright and turns turning off, and **Solve Pieces By Dragging** places a piece the moment it is over its spot (off: it has to be held there for half a second, or let go there).
+  Options: the size (the slider says about 25, 50, 100, 250 or 500 pieces: a piece is a centre cell and some shared ones, so there is about one for every second cell of the grid of 50, 100, 200, 500 or 1000, in the picture's proportions) and the fast mode options (see the Jigsaw): **No rotation** starts every piece upright and turns turning off, and **Solve while dragging** places a piece the moment it is over its spot (off: it has to be held there for half a second, or let go there).
 - **Strips** - the whole picture is cut into straight strips (1 x N cells, 3 up to the longest allowed; they may cross) that lie scattered and turned on the board. The size
   sets the number of cells (about 50 to 1000), the longest strip (4, and 2 more for each size up) and the number of tabs (likewise); the number of strips is worked out so that every cell is covered and every strip covers at least one cell that no other strip covers
   (so its place is certain). Drag each strip back into its hole; it locks when it lies exactly there, turned the right way - the moment it does, even before you let go of the mouse button. The loose strips are spread at random over 4-12
-  **tabs** (each tab shows the same picture and holes with its own strips; drag a strip onto a tab, or rest it there, to move it; keys 1-9 and 0 switch tabs). Options: the size. A fifth of the picture's cells (`FILLED_AT_START`) show the picture from the start, in patches round the centre of each quarter of it, and no strip is placed.
+  **tabs** (each tab shows the same picture and holes with its own strips; drag a strip onto a tab, or rest it there, to move it; keys 1-9 and 0 switch tabs). Options: the size (the slider says about 20, 30, 60, 120 or 210 pieces: the strips of a grid of 50 to 1000 cells, `approxPieces` in `src/core/kinds.ts`) and the fast mode options (see the Jigsaw). A fifth of the picture's cells (`FILLED_AT_START`) show the picture from the start, in patches round the centre of each quarter of it, and no strip is placed.
 - **Jigsaw** - classic interlocking pieces, no grid. You choose the size, an *approximate* number of pieces (50, 100, 200, 500, 1000 or 2000; the picture is cut into square cells, so the real
   count is the nearest grid to that). The four corner pieces start solved and fixed; the rest lie scattered round the frame on a table four times the size of the picture in each
   direction. Put a loose piece against a piece it belongs beside and it joins it - the moment it is close enough, even before you let go - and joined pieces move as one; anything
@@ -49,14 +49,13 @@ Playable now:
   and when the graphics card cannot keep up with the video the piece canvas drops to as little as half the resolution by itself. On a 2016 tablet (Mali-T830) this gives
   about 25-30 pictures a second from a 720p video and 19-24 from a 1080p one, with 300-5000 pieces. A browser without WebGL 2 stops the video at its first picture instead and
   cuts the pieces from that (`jigsawArt.ts`).
-  Fast mode options (shared with Overlap and Strips, shown under "Fast Mode Options:" on the main screen, in this order): **Placed At The Start (%)** (0-80, 0 by default) puts that share of the
-  pieces, picked at random, in their places as part of the picture, as the corners are (placed pieces that touch are one block, and loose pieces join them the same way);
-  **Lock Piece Orientation** (off by default) turns turning off and starts every piece upright (otherwise loose pieces start turned by quarter turns: click a piece to select it - it glows -
+  Fast mode options (shared with Overlap and Strips, shown under "Fast Mode Options:" on the main screen, in this order):
+  **No rotation** (off by default) turns turning off and starts every piece upright (otherwise loose pieces start turned by quarter turns: click a piece to select it - it glows -
   and right-click, R or the Rotate button turns the selected piece, or the one in your hand when you right-click while dragging it; pieces only join when turned the same way, and only upright
-  pieces join the picture); **Solve Pieces By Dragging** (on by default: pieces join as soon as they touch, even before you let go; off: the piece has to stay there, held, for half a second - or
+  pieces join the picture); **Solve while dragging** (on by default: pieces join as soon as they touch, even before you let go; off: the piece has to stay there, held, for half a second - or
   you let go with the pieces together, which snaps them at once); and, for the Jigsaw only, **Edge Pieces Start In The Picture Area** (on by default) scatters the border pieces at random over
-  the area where the finished picture goes - loose, not in their places - while the others lie round it. Placed pieces are picked at random from all the pieces that are not placed yet, however the puzzle was made (edge pieces included).
-  A puzzle solved with pieces placed at the start or any of these check boxes ticked (so, until they are unticked, the defaults) is a **fast mode puzzle**: its time goes to the fast mode best times (a check box on the Best Times screen shows them) instead of the
+  the area where the finished picture goes - loose, not in their places - while the others lie round it. (A third option, Placed At The Start, was taken off the screen; a saved puzzle or a shared puzzle made with it keeps it.)
+  A puzzle solved with any of these check boxes ticked (so, until they are unticked, the defaults) is a **fast mode puzzle**: its time goes to the fast mode best times (a check box on the Best Times screen shows them) instead of the
   regular ones (`isFast`, `src/core/kinds.ts`). The options are difficulty for the record of each file too (a changed one starts its own).
 - **Sliding Tiles** - the picture is cut into a grid of tiles with the last one taken out, then shuffled by sliding (so it can always be solved). You choose the size, an *approximate* number of
   tiles (20, 50, 100 or 200; the grid is the one nearest that with tiles as square as the picture allows, so a wide picture gets more columns). Click a tile in the empty cell's row or column and it
@@ -77,8 +76,7 @@ puzzles (Tile Swap, Sliding Tiles, Rotascope) a click counts when the button is 
 screen takes the camera along, and a second finger turns a strip in hand (and pinches when none is). A saved puzzle starts with the whole board in view.
 
 **Hints and bombs.** In Tile Swap, Overlap, Strips and Jigsaw the header has a **Hint** and a **Bomb** button, each with how many the account holds (the operator's account has as many as it likes).
-Pick one, then tap the board: a hint places the one piece you tap (in Overlap, the piece on top of a stack; in Jigsaw, the whole group it is joined to), a bomb places every piece within about a piece's width of
-the point (`BLAST` in `src/core/help.ts`). A tap that would place nothing costs nothing; Esc, or the button again, puts the choice away. Sliding Tiles and Rotascope have neither: half of all arrangements of
+Pick one, then tap the board: a hint places the one piece you tap (in Overlap, the piece on top of a stack; in Jigsaw, the whole group it is joined to), a bomb always places the 8 pieces nearest the point that are not in place yet, in every puzzle (fewer only when fewer are left: `BOMB_PIECES` and `nearestToBomb` in `src/core/help.ts`; the same eight on every screen and on the server). A tap that would place nothing costs nothing; Esc, or the button again, puts the choice away. Sliding Tiles and Rotascope have neither: half of all arrangements of
 their pieces cannot be solved, so a piece put in place by hand could make the rest impossible. They are the player's, kept on the server (`hints` and `bombs` of the account record; nobody has an endless stock, the operator and the family
 included): every new account starts with 10 hints and 2 bombs (`startHints`, `startBombs`; an account that was made before they existed is given the same the first time it is read), a **guest** (someone who is not signed
 in: the game asks the server for one when it opens, `POST /guest`, so that there is a record to keep them in) starts with 5 hints and 1 bomb (`guestHints`, `guestBombs`), and a solved puzzle gives 1 hint for size S or M and 2 for a larger one
@@ -109,9 +107,11 @@ in the settings.
 ## The original
 
 The **Show Photo** (or **Show Video**, for a puzzle made from a video) button in the play screen's header opens a small window with the original picture to look at while solving. Drag it by its title, resize it by the corner, close it
-with the x (or Escape, which closes the window before it leaves the puzzle). For a video the window does not play the file a second time: it mirrors the video the puzzle is
-cut from (`captureStream`), so it shows the same moment whether the video plays, is paused or is moved to another place, and it costs no second decoder (about 10-20% of the frame
-rate on a 2016 tablet; a copy to a canvas is the fallback where `captureStream` is missing). `src/ui/refwindow.ts`.
+with the x (or Escape, which closes the window before it leaves the puzzle). For a video the window does not play the file a second time: it copies each new picture of the video the puzzle is
+cut from into a canvas (the same pictures the pieces are drawn from, when they are drawn), so it shows the same moment whether the video plays, is paused or is moved to another place, and it costs no second decoder. (It was a mirrored
+stream, `captureStream`, which stuttered and jumped back and forth with a long video on a phone.) `src/ui/refwindow.ts`.
+
+While a dot of the **Duration** bar is dragged, the video is paused at the moment the dot is at (the pieces show it) and a bubble over the dot shows that picture and the time; letting go takes the bubble away and the video plays on if it was playing.
 
 ## Saved puzzles
 

@@ -185,9 +185,11 @@ export class JigsawRoom {
       if (!Number.isInteger(cmd.tray) || !g.trays.includes(cmd.tray) || g.piecesIn(cmd.tray) > 0) return { ok: false, reason: 'bad' };
       return this.accept(player, this.run(cmd).op, 0);
     }
-    // a bomb names no piece: it places every group round a point, whoever has a hand on one (a group placed that way is let go of)
+    // a bomb names no piece: it places the groups of the eight pieces nearest a point, whoever has a hand on one (a group placed that way is let go of)
     if (cmd.t === 'bomb') {
       if (![cmd.x, cmd.y].every((v) => typeof v === 'number' && Number.isFinite(v))) return { ok: false, reason: 'bad' };
+      const size = g.size;
+      if (cmd.x < -size || cmd.y < -size || cmd.x > (g.cols + 1) * size || cmd.y > (Math.ceil(g.count / g.cols) + 1) * size) return { ok: false, reason: 'bad' };           // (it names the nearest pieces whatever the point: the point has to be on the picture)
       const hit = this.run(cmd);
       if (!hit.joins) return { ok: false, reason: 'no-group' };               // (nothing was left there to place)
       this.letGoOfPlaced();

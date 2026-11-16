@@ -21,7 +21,7 @@ export interface OptionDef {
   /** A line under the option on the main screen. */
   note?: string;
   /**
-   * A fast mode option: it only changes how the puzzle is played, not which puzzle it is. A puzzle solved with pieces placed at the start or any of its check boxes ticked is a fast mode puzzle, which has its own
+   * A fast mode option: it only changes how the puzzle is played, not which puzzle it is. A puzzle solved with any of its check boxes ticked is a fast mode puzzle, which has its own
    * best times (see `isFast`). Shown under "Fast Mode Options" on the main screen.
    */
   fast?: boolean;
@@ -55,17 +55,27 @@ function sizeOption(count: number): OptionDef {
 }
 
 /**
- * The fast mode options of Jigsaw, Overlap and Strips, in the order they are shown. Placed At The Start puts that share of the pieces in place at random; Lock Piece Orientation turns turning off and
- * starts every piece the right way up; Solve Pieces By Dragging places a piece the moment it is over its spot (off: it has to be held there a moment); Edge Pieces Start In The Picture Area is the Jigsaw's.
+ * The fast mode options of Jigsaw, Overlap and Strips, in the order they are shown. No rotation turns turning off and starts every piece the right way up (the option `lock`); Solve while dragging
+ * places a piece the moment it is over its spot (off: it has to be held there a moment); Edge Pieces Start In The Picture Area is the Jigsaw's. (There was once a third, Placed At The Start, a share of
+ * the pieces placed at random: it is gone from the screen, and what reads `opts.placed` is only for a saved puzzle or a shared room made while it was there.)
  */
 function fastOptions(edges: boolean): OptionDef[] {
   return [
-    { key: 'placed', label: 'Placed At The Start (%)', min: 0, max: 80, def: 0, step: 5, later: true, fast: true },
-    { key: 'lock', label: 'Lock Piece Orientation', min: 0, max: 1, def: 0, toggle: true, later: true, fast: true },
-    { key: 'drag', label: 'Solve Pieces By Dragging', min: 0, max: 1, def: 1, toggle: true, later: true, fast: true },
+    { key: 'lock', label: 'No rotation', min: 0, max: 1, def: 0, toggle: true, later: true, fast: true },
+    { key: 'drag', label: 'Solve while dragging', min: 0, max: 1, def: 1, toggle: true, later: true, fast: true },
     ...(edges ? [{ key: 'edges', label: 'Edge Pieces Start In The Picture Area', min: 0, max: 1, def: 1, toggle: true, later: true, fast: true }] : []),
   ];
 }
+
+/**
+ * About how many pieces a puzzle of these sizes has, for the slider: Overlap's pieces are each a centre cell and some shared ones, so there is one for every second cell; Strips has about one
+ * for every five cells (measured on pictures of every shape: the number depends on the picture and the seed, and is rounded). The others say it themselves.
+ */
+export function approxPieces(kind: 'overlap' | 'strips', v: Record<string, number>): number {
+  if (kind === 'overlap') return Math.round(v.total / 2);
+  return STRIP_PIECES[v.cells] ?? Math.round(v.cells * 0.21);
+}
+const STRIP_PIECES: Record<number, number> = { 50: 20, 100: 30, 200: 60, 500: 120, 1000: 210 };
 
 /** The sizes of a kind from its table: one row for each, with the same columns. */
 function sizesOf(columns: string[], rows: number[][], describe: (v: Record<string, number>) => string): SizesDef {
@@ -122,7 +132,7 @@ export const KINDS: readonly KindDef[] = [
     blurb: 'Pieces that overlap wait in stacks: each has a centre square of its own and some squares around it that other pieces share. Drag the top piece onto the grid, centre first, turned the way it lies in the picture. Tap a piece to turn it.',
     available: true,
     options: [sizeOption(5), ...fastOptions(false)],
-    sizes: sizesOf(['total', 'stacks'], [[50, 3], [100, 4], [200, 5], [500, 6], [1000, 7]], (v) => `about ${v.total} cells`),
+    sizes: sizesOf(['total', 'stacks'], [[50, 3], [100, 4], [200, 5], [500, 6], [1000, 7]], (v) => `about ${approxPieces('overlap', v)} pieces`),
   },
   {
     id: 'strips',
@@ -130,7 +140,7 @@ export const KINDS: readonly KindDef[] = [
     blurb: 'Strips cut out of the picture lie turned and scattered over tabs. Drag each back into its hole; tap a strip to turn it; drag one onto a tab to move it there. Wheel or pinch to zoom, drag the bare board to move it.',
     available: true,
     options: [sizeOption(5), ...fastOptions(false)],
-    sizes: sizesOf(['cells', 'length', 'tabs'], [[50, 4, 4], [100, 6, 6], [200, 8, 8], [500, 10, 10], [1000, 12, 12]], (v) => `about ${v.cells} cells`),
+    sizes: sizesOf(['cells', 'length', 'tabs'], [[50, 4, 4], [100, 6, 6], [200, 8, 8], [500, 10, 10], [1000, 12, 12]], (v) => `about ${approxPieces('strips', v)} pieces`),
   },
   {
     id: 'focus',
@@ -208,7 +218,7 @@ export function recordKey(kind: KindDef, photoId: string, settings: Settings): s
   return [kind.id, photoId, ...difficulty.map((k) => `${k}=${opts[k]}`)].join('|');
 }
 
-/** Whether a puzzle with these options is a fast mode puzzle: pieces are placed at the start, or any of its fast mode check boxes is ticked (so it has its own best times, apart from the regular ones). */
+/** Whether a puzzle with these options is a fast mode puzzle: any of its fast mode check boxes is ticked (so it has its own best times, apart from the regular ones). */
 export function isFast(kind: KindDef, opts: Record<string, number>): boolean {
   return kind.options.some((o) => o.fast && (o.toggle ? opts[o.key] === 1 : (opts[o.key] ?? 0) > 0));
 }

@@ -102,7 +102,13 @@ export class PlayScreen {
   private rangeFill = h('div', { class: 'fill' });
   private rangeLo = h('input', { type: 'range', class: 'lo', min: 0, max: 1000, value: 0, step: 1, 'aria-label': 'Start of the part that plays' });
   private rangeHi = h('input', { type: 'range', class: 'hi', min: 0, max: 1000, value: 1000, step: 1, 'aria-label': 'End of the part that plays' });
-  private rangeBar = h('div', { class: 'rangebar', hidden: true }, this.rangeFill, this.rangeLo, this.rangeHi);
+  /** The bubble over a dot while it is dragged: the picture of the video at the moment the dot is at, and the time. */
+  private rangeCanvas = h('canvas', { width: 160, height: 90, 'aria-hidden': 'true' });
+  private rangeTime = h('span', { class: 't' });
+  private rangeBubble = h('div', { class: 'rangebubble', hidden: true, 'aria-hidden': 'true' }, this.rangeCanvas, this.rangeTime);
+  private rangeBar = h('div', { class: 'rangebar', hidden: true }, this.rangeFill, this.rangeLo, this.rangeHi, this.rangeBubble);
+  /** A dot is being dragged: whether the video was playing (it is paused while the dot moves, and goes on when it is let go). */
+  private rangeDrag: { wasPlaying: boolean } | null = null;
   /** The part of the video that is looped over (nothing: the whole of it). */
   private range: VideoRange | null = null;
   private pauseBtn = h('button', { type: 'button', class: 'icon', title: 'Pause', 'aria-label': 'Pause', onclick: () => this.togglePause() }, '❚❚');
@@ -281,10 +287,19 @@ export class PlayScreen {
       if (which === 'lo' && Number(lo.value) > Number(hi.value) - gap) lo.value = String(Math.max(0, Number(hi.value) - gap));
       if (which === 'hi' && Number(hi.value) < Number(lo.value) + gap) hi.value = String(Math.min(1000, Number(lo.value) + gap));
       this.rangeFromDots();
+      this.dragDot(which);
     };
     this.rangeLo.addEventListener('input', nudge('lo'));
     this.rangeHi.addEventListener('input', nudge('hi'));
-    for (const dot of [this.rangeLo, this.rangeHi]) dot.addEventListener('change', () => this.sync?.byPlayer());      // (the host says it; a follower goes their own way)
+    for (const dot of [this.rangeLo, this.rangeHi]) {
+      dot.addEventListener('change', () => {
+        this.endDotDrag();                                      // (the video goes on first: the room is told where it is, and that it plays)
+        this.sync?.byPlayer();                                  // (the host says it; a follower goes their own way)
+      });
+      dot.addEventListener('pointerup', () => this.endDotDrag());
+      dot.addEventListener('pointercancel', () => this.endDotDrag());
+      dot.addEventListener('blur', () => this.endDotDrag());
+    }
     // a puzzle that is being played is kept when the page is hidden or closed, as well as shortly after each move and when leaving
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && !this.el.hidden) this.saveNow();
@@ -373,6 +388,7 @@ export class PlayScreen {
     this.refreshMute();
     this.totalEl.textContent = formatTime((Number.isFinite(v.duration) ? v.duration : 0) * 1000);
     this.pauseBtn.textContent = '❚❚';
+    this.endDotDrag();
     this.setRange(null);
     this.rangeBar.hidden = true;
     this.refreshRestrict();
@@ -424,6 +440,49 @@ export class PlayScreen {
     this.restrictBtn.classList.toggle('on', !this.rangeBar.hidden || !!this.range);
     this.restrictBtn.setAttribute('aria-pressed', String(!this.rangeBar.hidden));
     this.vbar.classList.toggle('ranging', !this.rangeBar.hidden);
+  }
+
+  /**
+   * A dot is being moved: the video is paused and shown at that moment (so that the pieces show it too), and a bubble over the dot shows the picture and the time, for as long as the dot is held.
+   * The picture is copied into the bubble when the video has arrived there (`seeked`), so it is the frame that is on the board, never a guess.
+   */
+  private dragDot(which: 'lo' | 'hi'): void {
+    const v = this.src?.video;
+    if (!v || !(v.duration > 0) || this.rangeBar.hidden) return;
+    if (!this.rangeDrag) {
+      this.rangeDrag = { wasPlaying: !v.paused };
+      v.pause();
+      v.addEventListener('seeked', this.drawBubble);
+      const ar = (this.src?.width ?? 16) / (this.src?.height ?? 9);
+      this.rangeCanvas.height = Math.max(40, Math.round(this.rangeCanvas.width / (ar || 1.78)));
+    }
+    const dot = (which === 'lo' ? this.rangeLo : this.rangeHi) as HTMLInputElement;
+    const t = Math.max(0, Math.min(v.duration - 0.001, (Number(dot.value) / 1000) * v.duration));
+    v.currentTime = t;
+    this.rangeTime.textContent = `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+    // over the dot, and kept on the screen (the bar is not as wide as the screen, and the dots go to its ends)
+    this.rangeBubble.hidden = false;
+    const bar = this.rangeBar.getBoundingClientRect();
+    const half = this.rangeBubble.offsetWidth / 2;
+    const centre = Math.max(half + 4, Math.min(window.innerWidth - half - 4, bar.left + (Number(dot.value) / 1000) * bar.width));
+    this.rangeBubble.style.left = `${centre - bar.left}px`;
+  }
+
+  /** The video has reached the moment a dot was moved to: its picture goes into the bubble. */
+  private drawBubble = (): void => {
+    const v = this.src?.video;
+    if (v && !this.rangeBubble.hidden) this.rangeCanvas.getContext('2d')?.drawImage(v, 0, 0, this.rangeCanvas.width, this.rangeCanvas.height);
+  };
+
+  /** The dot was let go: the bubble goes, and the video plays on if it was playing (from where the dot put it: inside the part, it goes round the part). */
+  private endDotDrag(): void {
+    const drag = this.rangeDrag;
+    if (!drag) return;
+    this.rangeDrag = null;
+    this.rangeBubble.hidden = true;
+    const v = this.src?.video;
+    v?.removeEventListener('seeked', this.drawBubble);
+    if (v && drag.wasPlaying) void v.play().catch(() => undefined);
   }
 
   /** The dots have moved: the part of the video that is looped over is what lies between them (the whole video when they are at the ends). */
@@ -747,7 +806,7 @@ export class PlayScreen {
       btn.disabled = over;
       btn.classList.toggle('empty', n < 1);
       btn.classList.toggle('ad', ad && n < 1);                           // (none left and an ad for more can be watched: it glows)
-      btn.title = free ? `Your first ${kind} is free` : n < 1 ? `You have no ${kind}s left. ${ad ? 'Press to watch an ad for more.' : 'Press to see how to get more.'}` : kind === 'hint' ? 'Place one piece where it belongs' : 'Place the pieces round a point you choose';
+      btn.title = free ? `Your first ${kind} is free` : n < 1 ? `You have no ${kind}s left. ${ad ? 'Press to watch an ad for more.' : 'Press to see how to get more.'}` : kind === 'hint' ? 'Place one piece where it belongs' : 'Always places the 8 pieces nearest the spot you choose (fewer only when fewer are left)';
       if (btn.disabled && this.armed === kind) this.arm(null);
     };
     set('hint', this.hintBtn, a.hints);
@@ -773,7 +832,7 @@ export class PlayScreen {
   /** The line over the board: what the chosen one will do, or nothing. */
   private instruct(): void {
     window.clearTimeout(this.noteTimer);
-    const text = this.armed === 'hint' ? 'Choose the piece to place. Esc cancels.' : this.armed === 'bomb' ? 'Choose where to drop the bomb: it places the pieces round that point. Esc cancels.' : '';
+    const text = this.armed === 'hint' ? 'Choose the piece to place. Esc cancels.' : this.armed === 'bomb' ? 'Choose where to drop the bomb: it places the 8 pieces nearest that spot. Esc cancels.' : '';
     this.helpNote.textContent = text;
     this.helpNote.hidden = !text;
   }
@@ -889,10 +948,10 @@ export class PlayScreen {
             this.armed === step
               ? hint
                 ? 'Now tap the piece you want placed. It goes straight to where it belongs.'
-                : 'Now tap a spot on the board. Every piece around it goes where it belongs.'
+                : 'Now tap a spot on the board. The 8 pieces nearest it go where they belong.'
               : hint
                 ? 'Stuck? Your first hint is free. Press Hint, then tap a piece to put it in its place.'
-                : 'Want to clear a whole area? Your first bomb is free. Press Bomb, then tap a spot: the pieces around it go where they belong.',
+                : 'Want to clear a whole area? Your first bomb is free. Press Bomb, then tap a spot: the 8 pieces nearest it go where they belong.',
           dismiss: 'Skip',
           onDismiss: away(),
         });
@@ -936,7 +995,7 @@ export class PlayScreen {
       nudge === 'hint'
         ? `Stuck? Press Hint to put one piece in its place for you (${hints} left).`
         : nudge === 'bomb'
-          ? `Still stuck? Press Bomb, then tap a spot to place the pieces around it (${bombs} left).`
+          ? `Still stuck? Press Bomb, then tap a spot to place the 8 pieces nearest it (${bombs} left).`
           : 'Out of hints? Press Hint to watch a short ad for more.';
     this.flash(this.nudgeText, 9000);
   }

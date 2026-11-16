@@ -93,9 +93,9 @@ describe.each(stores)('the last used settings on %s', (_n, makeStore) => {
   it('are kept for an account, cleaned, and come back with the profile; a guest has none', async () => {
     const w = world({}, makeStore);
     expect((await w.service.profile(ann)).account.settings).toBeUndefined();
-    const res = await w.service.setSettings(ann, { 'jigsaw.placed': 500, 'jigsaw.lock': 1, 'all.light': 1, 'junk.x': 3, 'jigsaw.drag': 'no' });
-    expect(res).toMatchObject({ ok: true, account: { settings: { 'jigsaw.placed': 80, 'jigsaw.lock': 1 } } });
-    expect((await w.service.profile(ann)).account.settings).toEqual({ 'jigsaw.placed': 80, 'jigsaw.lock': 1 });
+    const res = await w.service.setSettings(ann, { 'jigsaw.placed': 50, 'jigsaw.lock': 1, 'all.light': 1, 'junk.x': 3, 'jigsaw.drag': 'no', 'jigsaw.edges': 5 });
+    expect(res).toMatchObject({ ok: true, account: { settings: { 'jigsaw.lock': 1, 'jigsaw.edges': 1 } } });
+    expect((await w.service.profile(ann)).account.settings).toEqual({ 'jigsaw.lock': 1, 'jigsaw.edges': 1 });          // (the share placed at the start is not an option now: it is not kept)
     expect(await w.service.setSettings(ann, 'x')).toMatchObject({ ok: false, error: 'bad-request' });
     expect(await w.service.setSettings({ id: 'g_1', name: 'G', guest: true }, {})).toMatchObject({ ok: false, error: 'account-required' });
   });

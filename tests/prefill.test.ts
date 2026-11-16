@@ -75,10 +75,9 @@ describe('Overlap with cells filled in at the start', () => {
     expect(game.solved).toBe(false);
   });
 
-  it('is a slider from 0 to 80 percent that starts at 0', () => {
-    const option = KINDS.find((k) => k.id === 'overlap')!.options.find((o) => o.key === 'placed')!;
-    expect([option.min, option.max, option.def]).toEqual([0, 80, 0]);
-    expect(optionsOf({}, KINDS.find((k) => k.id === 'overlap')!).placed).toBe(0);
+  it('is not an option on the screen any more (a puzzle made when it was one keeps what it was made with)', () => {
+    expect(KINDS.find((k) => k.id === 'overlap')!.options.some((o) => o.key === 'placed')).toBe(false);
+    expect(optionsOf({ 'overlap.placed': 40 }, KINDS.find((k) => k.id === 'overlap')!).placed).toBeUndefined();
   });
 });
 

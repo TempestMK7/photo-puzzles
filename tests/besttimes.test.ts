@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { bestKey, recordBest, sizeLabels, type BestTime, type BestTimes } from '../src/core/besttimes';
-import { cleanPuzzleSettings, findKind, isFast, KINDS, orientationLocked, solvesByDragging } from '../src/core/kinds';
+import { approxPieces, cleanPuzzleSettings, findKind, isFast, KINDS, orientationLocked, solvesByDragging } from '../src/core/kinds';
 import { BestTimeStore } from '../src/store/besttimes';
 
 const entry = (over: Partial<BestTime> = {}): BestTime => ({ ms: 60_000, file: 'dog.jpg', video: false, at: 1000, ...over });
@@ -85,16 +85,17 @@ describe('fast mode', () => {
     expect(again.get('jigsaw', 1, true)!.ms).toBe(5000);
   });
 
-  it('is a puzzle with pieces placed at the start or a fast mode check box ticked (so the defaults are fast mode), and only Jigsaw, Overlap and Strips have them', () => {
+  it('is a puzzle with a fast mode check box ticked (so the defaults are fast mode), and only Jigsaw, Overlap and Strips have them', () => {
     const jig = findKind('jigsaw')!;
-    expect(isFast(jig, { pieces: 200, placed: 0, lock: 0, drag: 0, edges: 0 })).toBe(false);
+    expect(isFast(jig, { pieces: 200, lock: 0, drag: 0, edges: 0 })).toBe(false);
     expect(isFast(jig, { pieces: 200 })).toBe(false);
-    expect(isFast(jig, { pieces: 200, placed: 0, lock: 0, drag: 1, edges: 1 })).toBe(true);
-    for (const change of [{ placed: 5 } as Record<string, number>, { lock: 1 }, { drag: 1 }, { edges: 1 }]) expect(isFast(jig, { pieces: 200, ...change })).toBe(true);
+    expect(isFast(jig, { pieces: 200, lock: 0, drag: 1, edges: 1 })).toBe(true);
+    expect(isFast(jig, { pieces: 200, placed: 5 })).toBe(false);                                // (a share placed at the start, which was once an option, does not make it fast)
+    for (const change of [{ lock: 1 } as Record<string, number>, { drag: 1 }, { edges: 1 }]) expect(isFast(jig, { pieces: 200, ...change })).toBe(true);
     expect(isFast(findKind('overlap')!, { total: 100, lock: 1 })).toBe(true);
-    expect(isFast(findKind('strips')!, { cells: 100, drag: 0, lock: 0, placed: 0 })).toBe(false);
+    expect(isFast(findKind('strips')!, { cells: 100, drag: 0, lock: 0 })).toBe(false);
     expect(isFast(findKind('strips')!, { cells: 100, drag: 1 })).toBe(true);
-    for (const id of ['focus', 'sliding', 'rotascope'] as const) expect(isFast(findKind(id)!, { pieces: 20, lock: 1, placed: 40 })).toBe(false);
+    for (const id of ['focus', 'sliding', 'rotascope'] as const) expect(isFast(findKind(id)!, { pieces: 20, lock: 1 })).toBe(false);
   });
 
   it('lists the puzzles in the order Jigsaw, Overlap, Strips, Tile Swap, Sliding Tiles, Rotascope', () => {
@@ -103,10 +104,11 @@ describe('fast mode', () => {
 
   it('gives Jigsaw, Overlap and Strips the same fast mode options, in the same order, with these defaults', () => {
     const names = (id: 'jigsaw' | 'overlap' | 'strips') => findKind(id)!.options.filter((o) => o.fast).map((o) => `${o.key}=${o.def}`);
-    expect(names('jigsaw')).toEqual(['placed=0', 'lock=0', 'drag=1', 'edges=1']);
-    expect(names('overlap')).toEqual(['placed=0', 'lock=0', 'drag=1']);
-    expect(names('strips')).toEqual(['placed=0', 'lock=0', 'drag=1']);
-    expect(findKind('jigsaw')!.options.find((o) => o.key === 'placed')!.max).toBe(80);
+    expect(names('jigsaw')).toEqual(['lock=0', 'drag=1', 'edges=1']);
+    expect(names('overlap')).toEqual(['lock=0', 'drag=1']);
+    expect(names('strips')).toEqual(['lock=0', 'drag=1']);
+    expect(findKind('jigsaw')!.options.some((o) => o.key === 'placed')).toBe(false);                 // (there is no option to start with pieces placed)
+    expect(findKind('jigsaw')!.options.filter((o) => o.fast).map((o) => o.label)).toEqual(['No rotation', 'Solve while dragging', 'Edge Pieces Start In The Picture Area']);
     expect(findKind('focus')!.options.some((o) => o.fast)).toBe(false);
   });
 
@@ -125,14 +127,16 @@ describe('fast mode', () => {
   });
 
   it('keeps only puzzle options, within their limits', () => {
-    expect(cleanPuzzleSettings({ 'jigsaw.placed': 500, 'jigsaw.lock': 1, 'all.light': 1, 'bogus.x': 3, 'jigsaw.drag': 'x', 'strips.size': -4 })).toEqual({ 'jigsaw.placed': 80, 'jigsaw.lock': 1, 'strips.size': 0 });
+    expect(cleanPuzzleSettings({ 'jigsaw.placed': 500, 'jigsaw.lock': 1, 'all.light': 1, 'bogus.x': 3, 'jigsaw.drag': 'x', 'jigsaw.edges': 7, 'strips.size': -4 })).toEqual({ 'jigsaw.lock': 1, 'jigsaw.edges': 1, 'strips.size': 0 });
     expect(cleanPuzzleSettings(null)).toEqual({});
   });
 
   it('says what size sets in words, without the trays, strip length and tabs', () => {
     const ov = findKind('overlap')!;
-    expect(ov.sizes!.describe(ov.sizes!.values[2])).toBe('about 200 cells');
+    expect(ov.sizes!.describe(ov.sizes!.values[2])).toBe('about 100 pieces');                 // (200 cells, a piece for every second one)
+    expect(ov.sizes!.values.map((v) => approxPieces('overlap', v))).toEqual([25, 50, 100, 250, 500]);
     const st = findKind('strips')!;
-    expect(st.sizes!.describe(st.sizes!.values[1])).toBe('about 100 cells');
+    expect(st.sizes!.describe(st.sizes!.values[1])).toBe('about 30 pieces');                  // (100 cells)
+    expect(st.sizes!.values.map((v) => approxPieces('strips', v))).toEqual([20, 30, 60, 120, 210]);
   });
 });

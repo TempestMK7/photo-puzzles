@@ -39,7 +39,7 @@ export type BoardOp =
   | { t: 'place'; strip: number; x: number; y: number; angle: number; tab: number }
   /** A hint (not Sliding Tiles or Rotascope: see help.ts): the piece (a strip, in Strips) is put where it belongs. */
   | { t: 'hint'; piece: number }
-  /** A bomb: every piece round the point is put where it belongs. The point is in picture pixels (Tile Swap), or a cell of the grid (Overlap; Strips: of the field, with its margin). */
+  /** A bomb: the 8 pieces nearest the point (that are not in place) are put where they belong. The point is in picture pixels (Tile Swap), or a cell of the grid (Overlap; Strips: of the field, with its margin). */
   | { t: 'bomb'; x: number; y: number };
 
 export type Board =

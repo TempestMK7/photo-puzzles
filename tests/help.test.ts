@@ -61,6 +61,32 @@ describe.each(Object.keys(SETUPS) as BoardKind[])('a hint and a bomb in %s', (ki
     expect(applyBoardOp(b, { t: 'hint', piece: 1e9 })).toEqual({ ok: false });
   });
 
+  it('places eight pieces with a bomb, the nearest to the point, and the next eight with the next one', () => {
+    const b = buildBoard(setup);
+    const at = b.kind === 'focus' ? { x: 200, y: 150 } : b.kind === 'overlap' ? { x: Math.floor(b.cols / 2), y: Math.floor(b.rows / 2) } : { x: Math.floor(b.game.cols / 2), y: Math.floor(b.game.rows / 2) };
+    const total = b.kind === 'focus' ? b.game.count : b.game.total;
+    const before = placedCount(b);
+    const first = (b.game as unknown as { bombHits(x: number, y: number): number[] }).bombHits(at.x, at.y);
+    expect(first).toHaveLength(8);
+    expect(new Set(first).size).toBe(8);
+    expect(applyBoardOp(b, { t: 'bomb', ...at })).toMatchObject({ ok: true });
+    expect(placedCount(b) - before).toBeGreaterThanOrEqual(8);
+    const second = (b.game as unknown as { bombHits(x: number, y: number): number[] }).bombHits(at.x, at.y);
+    expect(second).toHaveLength(Math.min(8, total - placedCount(b)));
+    expect(second.some((id) => first.includes(id))).toBe(false);                                      // (those eight are placed: it is the next eight, not the same again)
+  });
+
+  it('places eight even when most of the pieces round the point are placed already', () => {
+    const b = buildBoard(setup);
+    const at = b.kind === 'focus' ? { x: 200, y: 150 } : b.kind === 'overlap' ? { x: Math.floor(b.cols / 2), y: Math.floor(b.rows / 2) } : { x: Math.floor(b.game.cols / 2), y: Math.floor(b.game.rows / 2) };
+    const near = (b.game as unknown as { bombHits(x: number, y: number): number[] }).bombHits(at.x, at.y);
+    for (const piece of near.slice(0, 6)) expect(applyBoardOp(b, { t: 'hint', piece })).toMatchObject({ ok: true });       // (six of the eight nearest are placed by hand)
+    const now = (b.game as unknown as { bombHits(x: number, y: number): number[] }).bombHits(at.x, at.y);
+    expect(now).toHaveLength(8);
+    expect(now.some((id) => near.slice(0, 6).includes(id))).toBe(false);                               // (the placed ones are passed over: the eight nearest that are left)
+    expect(applyBoardOp(b, { t: 'bomb', ...at })).toMatchObject({ ok: true });
+  });
+
   it('places everything round a point with a bomb, and several pieces at once', () => {
     const b = buildBoard(setup);
     const before = placedCount(b);
@@ -71,10 +97,11 @@ describe.each(Object.keys(SETUPS) as BoardKind[])('a hint and a bomb in %s', (ki
     expect(placedCount(b) - before).toBeGreaterThanOrEqual(2);
   });
 
-  it('refuses a bomb that has nothing to place, and numbers that make no sense', () => {
+  it('refuses a bomb when everything is placed, and numbers that make no sense', () => {
     const b = buildBoard(setup);
     const at = b.kind === 'focus' ? { x: 200, y: 150 } : b.kind === 'overlap' ? { x: 5, y: 5 } : { x: 6, y: 6 };
     expect(applyBoardOp(b, { t: 'bomb', ...at }).ok).toBe(true);
+    for (let guard = 0; guard < 500 && applyBoardOp(b, { t: 'bomb', ...at }).ok; guard++);                    // (eight at a time, until none is left)
     expect(applyBoardOp(b, { t: 'bomb', ...at })).toMatchObject({ ok: false, stale: true });
     expect(applyBoardOp(b, { t: 'bomb', x: -1, y: 0 })).toEqual({ ok: false });
     expect(applyBoardOp(b, { t: 'bomb', x: Number.NaN, y: 0 })).toEqual({ ok: false });
@@ -143,6 +170,7 @@ describe('a hint and a bomb in a Jigsaw', () => {
     const { game, layout } = buildJigsaw(setup);
     const before = game.anchoredCount;
     const s = layout.size;
+    expect(game.bombHits((layout.cols / 2 + 0.5) * s, (layout.rows / 2 + 0.5) * s)).toHaveLength(8);
     const res = game.bomb((layout.cols / 2 + 0.5) * s, (layout.rows / 2 + 0.5) * s);
     expect(res.length).toBeGreaterThanOrEqual(3);
     expect(game.anchoredCount).toBeGreaterThanOrEqual(before + res.length);
@@ -194,7 +222,7 @@ describe('a hint and a bomb in a Jigsaw', () => {
       const r = room();
       expect(r.submit('ann', { t: 'hint', piece: -3 } as never, 0)).toMatchObject({ ok: false, reason: 'bad' });
       expect(r.submit('ann', { t: 'bomb', x: Number.NaN, y: 0 } as never, 0)).toMatchObject({ ok: false, reason: 'bad' });
-      expect(r.submit('ann', { t: 'bomb', x: -5000, y: -5000 }, 0)).toMatchObject({ ok: false, reason: 'no-group' });
+      expect(r.submit('ann', { t: 'bomb', x: -5000, y: -5000 }, 0)).toMatchObject({ ok: false, reason: 'bad' });                // (a point that is not on the picture)
     });
 
     it('ends when the last group is placed', () => {

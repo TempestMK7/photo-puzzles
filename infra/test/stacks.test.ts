@@ -337,6 +337,7 @@ describe('api', () => {
         ['POST /credits/ad/start', 'NONE'],
         ['POST /items/use', 'NONE'],
         ['POST /items/reward', 'NONE'],
+        ['POST /items/gift', 'NONE'],            // the daily gift of hints: the function checks that it is an account's
         ['POST /guest', 'NONE'],
         ['PUT /media/{id}', 'NONE'],             // the address is signed
         ['GET /stock/search', 'NONE'],           // the stock library: open to everyone, limited by the function (per address, and the provider's own limit for all)

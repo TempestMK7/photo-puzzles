@@ -26,7 +26,7 @@ export function explainHelp(item: HelpItem, a: AccountSummary, where: Platform, 
   const title = hint ? 'Hints' : 'Bombs';
   const does = hint
     ? 'A hint places one piece of a puzzle where it belongs. Choose Hint at the top of the puzzle, then tap the piece.'
-    : 'A bomb places all the pieces around a point you choose. Choose Bomb at the top of the puzzle, then tap the board.';
+    : 'A bomb always places the 8 pieces nearest a point you choose. Choose Bomb at the top of the puzzle, then tap the board.';
 
   const paragraphs = [does];
   if (a.type === 'guest') {

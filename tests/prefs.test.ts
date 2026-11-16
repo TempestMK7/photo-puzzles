@@ -84,10 +84,10 @@ describe('kinds', () => {
 
   it('the fast mode options start at their defaults, and a puzzle with one changed is another puzzle for the record', () => {
     const jigsaw = findKind('jigsaw')!;
-    expect(optionsOf({}, jigsaw)).toMatchObject({ placed: 0, lock: 0, drag: 1, edges: 1 });
+    expect(optionsOf({}, jigsaw)).toMatchObject({ lock: 0, drag: 1, edges: 1 });
     expect(recordKey(jigsaw, 'p1', {})).toBe('jigsaw|p1|size=1');
-    for (const key of ['placed', 'lock', 'drag', 'edges']) expect(recordKey(jigsaw, 'p1', { [`jigsaw.${key}`]: key === 'drag' || key === 'edges' ? 0 : 1 })).not.toBe(recordKey(jigsaw, 'p1', {}));
-    expect(optionValue({ 'jigsaw.placed': 500 }, 'jigsaw', jigsaw.options.find((o) => o.key === 'placed')!)).toBe(80);
+    for (const key of ['lock', 'drag', 'edges']) expect(recordKey(jigsaw, 'p1', { [`jigsaw.${key}`]: key === 'drag' || key === 'edges' ? 0 : 1 })).not.toBe(recordKey(jigsaw, 'p1', {}));
+    expect(optionValue({ 'jigsaw.edges': 5 }, 'jigsaw', jigsaw.options.find((o) => o.key === 'edges')!)).toBe(1);
   });
 
   it('every photo and type gets its own puzzle from one seed', () => {

@@ -1,4 +1,4 @@
-import { nearPoint } from './help';
+import { nearestToBomb } from './help';
 import { orientationLocked } from './kinds';
 import { placeAtRandom, prefillPatches } from './prefill';
 import { Rng } from './rng';
@@ -293,12 +293,12 @@ export class StripsGame {
     return true;
   }
 
-  /** The strips that a bomb on field cell (cx, cy) would place: the loose ones with a cell within a cell of its middle. */
+  /** The strips that a bomb on field cell (cx, cy) would place: the eight loose ones that lie nearest to its middle (fewer if fewer are left). */
   bombHits(cx: number, cy: number): number[] {
-    return this.defs.filter((d) => !this.state[d.id].locked && nearPoint(d.hx, d.hy, boxOf(d, 0).w, boxOf(d, 0).h, cx + 0.5, cy + 0.5)).map((d) => d.id);
+    return nearestToBomb(this.defs.filter((d) => !this.state[d.id].locked).map((d) => ({ id: d.id, x: d.hx, y: d.hy, w: boxOf(d, 0).w, h: boxOf(d, 0).h })), cx + 0.5, cy + 0.5);
   }
 
-  /** A bomb on field cell (cx, cy): every strip in `bombHits` is put home. Returns those that were placed. */
+  /** A bomb on field cell (cx, cy): the strips in `bombHits` are put home. Returns those that were placed. */
   bomb(cx: number, cy: number): number[] {
     return this.bombHits(cx, cy).filter((id) => this.hint(id));
   }

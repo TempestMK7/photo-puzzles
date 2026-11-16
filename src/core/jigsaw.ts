@@ -1,4 +1,4 @@
-import { nearPoint } from './help';
+import { nearestToBomb } from './help';
 import type { Rng } from './rng';
 
 /**
@@ -478,14 +478,14 @@ export class JigsawGame {
     return true;
   }
 
-  /** The pieces that a bomb at picture point (x, y) (measured from the solved picture's top left) would name: those not in the picture whose cell lies within a piece's width of it. */
+  /** The pieces that a bomb at picture point (x, y) (measured from the solved picture's top left) would name: the eight not in the picture whose cells are nearest to it (fewer if fewer are left). */
   bombHits(x: number, y: number): number[] {
     const s = this.size;
-    const hit: number[] = [];
+    const loose: { id: number; x: number; y: number; w: number; h: number }[] = [];
     for (let i = 0; i < this.count; i++) {
-      if (nearPoint((i % this.cols) * s, Math.floor(i / this.cols) * s, s, s, x, y, s) && !this.groups.get(this.groupOf[i])!.anchored) hit.push(i);
+      if (!this.groups.get(this.groupOf[i])!.anchored) loose.push({ id: i, x: (i % this.cols) * s, y: Math.floor(i / this.cols) * s, w: s, h: s });
     }
-    return hit;
+    return nearestToBomb(loose, x, y);
   }
 
   /** The middle of the piece's place that the picture point (x, y) is over (the nearest, if it is outside the picture): a bomb dropped anywhere on a piece is centred there. */
@@ -496,7 +496,7 @@ export class JigsawGame {
     return { x: (col + 0.5) * s, y: (row + 0.5) * s };
   }
 
-  /** A bomb at picture point (x, y): every piece in `bombHits` is put in the picture, with the group it belongs to. Returns the pieces named. */
+  /** A bomb at picture point (x, y): the pieces in `bombHits` are put in the picture, each with the group it belongs to. Returns the pieces named. */
   bomb(x: number, y: number): number[] {
     return this.bombHits(x, y).filter((i) => this.anchorGroup(i));
   }
