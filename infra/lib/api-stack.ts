@@ -197,8 +197,8 @@ export class ApiStack extends Stack {
       this.api.addRoutes({ path, methods: [...methods], integration });
     }
     // an ad for hints or a bomb, and the hints and bombs themselves, are a guest's too, so the function checks the token (a guest's is turned away there from the ads for credits). The hints that a
-    // solved puzzle gives are an account's: a guest earns none.
-    for (const path of ['/credits/ad', '/credits/ad/start', '/items/use', '/items/reward']) this.api.addRoutes({ path, methods: [POST], integration });
+    // solved puzzle gives are an account's: a guest earns none. The daily gift is an account's too, and the function turns a guest away.
+    for (const path of ['/credits/ad', '/credits/ad/start', '/items/use', '/items/reward', '/items/gift']) this.api.addRoutes({ path, methods: [POST], integration });
     this.api.addRoutes({ path: '/items/award', methods: [POST], integration, authorizer: jwt });
     // the ad network's own call, when a rewarded ad was watched: no sign-in, it is signed (and only a signature from AdMob, for one of our ad units, is believed)
     this.api.addRoutes({ path: '/credits/ad/callback', methods: [GET], integration });

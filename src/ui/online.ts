@@ -1,4 +1,4 @@
-import { describeDifficulty, findKind, optionsOf, puzzleSeedText, type KindId, type Settings } from '../core/kinds';
+import { approxPieces, describeDifficulty, findKind, optionsOf, puzzleSeedText, type KindId, type Settings } from '../core/kinds';
 import type { Prefs } from '../core/prefs';
 import { seedFromText } from '../core/rng';
 import type { CallError, Offline, OnlineApi } from '../online/api';
@@ -158,7 +158,7 @@ function roomOpts(settings: Settings, id: KindId): Record<string, number> {
 export function roomLabel(settings: Pick<RoomSettings, 'kind'> & { opts: Record<string, number> }): string {
   const kind = findKind(settings.kind);
   const o = settings.opts;
-  const size = settings.kind === 'overlap' ? `${o.total} cells` : settings.kind === 'strips' ? `${o.cells} cells` : `${o.pieces} pieces`;
+  const size = settings.kind === 'overlap' || settings.kind === 'strips' ? `about ${approxPieces(settings.kind, o)} pieces` : `${o.pieces} pieces`;
   return `${kind?.name ?? 'Puzzle'} · ${size}`;
 }
 
@@ -224,7 +224,7 @@ export class OnlinePanel {
         this.consent,
         this.consentText,
       ),
-      h('label', { class: 'consent', title: 'Hints place a piece, bombs place the pieces round a point. Each player uses their own, from their account.' }, this.helpers, h('span', {}, 'Allow hints and bombs in this puzzle')),
+      h('label', { class: 'consent', title: 'Hints place a piece, bombs place the 8 pieces nearest a point. Each player uses their own, from their account.' }, this.helpers, h('span', {}, 'Allow hints and bombs in this puzzle')),
       this.startBtn,
     );
     this.joinSection = h('section', {}, h('h3', {}, 'Join with a code or a link'), h('div', { class: 'row' }, this.codeInput, this.joinBtn));

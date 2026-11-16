@@ -311,6 +311,10 @@ body.dragging .library::after {
 .vbar .rangebar input::-moz-range-track { background: transparent; }
 .vbar .rangebar input::-webkit-slider-thumb { -webkit-appearance: none; pointer-events: auto; width: 16px; height: 16px; margin-top: 0; border-radius: 50%; background: var(--accent2); border: 2px solid #fff3c4; cursor: ew-resize; }
 .vbar .rangebar input::-moz-range-thumb { pointer-events: auto; width: 12px; height: 12px; border-radius: 50%; background: var(--accent2); border: 2px solid #fff3c4; cursor: ew-resize; }
+/* the bubble over a dot of the duration while it is dragged: the picture of the video where the dot is, and the time */
+.vbar .rangebubble { position: absolute; bottom: calc(100% + 6px); transform: translateX(-50%); z-index: 8; padding: 4px; border-radius: 8px; background: var(--panel2); border: 1px solid var(--accent2); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55); text-align: center; pointer-events: none; }
+.vbar .rangebubble canvas { display: block; width: 160px; background: #100a08; border-radius: 4px; }
+.vbar .rangebubble .t { display: block; margin-top: 3px; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text); }
 .vbar button.icon { padding: 4px 10px; min-width: 40px; }
 /* the way back to the host's video (a puzzle played with friends): on a narrow screen it goes on a line of its own */
 .vbar { flex-wrap: wrap; }
@@ -325,7 +329,7 @@ body.dragging .library::after {
 .reftitle { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 2px 10px; font-size: 13px; color: var(--dim); cursor: move; touch-action: none; user-select: none; }
 .refclose { border: 0; background: transparent; color: var(--text); font-size: 20px; line-height: 1; padding: 2px 8px; }
 .refbody { position: relative; aspect-ratio: var(--ar, 1.5); background: #100a08; }
-.refbody img, .refbody video, .refbody canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
+.refbody img, .refbody canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
 .refgrip {
   position: absolute; right: 0; bottom: 0; width: 26px; height: 26px; cursor: nwse-resize; touch-action: none;
   background: linear-gradient(135deg, transparent 55%, rgba(255, 216, 74, 0.85) 55%, rgba(255, 216, 74, 0.85) 62%, transparent 62%, transparent 74%, rgba(255, 216, 74, 0.85) 74%, rgba(255, 216, 74, 0.85) 81%, transparent 81%);

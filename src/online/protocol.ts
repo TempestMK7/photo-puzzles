@@ -521,7 +521,7 @@ export interface PatreonStartResponse {
 export const GUEST_ACCOUNT: AccountSummary = { type: 'guest', photo: 0, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 0, videoAdsLeft: 0, adPhoto: 0, adVideo: 0, hints: 0, bombs: 0, earnPerDay: 0, earnLeft: 0, earnInfinite: false, helpAdReady: false, helpAdIn: 0, helpAdHints: 0, helpAdBombs: 0, helpAdNoAd: false, giftReady: false, giftHints: 0 };
 
 /**
- * What an account holds to use in a puzzle (see core/help.ts): a hint places one piece, a bomb every piece round a point. Every account is given some when it is made (a guest too: `guestHints`, `guestBombs`, which the account
+ * What an account holds to use in a puzzle (see core/help.ts): a hint places one piece, a bomb the 8 pieces nearest a point. Every account is given some when it is made (a guest too: `guestHints`, `guestBombs`, which the account
  * made from a guest keeps) and a hint for every puzzle it solves (a guest earns none). Used in a puzzle played alone, the game asks the server to take one (`ItemRequest`) before it places anything; in a puzzle played with friends
  * the room does, with the operation, and only when the host allowed them.
  */

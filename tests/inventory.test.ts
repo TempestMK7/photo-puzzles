@@ -29,7 +29,7 @@ describe('what the inventory says about hints and bombs', () => {
     expect(text(hint)).toContain('Solving a puzzle earns 1 hint (2 for the larger sizes)');
     expect(text(hint)).toContain('up to 10 a day: you can earn 7 more today');
     const bomb = explainHelp('bomb', free(), 'android', 0);
-    expect(text(bomb)).toContain('all the pieces around a point');
+    expect(text(bomb)).toContain('always places the 8 pieces nearest a point');
     expect(text(bomb)).toContain('not earned by solving puzzles');
   });
 

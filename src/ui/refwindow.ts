@@ -1,4 +1,3 @@
-import { orientationOf } from '../mp4';
 import { h } from './dom';
 
 /** What the window shows: a picture, or a video that is being played elsewhere (the window follows it). */
@@ -13,13 +12,13 @@ const MIN_W = 150;
 
 /**
  * A small window over the board that shows the original picture, for looking at while solving. It can be dragged by its title and made bigger or smaller by the corner.
- * A video is not played a second time: the picture of the video that the puzzle is cut from is mirrored (captureStream), so the window shows exactly the same moment
- * whether the video plays or is paused - and costs no second decoder, which matters on a slow device. Where that is not available the pictures are copied across.
+ * A video is not played a second time: each new picture of the video that the puzzle is cut from is copied across (`frame`, called when the puzzle draws it), so the window shows
+ * exactly the same moment as the pieces, playing or paused, and costs no second decoder, which matters on a slow device. (It was once a mirrored stream, `captureStream`: on a phone
+ * that stuttered and jumped back and forth with a long video, where the pieces, drawn from the same pictures, played smoothly.)
  */
 export class RefWindow {
   readonly el: HTMLElement;
   private img = h('img', { alt: 'The original picture', draggable: false });
-  private vid = h('video', { muted: true, playsInline: true, autoplay: true, 'aria-label': 'The original video' });
   private canvas = h('canvas', { 'aria-label': 'The original video' });
   private body = h('div', { class: 'refbody' });
   private source: RefSource | null = null;
@@ -36,7 +35,7 @@ export class RefWindow {
     const close = h('button', { type: 'button', class: 'refclose', title: 'Close', 'aria-label': 'Close the original', onclick: () => this.onClose() }, '×');
     title.append(close);
     const grip = h('div', { class: 'refgrip', title: 'Drag to resize' });
-    this.body.append(this.img, this.vid, this.canvas, grip);
+    this.body.append(this.img, this.canvas, grip);
     this.el = h('div', { class: 'refwin', hidden: true, role: 'dialog', 'aria-label': 'Original' }, title, this.body);
     this.drag(title, (dx, dy, from) => {
       this.left = from.left + dx;
@@ -61,23 +60,13 @@ export class RefWindow {
     this.body.style.setProperty('--ar', String(source.width / source.height));
     const v = source.video;
     this.img.hidden = !!v;
-    this.vid.hidden = true;
     this.canvas.hidden = true;
     if (v) {
-      // (a video the file says is turned is copied picture by picture: on some phones a mirrored stream shows it as stored, sideways, where drawing it turns it)
-      const turned = (orientationOf(v)?.rotation ?? 0) !== 0;
-      const stream = turned ? undefined : (v as HTMLVideoElement & { captureStream?: () => MediaStream }).captureStream?.();
-      if (stream) {
-        this.vid.srcObject = stream;
-        this.vid.hidden = false;
-        void this.vid.play().catch(() => undefined);
-      } else {
-        this.canvas.width = Math.min(source.width, 640);
-        this.canvas.height = Math.round((this.canvas.width * source.height) / source.width);
-        this.canvas.hidden = false;
-        this.copyFrom = v;
-        this.frame();
-      }
+      this.canvas.width = Math.min(source.width, 640);
+      this.canvas.height = Math.round((this.canvas.width * source.height) / source.width);
+      this.canvas.hidden = false;
+      this.copyFrom = v;
+      this.frame();
     } else this.img.src = source.image ?? '';
     this.el.hidden = false;
     if (this.left < 0) this.left = Math.max(0, this.host.clientWidth - this.width - 8);
@@ -89,7 +78,7 @@ export class RefWindow {
     this.release();
   }
 
-  /** The video has a new picture (only needed where the window cannot mirror it by itself). */
+  /** The video has a new picture: it is copied into the window. */
   frame(): void {
     const v = this.copyFrom;
     if (v && this.open) this.canvas.getContext('2d')!.drawImage(v, 0, 0, this.canvas.width, this.canvas.height);
@@ -98,8 +87,6 @@ export class RefWindow {
   private release(): void {
     this.copyFrom = null;
     this.source = null;
-    this.vid.pause();
-    this.vid.srcObject = null;
     this.img.removeAttribute('src');
   }
 

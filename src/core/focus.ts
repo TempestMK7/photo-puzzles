@@ -1,4 +1,4 @@
-import { nearPoint } from './help';
+import { nearestToBomb } from './help';
 import { focusLayout, type Rect } from './layout';
 import { Rng } from './rng';
 
@@ -106,10 +106,9 @@ export class FocusGame {
     return true;
   }
 
-  /** The pieces that a bomb at picture point (x, y) would place: those not in their homes whose home lies within a piece's width of it. */
+  /** The pieces that a bomb at picture point (x, y) would place: the eight not in their homes whose homes are nearest to it (fewer if fewer are left). */
   bombHits(x: number, y: number): number[] {
-    const reach = Math.sqrt((this.width * this.height) / this.count);
-    return this.homes.flatMap((r, i) => (!this.placed(i) && nearPoint(r.x, r.y, r.w, r.h, x, y, reach) ? [i] : []));
+    return nearestToBomb(this.homes.flatMap((r, i) => (this.placed(i) ? [] : [{ id: i, ...r }])), x, y);
   }
 
   /** The middle of the piece's place in the picture that the point (x, y) is over (the nearest one, if it is over none): a bomb dropped anywhere on a piece is centred there. */
@@ -128,7 +127,7 @@ export class FocusGame {
     return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
   }
 
-  /** A bomb at picture point (x, y): every piece in `bombHits` is put in its home. Returns the pieces that moved, in the order they were placed. */
+  /** A bomb at picture point (x, y): the pieces in `bombHits` are put in their homes. Returns the pieces that moved, in the order they were placed. */
   bomb(x: number, y: number): number[] {
     return this.bombHits(x, y).filter((i) => this.hint(i));
   }

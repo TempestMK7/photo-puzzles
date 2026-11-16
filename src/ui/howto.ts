@@ -13,7 +13,7 @@ const MOVE: Control = { what: 'Move the board', mouse: 'Drag on the bare board (
 const ZOOM: Control = { what: 'Zoom', mouse: 'Mouse wheel, or the − and + buttons at the bottom right (click the number to show everything)', touch: 'Pinch with two fingers' };
 const ORIGINAL: Control = { what: 'See the whole picture', mouse: 'The Show Photo (or Show Video) button at the top opens a window with the original', touch: 'The same button at the top' };
 const HINT: Control = { what: 'Use a hint', mouse: 'Press Hint at the top, then click a piece: it goes where it belongs (Esc cancels)', touch: 'Tap Hint, then tap a piece' };
-const BOMB: Control = { what: 'Use a bomb', mouse: 'Press Bomb at the top, then click a spot: the pieces around it go where they belong (Esc cancels)', touch: 'Tap Bomb, then tap a spot' };
+const BOMB: Control = { what: 'Use a bomb', mouse: 'Press Bomb at the top, then click a spot: the 8 pieces nearest it go where they belong (Esc cancels)', touch: 'Tap Bomb, then tap a spot' };
 const VIDEO: Control = { what: 'Control a video', mouse: 'The bar under the board pauses it, moves through it and turns the sound on and off; Duration picks the part that plays over and over', touch: 'The same bar' };
 
 const CONTROLS: Record<KindId, Control[]> = {
@@ -67,7 +67,7 @@ const RULES: Record<KindId, string[]> = {
   ],
 };
 
-const HELP_RULES = 'Hints and bombs: a hint places one piece for you; a bomb places all the pieces around a spot. You earn hints by solving puzzles, and the Inventory says how to get more (including watching an ad).';
+const HELP_RULES = 'Hints and bombs: a hint places one piece for you; a bomb always places the 8 pieces nearest a spot. You earn hints by solving puzzles, and the Inventory says how to get more (including watching an ad).';
 
 /** The controls of a puzzle type: its own first, then the ones that every board shares, then the ones for hints and bombs where it has them. */
 export function controlsOf(kind: KindId): Control[] {

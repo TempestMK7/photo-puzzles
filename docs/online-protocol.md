@@ -30,7 +30,7 @@ Everything another player has to see is one of these operations (`JigsawOp`; the
 | `drop piece dx dy rot tol` | the group is put down at that pose; with `tol` it then joins whatever it lies right against |
 | `rotate piece tol` | a loose group is turned a quarter turn about its middle (a selected piece, not one in hand); with `tol` it then joins |
 | `hint piece` | the group the piece belongs to goes where it belongs in the picture and stays there (refused with `busy` while another player has chosen it, `no-group` if it is in the picture already) |
-| `bomb x y` | every group with a piece whose cell lies within a piece's width of the point (picture pixels from the picture's top left) goes in the picture, whoever has a hand on it (a hold on a group that was placed is let go); `no-group` when none was left |
+| `bomb x y` | the groups of the 8 pieces nearest the point (`BOMB_PIECES`; picture pixels from the picture's top left) that are not in the picture go in the picture, whoever has a hand on it (a hold on a group that was placed is let go); `no-group` when none was left, `bad` for a point that is not on the picture |
 
 `applyOp(game, op)` applies one. The room applies it to its own board, and the same `op` goes out in the event, so every screen that applies it ends up with the same board
 (group ids included: the bigger group keeps its id when two join). `tests/jigsawRoom.test.ts` plays whole games with three players and checks, after every event, that a copy of the
@@ -98,7 +98,7 @@ and a piece that is being dragged is on its player's screen only. What a player 
 | `cycle stack dir` | Overlap | the top piece of a stack goes to the bottom (`1`) or the bottom one to the top (`-1`) |
 | `place strip x y angle tab` | Strips | the strip is put down at this pose, on top of the others, and locks if it lies where it belongs |
 | `hint piece` | Tile Swap, Overlap, Strips | the piece (a strip, in Strips) is put where it belongs (in Tile Swap the piece that sat there takes its place); refused with `no-group` if it is there already |
-| `bomb x y` | Tile Swap, Overlap, Strips | every piece round the point is put where it belongs; the point is in picture pixels (Tile Swap) or a cell (Overlap; Strips: of the field, with its margin). Refused with `no-group` when nothing was left to place |
+| `bomb x y` | Tile Swap, Overlap, Strips | the 8 pieces nearest the point that are not in place are put where they belong (`BOMB_PIECES`); the point is in picture pixels (Tile Swap) or a cell (Overlap; Strips: of the field, with its margin). Refused with `no-group` when nothing was left to place |
 
 `applyBoardOp(board, op)` applies one if the board allows it, on the server and on every screen. A refusal is `bad-request` when the numbers make no sense or the operation is another puzzle's, and `no-group` when it was fine but the
 board has moved on (the piece was put in its place by someone else a moment ago): the screen says "Someone moved that piece first" and takes the room's board again.

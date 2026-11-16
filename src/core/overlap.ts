@@ -1,4 +1,4 @@
-import { nearPoint } from './help';
+import { nearestToBomb } from './help';
 import { orientationLocked } from './kinds';
 import { placeAtRandom, prefillPatches } from './prefill';
 import { Rng } from './rng';
@@ -267,12 +267,12 @@ export class OverlapGame {
     return this.drop(id, p.cx, p.cy) === 'placed';
   }
 
-  /** The pieces that a bomb on cell (cx, cy) would place: those not in place whose own cell lies within a cell of its middle. */
+  /** The pieces that a bomb on cell (cx, cy) would place: the eight not in place whose own cells are nearest to its middle (fewer if fewer are left). */
   bombHits(cx: number, cy: number): number[] {
-    return this.pieces.filter((p) => !this.done[p.id] && nearPoint(p.cx, p.cy, 1, 1, cx + 0.5, cy + 0.5)).map((p) => p.id);
+    return nearestToBomb(this.pieces.filter((p) => !this.done[p.id]).map((p) => ({ id: p.id, x: p.cx, y: p.cy, w: 1, h: 1 })), cx + 0.5, cy + 0.5);
   }
 
-  /** A bomb on cell (cx, cy): every piece in `bombHits` is put in its place. Returns those that were placed. */
+  /** A bomb on cell (cx, cy): the pieces in `bombHits` are put in their places. Returns those that were placed. */
   bomb(cx: number, cy: number): number[] {
     return this.bombHits(cx, cy).filter((id) => this.hint(id));
   }

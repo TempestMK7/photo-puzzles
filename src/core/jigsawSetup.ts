@@ -98,7 +98,7 @@ export type PieceOp =
   | { t: 'rotate'; piece: number; tol: number | null }
   /** A hint: the group the piece belongs to is put where it belongs in the picture, and stays there. */
   | { t: 'hint'; piece: number }
-  /** A bomb at this point of the picture (picture pixels from its top left corner): every piece round it is put in the picture, with its group. */
+  /** A bomb at this point of the picture (picture pixels from its top left corner): the 8 pieces nearest it that are not in the picture are put there, each with its group. */
   | { t: 'bomb'; x: number; y: number };
 
 /** Applies an operation. A piece that is not there, or lies in the picture already, is left alone. Returns the id of the group that now holds the operation's group (-1: none), and how many joins happened. */
