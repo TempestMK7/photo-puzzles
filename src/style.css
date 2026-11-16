@@ -61,13 +61,13 @@ input[type='email'], input[type='password'] { text-transform: none; letter-spaci
 /* lit while an ad for hints or a bomb can be had (a paid account is given them without an ad) */
 .inventory-btn.glow { border-color: #ffd84a; box-shadow: 0 0 0 0 rgba(255, 216, 74, 0.7); animation: inventory-pulse 1.8s ease-out infinite; }
 .inventory-btn.glow .ico { color: #ffd84a; }
-.howto-btn.glow, .play .helps button.ad { border-color: #ffd84a; box-shadow: 0 0 0 0 rgba(255, 216, 74, 0.7); animation: inventory-pulse 1.8s ease-out infinite; }
+.howto-btn.glow, .play .helps button.ad, .play .helps button.nudge { border-color: #ffd84a; box-shadow: 0 0 0 0 rgba(255, 216, 74, 0.7); animation: inventory-pulse 1.8s ease-out infinite; }
 .howto-btn.glow .ico { color: #ffd84a; }
 .play button.howto-btn { display: inline-flex; align-items: center; gap: 6px; }
 .howto-btn .ico { display: inline-flex; color: var(--accent2); }
 .play .helps button.empty { opacity: 0.6; }
 @keyframes inventory-pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 216, 74, 0.7); } 70% { box-shadow: 0 0 0 9px rgba(255, 216, 74, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 216, 74, 0); } }
-@media (prefers-reduced-motion: reduce) { .inventory-btn.glow, .howto-btn.glow, .play .helps button.ad { animation: none; box-shadow: 0 0 0 3px rgba(255, 216, 74, 0.55); } }
+@media (prefers-reduced-motion: reduce) { .inventory-btn.glow, .howto-btn.glow, .play .helps button.ad, .play .helps button.nudge { animation: none; box-shadow: 0 0 0 3px rgba(255, 216, 74, 0.55); } }
 .inventory-dialog .body { display: flex; flex-direction: column; gap: 10px; padding: 12px 16px 16px; overflow-y: auto; }
 .inventory-dialog p { margin: 0; line-height: 1.45; }
 .inventory-dialog .who { color: var(--accent2); font-size: 13px; font-weight: 600; }
@@ -230,9 +230,12 @@ body.dragging .library::after {
 .play button.toggle:hover:not(:disabled) { background: var(--panel2); border-color: var(--accent2); }
 .play button.toggle.on { color: var(--text); border-color: var(--accent2); }
 .play .helps { display: inline-flex; gap: 6px; }
-.play .helps button { display: inline-flex; align-items: center; gap: 5px; }
+.play .helps button { position: relative; display: inline-flex; align-items: center; gap: 5px; }
 .play .helps button .ico { display: inline-flex; }
-.play .helps button .n { margin-left: 2px; opacity: 0.75; font-variant-numeric: tabular-nums; }
+/* how many are left is a badge on the corner of the button (with its icon alone on a narrow screen); the first of each is marked Free */
+.play .helps button .n { position: absolute; top: -7px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--accent2); color: #1a1008; font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
+.play .helps button.empty .n { background: var(--line); color: var(--text); }
+.play .helps button.free .n { background: #7bd88f; }
 .play .helps button:disabled { opacity: 0.45; cursor: not-allowed; }
 /* the one that is chosen glows: the next tap on the board spends it */
 .play .helps button.on { color: var(--text); border-color: #ffd84a; box-shadow: 0 0 0 0 rgba(255, 216, 74, 0.7); animation: inventory-pulse 1.8s ease-out infinite; }

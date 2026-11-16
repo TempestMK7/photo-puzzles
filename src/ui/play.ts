@@ -29,6 +29,7 @@ import { OnlineBar } from './onlinebar';
 import { RefWindow } from './refwindow';
 import { openHowTo } from './howto';
 import { howtoNew, nextStep, type Step } from '../core/tutorial';
+import { stuckNudge, STUCK_MS, type Nudge } from '../core/nudge';
 import type { Tutorial } from './tutorial';
 import type { RateStore } from '../store/rate';
 import { canRate, rateApp } from '../platform';
@@ -144,6 +145,11 @@ export class PlayScreen {
   private tipKey = '';
   /** The step whose bubble is on the screen (or put out of sight for a while by a window): it stays until it is put away or done, and no bubble is ever shown twice (`TutorialStore.tell`). */
   private showing: Step | null = null;
+  /** When the player last made progress (or was last nudged), what the progress text said then, and how many times they have been nudged in this puzzle (`stuckNudge`). */
+  private lastProgress = Date.now();
+  private lastStatus = '';
+  private nudges = 0;
+  private nudgeText = '';
   private howtoOpen = false;
   private hintBtn = this.helpButton('hint', 'Hint');
   private bombBtn = this.helpButton('bomb', 'Bomb');
@@ -219,6 +225,7 @@ export class PlayScreen {
       this.coachTick();
     });
     deps.tutorial?.onChange(() => this.coachTick());
+    window.setInterval(() => this.nudgeTick(), 3000);
     if (deps.player) deps.player.onSpendRefused = (item) => this.session && this.flash(`The server had no ${item}s left for one that was used.`);
     this.canvas.addEventListener('pointerdown', (e) => this.pointerDown(e));
     this.canvas.addEventListener('pointermove', (e) => this.pointerMove(e));
@@ -552,6 +559,10 @@ export class PlayScreen {
     const run = ++this.beginRun;
     this.putAway.clear();
     this.showing = null;                                                 // (a bubble that was not put away is not shown again in the next puzzle)
+    this.lastProgress = Date.now();
+    this.lastStatus = '';
+    this.nudges = 0;
+    this.clearNudge();
     const { prefs, saves } = this.deps;
     const kind = this.kind;
     this.loading = true;
@@ -647,7 +658,7 @@ export class PlayScreen {
   /** A button of the header was pressed: chooses that one, or puts the choice away. */
   private pressHelp(kind: HelpKind): void {
     const a = this.deps.player?.summary();
-    if (a && (kind === 'hint' ? a.hints : a.bombs) < 1) {                  // none left: the inventory says how to get more (and has the ad for them)
+    if (a && (kind === 'hint' ? a.hints : a.bombs) < 1 && !this.freeFirst(kind)) {                  // none left: the inventory says how to get more (and has the ad for them)
       this.deps.openHelp?.(kind);
       return;
     }
@@ -667,7 +678,7 @@ export class PlayScreen {
     const a = p?.summary();
     const over = !!this.session?.solved;
     const ad = !!this.deps.helpAdReady?.();
-    const key = available && a ? `${a.hints}|${a.bombs}|${over}|${ad}` : '';
+    const key = available && a ? `${a.hints}|${a.bombs}|${over}|${ad}|${this.freeFirst('hint')}|${this.freeFirst('bomb')}` : '';
     if (key === this.helpShown) return;
     this.helpShown = key;
     this.helpEl.hidden = !available;
@@ -675,12 +686,15 @@ export class PlayScreen {
       this.arm(null);
       return;
     }
-    const set = (kind: HelpKind, btn: HTMLButtonElement, n: number): void => {
-      btn.querySelector('.n')!.textContent = String(n);
+    const set = (kind: HelpKind, btn: HTMLButtonElement, held: number): void => {
+      const free = this.freeFirst(kind);                                 // (the first of each is a gift: the button says so)
+      const n = free ? Math.max(1, held) : held;
+      btn.querySelector('.n')!.textContent = free ? 'Free' : String(n);
+      btn.classList.toggle('free', free);
       btn.disabled = over;
       btn.classList.toggle('empty', n < 1);
       btn.classList.toggle('ad', ad && n < 1);                           // (none left and an ad for more can be watched: it glows)
-      btn.title = n < 1 ? `You have no ${kind}s left. ${ad ? 'Press to watch an ad for more.' : 'Press to see how to get more.'}` : kind === 'hint' ? 'Place one piece where it belongs' : 'Place the pieces round a point you choose';
+      btn.title = free ? `Your first ${kind} is free` : n < 1 ? `You have no ${kind}s left. ${ad ? 'Press to watch an ad for more.' : 'Press to see how to get more.'}` : kind === 'hint' ? 'Place one piece where it belongs' : 'Place the pieces round a point you choose';
       if (btn.disabled && this.armed === kind) this.arm(null);
     };
     set('hint', this.hintBtn, a.hints);
@@ -690,6 +704,7 @@ export class PlayScreen {
   /** Chooses a hint or a bomb (the next tap on the board uses it), or puts the choice away. */
   private arm(kind: HelpKind | null): void {
     this.armed = kind;
+    if (kind) this.clearNudge();
     this.helpTap = null;
     for (const [k, b] of [['hint', this.hintBtn], ['bomb', this.bombBtn]] as const) {
       b.classList.toggle('on', kind === k);
@@ -730,7 +745,8 @@ export class PlayScreen {
       return;
     }
     const a = player.summary();
-    if ((kind === 'hint' ? a.hints : a.bombs) < 1) {
+    const free = this.freeFirst(kind);
+    if ((kind === 'hint' ? a.hints : a.bombs) < 1 && !free) {
       this.arm(null);
       return;
     }
@@ -738,8 +754,9 @@ export class PlayScreen {
     try {
       // the counter goes down at once. Played alone, the spend is kept and sent to the server when it can be (now, or when there is a connection again); with friends the room takes it
       // with the operation, and the cursor shows that the player waits for its answer, until it has come
+      // (the first hint and the first bomb of a player cost nothing, and only in a puzzle played alone: with friends the room takes them from the account)
       if (this.online) player.countDown(kind);
-      else player.spend(kind);
+      else if (!free) player.spend(kind);
       session.help(kind, p);
       this.deps.achievements?.record({ type: 'help', help: kind });
       this.deps.tutorial?.store.done(kind);
@@ -787,7 +804,7 @@ export class PlayScreen {
     const quiet = this.el.hidden || !this.session || this.session.solved || this.loading || this.howtoOpen || !this.dialogEl.hidden;
     // (a player who has put the bubble about How To Play away is taken for one who has seen it, for the rest of this puzzle)
     const seen = this.putAway.has('howto') ? { ...data, howto: [...data.howto, '*'] } : data;
-    let step = quiet ? null : nextStep(seen, { helpers: this.helpAvailable(), hints: a?.hints ?? 0, bombs: a?.bombs ?? 0, adReady: !!this.deps.helpAdReady?.() }, this.showing);
+    let step = quiet ? null : nextStep(seen, { helpers: this.helpAvailable(), hints: this.freeFirst('hint') ? Math.max(1, a?.hints ?? 0) : a?.hints ?? 0, bombs: this.freeFirst('bomb') ? Math.max(1, a?.bombs ?? 0) : a?.bombs ?? 0, adReady: !!this.deps.helpAdReady?.(), stuck: Date.now() - this.lastProgress >= STUCK_MS }, this.showing);
     if (step && this.putAway.has(step)) step = null;
     if (!quiet) this.showing = step;                                    // (while a window is open the bubble is out of sight, and is the one that comes back)
     const key = step ? `${step}|${this.armed ?? ''}` : '';
@@ -821,10 +838,10 @@ export class PlayScreen {
                 ? 'Now tap the piece you want placed. It goes straight to where it belongs.'
                 : 'Now tap a spot on the board. Every piece around it goes where it belongs.'
               : hint
-                ? 'Stuck? Press Hint, then tap a piece to put it in its place.'
-                : 'Want to clear a whole area? Press Bomb, then tap a spot: the pieces around it go where they belong.',
+                ? 'Stuck? Your first hint is free. Press Hint, then tap a piece to put it in its place.'
+                : 'Want to clear a whole area? Your first bomb is free. Press Bomb, then tap a spot: the pieces around it go where they belong.',
           dismiss: 'Skip',
-          onDismiss: away(step),
+          onDismiss: away(),
         });
         break;
       }
@@ -832,6 +849,51 @@ export class PlayScreen {
         t.coach.show({ target: () => this.invBtn ?? null, title: 'Need more?', text: 'Hints and bombs run out. Open the Inventory to watch a short ad for more.', dismiss: 'Not now', onDismiss: away() });
         break;
     }
+  }
+
+  /** The first hint and the first bomb of a player (one that has never used one on this device) are free, in a puzzle played alone. */
+  private freeFirst(kind: HelpKind): boolean {
+    const t = this.deps.tutorial;
+    return !!t && !this.online && !t.store.data[kind];
+  }
+
+  /**
+   * Every few seconds: a player who has made no progress for a while (`STUCK_MS`) is shown the Hint button (then the Bomb, then the Hint again, at most three times in a puzzle): it pulses,
+   * and a line over the board says what it does and how many are left. A new player is told by the walk-through's bubble instead (`coachTick`, which they see once), not by this too.
+   */
+  private nudgeTick(): void {
+    const session = this.session;
+    const quiet = this.el.hidden || !session || session.solved || this.loading || this.howtoOpen || !this.dialogEl.hidden || !!this.armed || !!this.deps.tutorial?.adDialog || document.visibilityState !== 'visible';
+    if (quiet || !this.helpAvailable()) return;
+    this.coachTick();                                                    // (the walk-through's bubbles about hints and bombs wait for the player to be stuck)
+    if (this.deps.tutorial?.step === 'hint' || this.deps.tutorial?.step === 'bomb') return;
+    const a = this.deps.player?.summary();
+    if (!a) return;
+    const nudge = stuckNudge({ idleMs: Date.now() - this.lastProgress, nudges: this.nudges, hints: a.hints, bombs: a.bombs, adReady: !!this.deps.helpAdReady?.() });
+    if (!nudge) return;
+    this.nudges++;
+    this.lastProgress = Date.now();                                      // (the next one comes after another stretch without progress)
+    this.showNudge(nudge, a.hints, a.bombs);
+  }
+
+  private showNudge(nudge: Nudge, hints: number, bombs: number): void {
+    const btn = nudge === 'bomb' ? this.bombBtn : this.hintBtn;
+    btn.classList.add('nudge');
+    this.nudgeText =
+      nudge === 'hint'
+        ? `Stuck? Press Hint to put one piece in its place for you (${hints} left).`
+        : nudge === 'bomb'
+          ? `Still stuck? Press Bomb, then tap a spot to place the pieces around it (${bombs} left).`
+          : 'Out of hints? Press Hint to watch a short ad for more.';
+    this.flash(this.nudgeText, 9000);
+  }
+
+  /** Puts the nudge away: the button stops pulsing and its line goes. */
+  private clearNudge(): void {
+    this.hintBtn.classList.remove('nudge');
+    this.bombBtn.classList.remove('nudge');
+    if (this.nudgeText && this.helpNote.textContent === this.nudgeText) this.instruct();
+    this.nudgeText = '';
   }
 
   /** The cursor over the board is a wait cursor until `done` (what the player did is being sent to the room and answered). */
@@ -1555,6 +1617,11 @@ export class PlayScreen {
     const session = this.session;
     if (!session) return;
     this.statusEl.textContent = session.status();
+    if (this.statusEl.textContent !== this.lastStatus) {                 // (progress: the player is not stuck)
+      this.lastStatus = this.statusEl.textContent ?? '';
+      this.lastProgress = Date.now();
+      this.clearNudge();
+    }
     if (session.zoomLabel) this.zoomLabel.textContent = session.zoomLabel();
     this.refreshHelp();
     this.coachTick();
