@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { howtoNew, nextStep, NO_PROGRESS, type Progress, type Situation } from '../src/core/tutorial';
 import { TutorialStore } from '../src/store/tutorial';
 
-const here = (more: Partial<Situation> = {}): Situation => ({ helpers: true, hints: 5, bombs: 1, adReady: true, ...more });
+const here = (more: Partial<Situation> = {}): Situation => ({ helpers: true, hints: 5, bombs: 1, adReady: true, stuck: true, ...more });
 const seen = (more: Partial<Progress> = {}): Progress => ({ ...NO_PROGRESS, howto: ['jigsaw'], ...more });
 
 describe('what the screen points out next', () => {
@@ -29,6 +29,15 @@ describe('what the screen points out next', () => {
   it('only points at the ad while one can be watched, and only where hints and bombs work', () => {
     expect(nextStep(seen({ hint: true, bomb: true }), here({ adReady: false }))).toBeNull();
     expect(nextStep(seen(), here({ helpers: false }))).toBeNull();
+  });
+
+  it('points out the hint and the bomb when the player is stuck, not at the start; a bubble that is showing stays when they make progress', () => {
+    expect(nextStep(seen(), here({ stuck: false }))).toBeNull();
+    expect(nextStep(seen({ hint: true }), here({ stuck: false }))).toBeNull();                 // (not the bomb either: it waits for a stall like the hint)
+    expect(nextStep(seen(), here({ stuck: false }), 'hint')).toBe('hint');
+    expect(nextStep(seen({ hint: true }), here({ stuck: false }), 'bomb')).toBe('bomb');
+    expect(nextStep(NO_PROGRESS, here({ stuck: false }))).toBe('howto');                       // (How To Play does not wait)
+    expect(nextStep(seen({ hint: true, bomb: true }), here({ stuck: false }))).toBe('ad');     // (nor does the ad, which follows both having been tried)
   });
 
   it('shows each bubble once: one that has been shown is not shown in the next puzzle, even if it was not acted on, and the next step takes its place', () => {
