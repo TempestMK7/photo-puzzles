@@ -5,7 +5,7 @@ const KEY = 'photo-puzzles/tutorial/v1';
 
 /** What this device has shown the player (local storage; nothing is sent anywhere). It is the device's, not the account's: the player has seen it whoever is signed in. */
 export class TutorialStore {
-  data: Progress = { ...NO_PROGRESS, howto: [] };
+  data: Progress = { ...NO_PROGRESS, howto: [], told: [] };
   private readonly listeners: Array<() => void> = [];
 
   constructor(private readonly storage: StorageLike | null) {
@@ -17,6 +17,7 @@ export class TutorialStore {
           hint: raw.hint === true,
           bomb: raw.bomb === true,
           ad: raw.ad === true,
+          told: Array.isArray(raw.told) ? raw.told.filter((k): k is Step => k === 'howto' || k === 'hint' || k === 'bomb' || k === 'ad') : [],
         };
       }
     } catch {
@@ -32,6 +33,13 @@ export class TutorialStore {
   seenHowto(kind: string): void {
     if (this.data.howto.includes(kind)) return;
     this.data.howto.push(kind);
+    this.save();
+  }
+
+  /** A step's bubble is being shown: it will not be shown again. */
+  tell(step: Step): void {
+    if (this.data.told.includes(step)) return;
+    this.data.told.push(step);
     this.save();
   }
 

@@ -142,6 +142,8 @@ export class PlayScreen {
   /** The steps of the walk-through that the player has put away for this puzzle, the one that is showing, and whether the How To Play window is open. */
   private putAway = new Set<Step>();
   private tipKey = '';
+  /** The step whose bubble is on the screen (or put out of sight for a while by a window): it stays until it is put away or done, and no bubble is ever shown twice (`TutorialStore.tell`). */
+  private showing: Step | null = null;
   private howtoOpen = false;
   private hintBtn = this.helpButton('hint', 'Hint');
   private bombBtn = this.helpButton('bomb', 'Bomb');
@@ -549,6 +551,7 @@ export class PlayScreen {
     if (!entry || !src) return;
     const run = ++this.beginRun;
     this.putAway.clear();
+    this.showing = null;                                                 // (a bubble that was not put away is not shown again in the next puzzle)
     const { prefs, saves } = this.deps;
     const kind = this.kind;
     this.loading = true;
@@ -784,8 +787,9 @@ export class PlayScreen {
     const quiet = this.el.hidden || !this.session || this.session.solved || this.loading || this.howtoOpen || !this.dialogEl.hidden;
     // (a player who has put the bubble about How To Play away is taken for one who has seen it, for the rest of this puzzle)
     const seen = this.putAway.has('howto') ? { ...data, howto: [...data.howto, '*'] } : data;
-    let step = quiet ? null : nextStep(seen, { helpers: this.helpAvailable(), hints: a?.hints ?? 0, bombs: a?.bombs ?? 0, adReady: !!this.deps.helpAdReady?.() });
+    let step = quiet ? null : nextStep(seen, { helpers: this.helpAvailable(), hints: a?.hints ?? 0, bombs: a?.bombs ?? 0, adReady: !!this.deps.helpAdReady?.() }, this.showing);
     if (step && this.putAway.has(step)) step = null;
+    if (!quiet) this.showing = step;                                    // (while a window is open the bubble is out of sight, and is the one that comes back)
     const key = step ? `${step}|${this.armed ?? ''}` : '';
     t.step = step;
     if (key === this.tipKey) return;
@@ -794,6 +798,7 @@ export class PlayScreen {
       t.coach.hide();
       return;
     }
+    t.store.tell(step);
     const away = (done?: 'hint' | 'bomb'): (() => void) => () => {
       if (done) t.store.done(done);
       this.putAway.add(step!);
