@@ -40,6 +40,7 @@ const STATUS: Record<ApiError, number> = {
   'no-credits': 402,
   'plan-required': 403,
   'ad-refused': 409,
+  'gift-taken': 409,
   'ads-off': 503,
   'patreon-off': 503,
   'play-off': 503,
@@ -223,6 +224,7 @@ export function createRouter(d: { service: RoomService; auth: Auth; media: Media
       const body = json<ItemRequest>(req);
       return body ? reply(await service.useItem(player, body)) : bad;
     }
+    if (parts[0] === 'items' && parts[1] === 'gift' && parts.length === 2 && req.method === 'POST') return reply(await service.claimGift(player));
     if (parts[0] === 'items' && parts[1] === 'reward' && parts.length === 2 && req.method === 'POST') {
       const body = json<RewardRequest>(req);
       return body ? reply(await service.rewardHelp(player, body)) : bad;

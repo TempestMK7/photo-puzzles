@@ -147,6 +147,11 @@ export class OnlineApi implements RoomApi {
     return this.call('POST', '/items/award', { size });
   }
 
+  /** The daily gift: the hints that an account is given once a day (409 `gift-taken` when today's has been taken). */
+  claimGift(): Promise<ItemResponse | Offline> {
+    return this.call('POST', '/items/gift', {});
+  }
+
   /** A paid account takes the hints or the bomb that a free account watches an ad for (when they are ready). */
   rewardHelp(item: 'hint' | 'bomb'): Promise<ItemResponse | Offline> {
     return this.call('POST', '/items/reward', { item });

@@ -62,6 +62,8 @@ export interface PlayDeps {
   helpAdReady?: () => boolean;
   /** Opens the inventory at the hints or the bombs (a button with none left leads there). */
   openHelp?: (kind: HelpKind) => void;
+  /** Opens the inventory at hints or bombs and starts the ad (or the taking, for an account that is given them) at once. */
+  watchHelpAd?: (kind: HelpKind) => void;
   /** The achievements: told when a hint or a bomb is used and when a puzzle is solved. */
   achievements?: AchievementStore;
   /** The best time of each kind and size: a puzzle played alone is entered when it is solved. */
@@ -127,10 +129,12 @@ export class PlayScreen {
   );
   /** The line over the board that says what the chosen hint or bomb does (or why one was not used). */
   private helpNote = h('div', { class: 'helpnote', hidden: true, role: 'status' });
+  /** The question over the board when a hint or a bomb is wanted and there is none: watch an ad for more? */
+  private adOffer = h('div', { class: 'adoffer', hidden: true, role: 'dialog', 'aria-label': 'More hints' });
   /** The sorting trays (a Jigsaw): the bar of them at the left, and the title and buttons over the header of the one that is open. */
   private trayBar = h('nav', { class: 'traybar', hidden: true, 'aria-label': 'Sorting trays' });
   private trayHead = h('div', { class: 'trayhead', hidden: true });
-  private stage = h('div', { class: 'stage' }, this.canvas, this.dialogEl, this.viewBar, this.zoomEl, this.trayBar, this.trayHead, this.helpNote);
+  private stage = h('div', { class: 'stage' }, this.canvas, this.dialogEl, this.viewBar, this.zoomEl, this.trayBar, this.trayHead, this.helpNote, this.adOffer);
   /** The original picture or video in a window of its own, for looking at while solving. */
   private ref = new RefWindow(this.stage, () => this.toggleRef(false));
   private refLabel = h('span', { class: 'label' }, 'Show Photo');
@@ -563,6 +567,7 @@ export class PlayScreen {
     this.lastStatus = '';
     this.nudges = 0;
     this.clearNudge();
+    this.hideOffer();
     const { prefs, saves } = this.deps;
     const kind = this.kind;
     this.loading = true;
@@ -659,10 +664,58 @@ export class PlayScreen {
   private pressHelp(kind: HelpKind): void {
     const a = this.deps.player?.summary();
     if (a && (kind === 'hint' ? a.hints : a.bombs) < 1 && !this.freeFirst(kind)) {                  // none left: the inventory says how to get more (and has the ad for them)
-      this.deps.openHelp?.(kind);
+      if (this.deps.helpAdReady?.() && this.deps.watchHelpAd) this.offerAd(kind, a);
+      else this.deps.openHelp?.(kind);
       return;
     }
+    this.hideOffer();
     this.arm(this.armed === kind ? null : kind);
+  }
+
+  /** None left, and an ad for more can be watched (or taken, by an account that is given them): one question over the board and one tap, not a window to find the button in. */
+  private offerAd(kind: HelpKind, a: { helpAdHints: number; helpAdBombs: number; helpAdNoAd: boolean }): void {
+    const n = kind === 'hint' ? a.helpAdHints : a.helpAdBombs;
+    const what = `${n} ${kind}${n === 1 ? '' : 's'}`;
+    this.clearNudge();
+    this.adOffer.replaceChildren(
+      h('p', {}, `Out of ${kind}s. ${a.helpAdNoAd ? `Take ${what}?` : `Watch a short ad for ${what}?`}`),
+      h(
+        'div',
+        { class: 'buttons' },
+        h('button', { type: 'button', class: 'primary', onclick: () => (this.hideOffer(), this.deps.watchHelpAd?.(kind)) }, a.helpAdNoAd ? 'Take them' : 'Watch ad'),
+        h('button', { type: 'button', onclick: () => this.hideOffer() }, 'Not now'),
+      ),
+    );
+    this.adOffer.hidden = false;
+    this.adOffer.querySelector<HTMLElement>('.primary')?.focus();
+  }
+
+  private hideOffer(): void {
+    this.adOffer.hidden = true;
+  }
+
+  /** A solved puzzle gave hints: a chip with their number flies from the line that says so to the Hint button, which gives a little jump (nothing moves for a player who has asked for less motion). */
+  private flyEarned(n: number): void {
+    if (n < 1 || typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const from = this.dialogEl.querySelector('.earn')?.getBoundingClientRect();
+    const to = this.hintBtn.getBoundingClientRect();
+    if (!from || !to.width || typeof Element.prototype.animate !== 'function') return;
+    const x0 = from.left + from.width / 2;
+    const y0 = from.top + from.height / 2;
+    const chip = h('div', { class: 'flychip', 'aria-hidden': 'true', style: `left:${x0}px;top:${y0}px` }, svg(HELP_ICONS.hint, 'ico'), `+${n}`);
+    document.body.append(chip);
+    const anim = chip.animate(
+      [
+        { transform: 'translate(-50%, -50%) scale(1.3)', opacity: 1 },
+        { transform: `translate(calc(-50% + ${to.left + to.width / 2 - x0}px), calc(-50% + ${to.top + to.height / 2 - y0}px)) scale(0.7)`, opacity: 1 },
+      ],
+      { duration: 900, delay: 700, easing: 'cubic-bezier(0.5, 0, 0.8, 0.5)', fill: 'both' },
+    );
+    anim.onfinish = () => {
+      chip.remove();
+      this.hintBtn.classList.add('bump');
+      window.setTimeout(() => this.hintBtn.classList.remove('bump'), 600);
+    };
   }
 
   /** Whether this puzzle has hints and bombs for this player to use: the puzzle has them (not Sliding Tiles, not Rotascope), the host of a puzzle played with friends allowed them, and this is a build with accounts. */
@@ -947,7 +1000,7 @@ export class PlayScreen {
     const a = player.summary();
     if (a.type === 'guest') return [h('p', { class: 'best' }, 'Sign in to earn hints by solving puzzles.')];
     const plural = `${given} hint${given === 1 ? '' : 's'}`;
-    if (given > 0) return [h('p', { class: 'best' }, `+${plural} earned${a.earnInfinite ? '' : a.earnLeft > 0 ? ` · ${a.earnLeft} more can be earned today` : ' · that is all you can earn today'}`)];
+    if (given > 0) return [h('p', { class: 'best earn' }, `+${plural} earned${a.earnInfinite ? '' : a.earnLeft > 0 ? ` · ${a.earnLeft} more can be earned today` : ' · that is all you can earn today'}`)];
     if (!a.earnInfinite && a.earnLeft === 0) return [h('p', { class: 'best' }, `You have earned today's ${a.earnPerDay} hints. You can earn more tomorrow.`)];
     return [];
   }
@@ -1160,6 +1213,7 @@ export class PlayScreen {
       ...this.rateLines(),
     );
     this.dialogEl.hidden = false;
+    this.flyEarned(this.earned);
   }
 
   /** A message over the board with a way out. */
@@ -1681,6 +1735,7 @@ export class PlayScreen {
       ...this.rateLines(),
     );
     this.dialogEl.hidden = false;
+    this.flyEarned(earned);
   }
 
   /** The end of a puzzle: the party blower and the confetti, as the dialog comes up. */

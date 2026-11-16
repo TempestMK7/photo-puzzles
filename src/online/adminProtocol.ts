@@ -22,6 +22,9 @@ export interface AdminPlayer {
   video: number;
   hints: number;
   bombs: number;
+  /** How many hints and bombs the account has used so far. */
+  hintsUsed: number;
+  bombsUsed: number;
 }
 
 /** A puzzle that exists now, as the admin page lists it. */

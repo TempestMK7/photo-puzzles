@@ -3,7 +3,7 @@ import { GUEST_ACCOUNT, type AccountSummary } from '../src/online/protocol';
 import { explainHelp, itemsOf } from '../src/ui/inventory';
 
 const MIN = 60_000;
-const free = (more: Partial<AccountSummary> = {}): AccountSummary => ({ type: 'free', photo: 5, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 5, videoAdsLeft: 0, adPhoto: 5, adVideo: 1, hints: 10, bombs: 2, earnPerDay: 10, earnLeft: 7, earnInfinite: false, helpAdReady: true, helpAdIn: 0, helpAdHints: 5, helpAdBombs: 1, helpAdNoAd: false, ...more });
+const free = (more: Partial<AccountSummary> = {}): AccountSummary => ({ type: 'free', photo: 5, video: 0, photoInfinite: false, videoInfinite: false, canVideo: false, photoAdsLeft: 5, videoAdsLeft: 0, adPhoto: 5, adVideo: 1, hints: 10, bombs: 2, earnPerDay: 10, earnLeft: 7, earnInfinite: false, helpAdReady: true, helpAdIn: 0, helpAdHints: 5, helpAdBombs: 1, helpAdNoAd: false, giftReady: true, giftHints: 2, ...more });
 const paid = (more: Partial<AccountSummary> = {}) => free({ type: 'paid', photoInfinite: true, canVideo: true, video: 20, earnInfinite: true, earnLeft: 0, helpAdNoAd: true, ...more });
 const text = (e: ReturnType<typeof explainHelp>) => e.paragraphs.join(' ');
 

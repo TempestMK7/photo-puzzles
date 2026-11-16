@@ -74,9 +74,9 @@ describe('the admin routes', () => {
     await w.service.setProfile(ann, 'Annie');
     await w.service.adminBan('bob', 'rude');
     const first = await call('GET', '/admin/players');
-    expect(first.body).toEqual({ ok: true, next: 'more', players: [{ ...users[0], name: 'Annie', banned: false, type: 'free', photo: 1000, video: 0, hints: 10, bombs: 2 }] });
+    expect(first.body).toEqual({ ok: true, next: 'more', players: [{ ...users[0], name: 'Annie', banned: false, type: 'free', photo: 1000, video: 0, hints: 10, bombs: 2, hintsUsed: 0, bombsUsed: 0 }] });
     const second = await call('GET', '/admin/players', { query: 'next=more' });
-    expect(second.body).toEqual({ ok: true, next: null, players: [{ ...users[1], name: '', banned: true, type: 'free', photo: 1000, video: 0, hints: 10, bombs: 2 }] });
+    expect(second.body).toEqual({ ok: true, next: null, players: [{ ...users[1], name: '', banned: true, type: 'free', photo: 1000, video: 0, hints: 10, bombs: 2, hintsUsed: 0, bombsUsed: 0 }] });
     expect(pages).toEqual([undefined, 'more']);
   });
 

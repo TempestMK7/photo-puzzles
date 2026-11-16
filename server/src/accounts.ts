@@ -57,6 +57,8 @@ export function summaryOf(type: AccountType, account: AccountRecord, limits: Lim
     helpAdHints: limits.adHints,
     helpAdBombs: limits.adBombs,
     helpAdNoAd: !adGives(type, 'hint'),
+    giftReady: account.giftDay !== dayOf(now),
+    giftHints: limits.giftHints,
   };
 }
 
