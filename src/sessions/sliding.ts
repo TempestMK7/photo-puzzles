@@ -199,6 +199,7 @@ export class SlidingSession implements PuzzleSession {
     if (cell < 0) return;
     const moved = this.game.click(cell);
     if (moved.length) buzz(this.init, this.game.solved ? 'solved' : 'move');
+    if (moved.length) playEffect('rotate');                                       // (the same sound as a piece of Rotascope that slides)
     if (moved.length && this.game.solved) playEffect('placed');                  // (the last move rings the bell too, before the end of the puzzle begins)
     if (moved.length && this.init.flag('animate')) {
       const now = performance.now();

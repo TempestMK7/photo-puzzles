@@ -7,6 +7,8 @@ import { VideoLayer, videoGlAvailable } from './videoGl';
 import type { Pt, PuzzleSession, SessionInit } from './types';
 
 const SLIDE_MS = 240;
+/** How bright the picture is round the disc while the puzzle is not solved (the rest of the picture, a ghost: nothing shows behind the pieces themselves). */
+const GHOST = 0.5;
 const RAD = Math.PI / 180;
 
 interface Slide {
@@ -76,7 +78,7 @@ export class RotascopeSession implements PuzzleSession {
     return { game: this.game.snapshot() };
   }
 
-  /** The board is the whole picture: the puzzle is the disc in the middle of it, and the rest of the picture shows dimmed round it. */
+  /** The board is the whole picture: the puzzle is the disc in the middle of it, and the rest of the picture shows dimmed round it (not inside the disc, where the pieces are, and the empty cell is empty). */
   layout(): { width: number; height: number } {
     return { width: this.init.width, height: this.init.height };
   }
@@ -255,23 +257,45 @@ export class RotascopeSession implements PuzzleSession {
     if (!L.begin(this.canvasW, this.canvasH, inSquare)) return false;
     const c = this.side / 2;
     const R = this.radius;
-    // the whole picture, dimmed: it shows in the empty cell, in the middle (which is not a piece) and round the disc
-    const dim = g.solved ? 1 : 0.26;
-    L.quad(-this.cropX, -this.cropY, this.init.width, this.init.height, 0, 0, 1, 1, dim);
-    const rim = 96;
-    const at = (a: number): [number, number] => [c + R * Math.cos(a), c + R * Math.sin(a)];
     const uvOf = (x: number, y: number): [number, number] => [(this.cropX + x) / L.vw, (this.cropY + y) / L.vh];
-    const cuv = uvOf(c, c);
-    for (let i = 0; i < rim; i++) {
-      const p = at((i / rim) * Math.PI * 2);
-      const q = at(((i + 1) / rim) * Math.PI * 2);
-      const pu = uvOf(p[0], p[1]);
-      const qu = uvOf(q[0], q[1]);
-      L.tri(c, c, cuv[0], cuv[1], p[0], p[1], pu[0], pu[1], q[0], q[1], qu[0], qu[1], dim);
-    }
     if (g.solved) {
+      // the whole picture, as it is
+      L.quad(-this.cropX, -this.cropY, this.init.width, this.init.height, 0, 0, 1, 1, 1);
       L.end();
       return false;
+    }
+    // the rest of the picture, dimmed, round the disc and not in it (as triangles from the disc's rim out to the edge of the picture)
+    const x0 = -this.cropX;
+    const y0 = -this.cropY;
+    const x1 = x0 + this.init.width;
+    const y1 = y0 + this.init.height;
+    const rim = 96;
+    const outer = (a: number): { p: [number, number]; q: [number, number]; side: number } => {
+      const dx = Math.cos(a);
+      const dy = Math.sin(a);
+      const tx = dx > 1e-9 ? (x1 - c) / dx : dx < -1e-9 ? (x0 - c) / dx : Infinity;
+      const ty = dy > 1e-9 ? (y1 - c) / dy : dy < -1e-9 ? (y0 - c) / dy : Infinity;
+      const t = Math.min(tx, ty);
+      return { p: [c + R * dx, c + R * dy], q: [c + t * dx, c + t * dy], side: tx < ty ? 0 : 1 };
+    };
+    const tri = (a: [number, number], b: [number, number], d: [number, number]): void => {
+      const ua = uvOf(a[0], a[1]);
+      const ub = uvOf(b[0], b[1]);
+      const ud = uvOf(d[0], d[1]);
+      L.tri(a[0], a[1], ua[0], ua[1], b[0], b[1], ub[0], ub[1], d[0], d[1], ud[0], ud[1], GHOST);
+    };
+    let prev = outer(0);
+    for (let i = 1; i <= rim; i++) {
+      const mid = ((i - 0.5) / rim) * Math.PI * 2;
+      const next = outer((i / rim) * Math.PI * 2);
+      tri(prev.p, next.p, next.q);
+      tri(prev.p, next.q, prev.q);
+      if (prev.side !== next.side) {                                              // (the two ends of this piece of the rim are on different sides of the picture: its corner is filled too)
+        const corner: [number, number] = [Math.cos(mid) > 0 ? x1 : x0, Math.sin(mid) > 0 ? y1 : y0];
+        tri(prev.p, next.q, corner);
+        tri(prev.p, corner, prev.q);
+      }
+      prev = next;
     }
     let running = false;
     const moving: [number, Extent][] = [];
@@ -355,28 +379,23 @@ export class RotascopeSession implements PuzzleSession {
       this.canvasH = ctx.canvas.height;
       return this.drawGl(now);
     }
-    // the rest of the picture round the disc, dimmed (the puzzle's own space begins where the cropped square does)
+    // the rest of the picture round the disc, dimmed, and not in the disc (the puzzle's own space begins where the cropped square does); the whole picture once it is solved
+    ctx.save();
+    if (!g.solved) {
+      ctx.beginPath();
+      ctx.rect(0, 0, this.init.width, this.init.height);
+      ctx.arc(this.cropX + this.side / 2, this.cropY + this.side / 2, this.radius, 0, Math.PI * 2);
+      ctx.clip('evenodd');
+    }
     ctx.drawImage(this.init.source, 0, 0, this.init.width, this.init.height);
     if (!g.solved) {
-      ctx.fillStyle = 'rgba(16,10,8,0.74)';
+      ctx.fillStyle = `rgba(16,10,8,${1 - GHOST})`;
       ctx.fillRect(0, 0, this.init.width, this.init.height);
     }
+    ctx.restore();
     ctx.translate(this.cropX, this.cropY);
     const c = this.side / 2;
     const line = 1 / view.scale;
-    const disc = () => {
-      ctx.beginPath();
-      ctx.arc(c, c, this.radius, 0, Math.PI * 2);
-      ctx.closePath();
-    };
-    // the whole picture, dimmed: it shows in the empty cell, and in the middle (which is not a piece)
-    ctx.save();
-    disc();
-    ctx.clip();
-    ctx.drawImage(this.init.source, this.cropX, this.cropY, this.side, this.side, 0, 0, this.side, this.side);
-    ctx.fillStyle = g.solved ? 'rgba(16,10,8,0)' : 'rgba(16,10,8,0.74)';
-    ctx.fillRect(0, 0, this.side, this.side);
-    ctx.restore();
     if (g.solved) return false;
 
     let running = false;
